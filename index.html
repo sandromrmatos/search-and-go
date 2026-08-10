@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#0b1024" />
+<title>Search and Go</title>
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="icon" href="images/fairydiamond.png" />
+<link rel="apple-touch-icon" href="images/fairydiamond.png" />
+<!-- Leaflet is vendored locally so the game does not depend on a CDN being reachable -->
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<!-- ============ BOOT / LOADING ============ -->
+<div id="boot" class="boot">
+  <img src="images/fairydiamond.png" alt="" class="boot-logo" />
+  <h1>Search <span>and</span> Go</h1>
+  <p id="boot-msg">Loading creature data…</p>
+  <div class="boot-bar"><i></i></div>
+</div>
+
+<!-- ============ APP ============ -->
+<div id="app" class="app hidden">
+
+  <!-- ---- HUD ---- -->
+  <header class="hud">
+    <div class="hud-left">
+      <div class="lvl-badge" id="hud-level" title="Player level">1</div>
+      <div class="hud-xp">
+        <div class="hud-xp-top">
+          <span id="hud-xp-text">0 / 25 XP</span>
+        </div>
+        <div class="xp-bar"><i id="hud-xp-fill"></i></div>
+      </div>
+    </div>
+    <div class="hud-right">
+      <div class="hud-chip" title="Stardust">
+        <span class="chip-ico">✨</span><span id="hud-stardust">0</span>
+      </div>
+      <button id="btn-debug" class="hud-btn" title="Debug tools">🛠</button>
+    </div>
+  </header>
+
+  <!-- ---- VIEWS ---- -->
+  <main class="views">
+
+    <!-- MAP VIEW -->
+    <section class="view view-map active" id="view-map">
+      <div id="map"></div>
+      <div class="map-overlay-top">
+        <div id="geo-status" class="geo-status">Locating…</div>
+      </div>
+      <div class="map-overlay-bottom">
+        <div id="spawn-count" class="spawn-count">0 spawns nearby</div>
+        <button id="btn-recenter" class="round-btn" title="Recentre">◎</button>
+        <button id="btn-rescan" class="round-btn" title="Scan for spawns now">⟳</button>
+      </div>
+      <div id="next-scan" class="next-scan">Next scan: --:--</div>
+    </section>
+
+    <!-- STORAGE VIEW -->
+    <section class="view view-storage" id="view-storage">
+      <div class="view-head">
+        <h2>Storage</h2>
+        <div class="view-head-right">
+          <span id="storage-count" class="muted">0</span>
+        </div>
+      </div>
+      <div class="toolbar">
+        <label class="sel">
+          <span>Sort</span>
+          <select id="storage-sort">
+            <option value="id">Creature ID</option>
+            <option value="name">Name</option>
+            <option value="type">Type</option>
+            <option value="rarity">Rarity</option>
+            <option value="recent">Most recent</option>
+          </select>
+        </label>
+        <button id="storage-dir" class="mini-btn" title="Toggle sort direction">↑</button>
+      </div>
+      <div id="storage-grid" class="grid"></div>
+      <p id="storage-empty" class="empty">Nothing here yet. Go catch something!</p>
+    </section>
+
+    <!-- COLLECTION VIEW -->
+    <section class="view view-collection" id="view-collection">
+      <div class="set-nav">
+        <button id="set-prev" class="arrow-btn" aria-label="Previous set">‹</button>
+        <h2 id="set-title">Elemental Awakening</h2>
+        <button id="set-next" class="arrow-btn" aria-label="Next set">›</button>
+      </div>
+
+      <div id="collection-body">
+        <div class="toolbar wrap">
+          <label class="sel">
+            <span>Type</span>
+            <select id="filter-type"><option value="">All</option></select>
+          </label>
+          <label class="sel">
+            <span>Stage</span>
+            <select id="filter-stage">
+              <option value="">All</option>
+              <option value="1">Stage 1</option>
+              <option value="2">Stage 2</option>
+              <option value="3">Stage 3</option>
+            </select>
+          </label>
+          <label class="sel">
+            <span>Rarity</span>
+            <select id="filter-rarity">
+              <option value="">All</option>
+              <option value="1">1 · Common</option>
+              <option value="2">2 · Uncommon</option>
+              <option value="3">3 · Rare</option>
+              <option value="4">4 · Epic</option>
+              <option value="5">5 · Legendary</option>
+            </select>
+          </label>
+          <button id="filter-reset" class="mini-btn">Reset</button>
+        </div>
+        <div class="collection-progress">
+          <span id="collection-count">0 / 0 registered</span>
+        </div>
+        <div id="collection-grid" class="grid"></div>
+      </div>
+
+      <div id="collection-soon" class="soon hidden">
+        <div class="soon-inner">
+          <div class="soon-ico">✨</div>
+          <p>More creatures coming soon</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- PROFILE VIEW -->
+    <section class="view view-profile" id="view-profile">
+      <div class="view-head"><h2>Profile</h2></div>
+
+      <div class="card">
+        <div class="profile-top">
+          <div class="lvl-badge big" id="p-level">1</div>
+          <div class="profile-meta">
+            <div class="p-row"><b id="p-xp">0</b> total XP</div>
+            <div class="xp-bar tall"><i id="p-xp-fill"></i></div>
+            <div class="muted" id="p-next">25 XP to level 2</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card stats">
+        <div><span class="muted">Stardust</span><b id="p-stardust">0</b></div>
+        <div><span class="muted">Creatures stored</span><b id="p-stored">0</b></div>
+        <div><span class="muted">Registered</span><b id="p-registered">0</b></div>
+        <div><span class="muted">Total captures</span><b id="p-captures">0</b></div>
+        <div><span class="muted">Evolutions</span><b id="p-evolutions">0</b></div>
+      </div>
+
+      <div class="card">
+        <h3>Save data</h3>
+        <p class="muted small" id="save-status">Checking storage…</p>
+        <div class="btn-row">
+          <button id="btn-link-file" class="btn">Link save file on device</button>
+          <button id="btn-load-file" class="btn ghost">Restore from file…</button>
+        </div>
+        <div class="btn-row">
+          <button id="btn-export" class="btn ghost">Download backup</button>
+          <label class="btn ghost file-label">
+            Import backup…
+            <input id="input-import" type="file" accept="application/json,.json" hidden />
+          </label>
+        </div>
+        <p class="muted small">
+          Linking a save file writes your progress straight to your device storage (e.g. Documents),
+          so it survives clearing browser data. Keep this game installed to your home screen for best results.
+        </p>
+        <div class="btn-row">
+          <button id="btn-wipe" class="btn danger">Reset all progress</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Candy</h3>
+        <div id="candy-list" class="candy-list"></div>
+      </div>
+
+      <p class="attribution">
+        Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors ·
+        POI lookups via <a href="https://overpass-api.de/" target="_blank" rel="noopener">Overpass API</a>
+      </p>
+    </section>
+
+  </main>
+
+  <!-- ---- BOTTOM NAV ---- -->
+  <nav class="nav">
+    <button class="nav-btn active" data-view="map"><span>🗺</span>Map</button>
+    <button class="nav-btn" data-view="storage"><span>🎒</span>Storage</button>
+    <button class="nav-btn" data-view="collection"><span>📖</span>Collection</button>
+    <button class="nav-btn" data-view="profile"><span>👤</span>Profile</button>
+  </nav>
+</div>
+
+<!-- ============ CAPTURE / EVOLVE STAGE ============ -->
+<div id="stage" class="stage hidden">
+  <canvas id="confetti" class="confetti"></canvas>
+  <div class="stage-inner">
+    <div id="stage-anim" class="anim">
+      <div class="sparkle-cluster" id="sparkle-cluster"></div>
+      <img id="anim-img" class="anim-img hidden" alt="" />
+      <div class="burst" id="burst"></div>
+    </div>
+
+    <div id="reveal" class="reveal hidden">
+      <div id="reveal-new" class="new-banner hidden">NEW!</div>
+      <img id="reveal-img" class="reveal-img" alt="" />
+      <h2 id="reveal-name"></h2>
+      <div class="reveal-tags">
+        <span id="reveal-type" class="tag"></span>
+        <span id="reveal-stage" class="tag"></span>
+        <span id="reveal-rarity" class="tag"></span>
+      </div>
+      <div id="reveal-rewards" class="rewards"></div>
+      <button id="reveal-ok" class="btn primary wide">Nice!</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ CREATURE DETAIL SHEET ============ -->
+<div id="sheet" class="sheet-wrap hidden">
+  <div class="sheet-backdrop" data-close="sheet"></div>
+  <div class="sheet">
+    <button class="sheet-close" data-close="sheet">✕</button>
+    <div id="sheet-body"></div>
+  </div>
+</div>
+
+<!-- ============ DEBUG PANEL ============ -->
+<div id="debug" class="sheet-wrap hidden">
+  <div class="sheet-backdrop" data-close="debug"></div>
+  <div class="sheet">
+    <button class="sheet-close" data-close="debug">✕</button>
+    <h3>🛠 Debug tools</h3>
+
+    <div class="dbg-block">
+      <label class="dbg-toggle">
+        <input type="checkbox" id="dbg-enable" />
+        <span>Use fake location</span>
+      </label>
+      <div class="dbg-coords">
+        <label>Latitude<input id="dbg-lat" type="text" inputmode="decimal" placeholder="51.5079" /></label>
+        <label>Longitude<input id="dbg-lng" type="text" inputmode="decimal" placeholder="-0.1283" /></label>
+      </div>
+      <div class="btn-row">
+        <button id="dbg-apply" class="btn primary">Apply location</button>
+        <button id="dbg-paste" class="btn ghost">Paste "lat, lng"</button>
+      </div>
+      <p class="muted small">Presets:</p>
+      <div class="btn-row wrap" id="dbg-presets"></div>
+    </div>
+
+    <div class="dbg-block">
+      <h4>Spawns</h4>
+      <div class="btn-row wrap">
+        <button id="dbg-scan" class="btn ghost">Force scan now</button>
+        <button id="dbg-force" class="btn ghost">Force scan (100% rate)</button>
+        <button id="dbg-clear-spawns" class="btn ghost">Clear all spawns</button>
+        <button id="dbg-spawn-here" class="btn ghost">Spawn at my feet</button>
+      </div>
+      <label class="dbg-toggle">
+        <input type="checkbox" id="dbg-ignore-range" />
+        <span>Ignore 5 m capture range</span>
+      </label>
+      <label class="dbg-toggle">
+        <input type="checkbox" id="dbg-show-pois" />
+        <span>Show all POIs on map</span>
+      </label>
+    </div>
+
+    <div class="dbg-block">
+      <h4>Give resources</h4>
+      <div class="btn-row wrap">
+        <button class="btn ghost" data-give="stardust">+1000 stardust</button>
+        <button class="btn ghost" data-give="candy">+50 candy (all families)</button>
+        <button class="btn ghost" data-give="xp">+500 XP</button>
+      </div>
+    </div>
+
+    <div class="dbg-block">
+      <h4>Log</h4>
+      <pre id="dbg-log" class="dbg-log"></pre>
+    </div>
+  </div>
+</div>
+
+<div id="toasts" class="toasts"></div>
+
+<script src="vendor/leaflet/leaflet.js"></script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

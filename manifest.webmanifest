@@ -1,0 +1,15 @@
+{
+  "name": "Search and Go",
+  "short_name": "Search and Go",
+  "description": "Find and capture Elemental Awakening creatures at real shops and amenities around you.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b1024",
+  "theme_color": "#0b1024",
+  "icons": [
+    { "src": "images/fairydiamond.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "images/fairydiamond.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

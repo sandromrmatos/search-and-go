@@ -1,0 +1,122 @@
+{
+  "steps": [
+    {
+      "attached": "http://127.0.0.1:8123/index.html"
+    },
+    {
+      "runtime": "enabled"
+    },
+    {
+      "booted": true
+    },
+    {
+      "https://overpass-api.de/api/interpreter": {
+        "status": 200,
+        "ms": 1456,
+        "elements": 88,
+        "sample": [
+          {
+            "t": "node",
+            "tags": [
+              "amenity",
+              "name"
+            ]
+          },
+          {
+            "t": "node",
+            "tags": [
+              "amenity",
+              "booth",
+              "check_date",
+              "covered"
+            ]
+          },
+          {
+            "t": "node",
+            "tags": [
+              "addr:city",
+              "addr:country",
+              "addr:housenumber",
+              "addr:street"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "https://overpass.kumi.systems/api/interpreter": {
+        "status": 200,
+        "ms": 9364,
+        "elements": 88,
+        "sample": [
+          {
+            "t": "node",
+            "tags": [
+              "amenity",
+              "name"
+            ]
+          },
+          {
+            "t": "node",
+            "tags": [
+              "amenity",
+              "booth",
+              "check_date",
+              "covered"
+            ]
+          },
+          {
+            "t": "node",
+            "tags": [
+              "addr:city",
+              "addr:country",
+              "addr:housenumber",
+              "addr:street"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "https://overpass.private.coffee/api/interpreter": {
+        "error": "AbortError: signal is aborted without reason",
+        "ms": 25011
+      }
+    },
+    {
+      "https://maps.mail.ru/osm/tools/overpass/api/interpreter": {
+        "status": 200,
+        "ms": 787,
+        "elements": 88,
+        "sample": [
+          {
+            "t": "node",
+            "tags": [
+              "amenity",
+              "name"
+            ]
+          },
+          {
+            "t": "node",
+            "tags": [
+              "amenity",
+              "booth",
+              "check_date",
+              "covered"
+            ]
+          },
+          {
+            "t": "node",
+            "tags": [
+              "addr:city",
+              "addr:country",
+              "addr:housenumber",
+              "addr:street"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "done": true
+}
