@@ -93,7 +93,10 @@ function renderPreview() {
           el('span', { class: `tag t-${sp.type}`, text: sp.type }),
           el('span', { class: 'tag', text: `Level ${raid.level}` }),
           el('span', { class: `tag r-${raid.rarity}`, text: `${raid.rarity} · ${RARITY_NAMES[raid.rarity]}` })
-        )
+        ),
+        !store.isRegistered(sp.id)
+          ? el('div', { class: 'not-registered-badge', text: 'Not registered yet' })
+          : null
       ),
       el('div', { class: 'det-rows' },
         statLine('HP', stats.hp, 'tripled for a raid'),
@@ -498,7 +501,8 @@ async function throwUltraDisc() {
       sp: res.sp,
       isNew: res.isNew,
       rewards,
-      imageSrc: res.sp.spritePath(res.shiny)
+      imageSrc: res.sp.spritePath(res.shiny),
+      shiny: res.shiny
     });
 
     if (res.levelUp.levelledUp) toast(`Player level ${res.levelUp.to}!`, 'good', 3200);

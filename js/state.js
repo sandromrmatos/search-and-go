@@ -8,10 +8,10 @@ import {
   candyForCapture, dustForCapture, xpForCapture, dustBonusFor,
   XP_ON_EVOLVE, CANDY_ON_DELETE, levelUpCost, MAX_CREATURE_LEVEL,
   playerProgress, playerLevelFor, statsFor, rollStatModifier, rollMoveUnlock,
-  rollShiny, RULES, RAID_CAPTURE_LEVEL, RAID_CAPTURE_BONUS_CANDY,
+  rollShiny, chance, RULES, RAID_CAPTURE_LEVEL, RAID_CAPTURE_BONUS_CANDY,
   MISSIONS, DAILY_MISSIONS, breedingSlotsFor, breedingIntervalMs,
   BREEDING_CANDY_CAP, BREEDING_UNLOCK_LEVEL,
-  dustInRange, weightedPick, GRUNT_REWARD
+  dustInRange, weightedPick, GRUNT_REWARD, LEVEL_UP_REWARDS
 } from './data.js';
 import { ITEMS, item as itemDef } from './items.js';
 
@@ -48,7 +48,7 @@ function blankState() {
 
     lastScanAt: 0,
     nextUid: 1,
-    debug: { enabled: false, lat: null, lng: null, ignoreRange: false, showPois: false },
+    debug: { enabled: false, lat: null, lng: null, ignoreRange: false, showPois: false, shinyBoost: false },
     ui: {
       storageTab: 'creatures', storageSort: 'id', storageDir: 1,
       filterType: '', filterStage: '', filterRarity: '', setIndex: 0
@@ -128,7 +128,8 @@ function migrate(raw) {
         statMod: validStatMod(c.statMod) || rollStatModifier(),
         moveUnlock: validUnlock(c.moveUnlock) || { 3: 0, 4: 0 },
         breeding: c.breeding ?? null,
-        hp: c.hp == null ? null : Math.max(0, Number(c.hp) || 0)
+        hp: c.hp == null ? null : Math.max(0, Number(c.hp) || 0),
+        favourite: !!c.favourite
       };
       // clamp stale HP against the current max
       const max = maxHpOf(out);
@@ -273,7 +274,22 @@ class Store {
     const before = this.level;
     this.s.xp = Math.max(0, this.s.xp + amount);
     const after = this.level;
-    return { levelledUp: after > before, from: before, to: after };
+    const levelledUp = after > before;
+    const rewards = [];
+    if (levelledUp) {
+      // Grant rewards for every level gained (handles multi-level jumps)
+      for (let l = before + 1; l <= after; l++) {
+        for (const [id, n] of Object.entries(LEVEL_UP_REWARDS.every)) this.addItem(id, n);
+        const special = LEVEL_UP_REWARDS.special[l];
+        if (special) for (const [id, n] of Object.entries(special)) this.addItem(id, n);
+      }
+      rewards.push(...Object.entries(LEVEL_UP_REWARDS.every).map(([id, n]) => ({ id, n: n * (after - before) })));
+      for (let l = before + 1; l <= after; l++) {
+        const special = LEVEL_UP_REWARDS.special[l];
+        if (special) rewards.push(...Object.entries(special).map(([id, n]) => ({ id, n })));
+      }
+    }
+    return { levelledUp, from: before, to: after, rewards };
   }
 
   addStardust(n) { this.s.stardust = Math.max(0, this.s.stardust + n); }
@@ -461,7 +477,9 @@ class Store {
       dustSpent: 0,
       evolvedAt: null,
       origin,
-      shiny: shiny == null ? rollShiny(origin === 'raid' ? 'raid' : 'spawn') : !!shiny,
+      shiny: shiny == null
+        ? (this.s.debug.shinyBoost ? chance(0.5) : rollShiny(origin === 'raid' ? 'raid' : 'spawn'))
+        : !!shiny,
       statMod: rollStatModifier(),
       moveUnlock: unlock || rollMoveUnlock(),
       breeding: null,
@@ -648,6 +666,7 @@ class Store {
     const c = this.creature(uid);
     if (!c) return { ok: false, reason: 'missing' };
     if (c.breeding != null) return { ok: false, reason: 'breeding' };
+    if (c.favourite) return { ok: false, reason: 'favourite' };
 
     const i = this.s.storage.findIndex(x => x.uid === uid);
     this.s.storage.splice(i, 1);
@@ -656,6 +675,33 @@ class Store {
     this.s.stats.deletes++;
     this.touch('delete', { immediate: true });
     return { ok: true, sp, candy: CANDY_ON_DELETE, candyTotal: total, familyRootId: familyRoot(c.speciesId) };
+  }
+
+  toggleFavourite(uid) {
+    const c = this.creature(uid);
+    if (!c) return false;
+    c.favourite = !c.favourite;
+    this.touch('favourite', { immediate: true });
+    return c.favourite;
+  }
+
+  /** Mass release: skips favourites and breeding creatures. Returns total candy gained. */
+  massRelease(uids) {
+    let totalCandy = 0;
+    const released = [];
+    for (const uid of uids) {
+      const c = this.creature(uid);
+      if (!c || c.favourite || c.shiny || c.breeding != null) continue;
+      const i = this.s.storage.findIndex(x => x.uid === uid);
+      if (i === -1) continue;
+      this.s.storage.splice(i, 1);
+      this.addCandy(c.speciesId, CANDY_ON_DELETE);
+      totalCandy += CANDY_ON_DELETE;
+      released.push(uid);
+      this.s.stats.deletes++;
+    }
+    if (released.length) this.touch('delete', { immediate: true });
+    return { released: released.length, candy: totalCandy };
   }
 
   /* ---------------- map points ---------------- */

@@ -67,14 +67,20 @@ export function renderStorageTabs() {
     : `${store.s.storage.length} stored`;
 }
 
+/* The sorted creature list, cached so prev/next arrows can walk it. */
+let sortedStorage = [];
+let multiSelectMode = false;
+let multiSelected = new Set();
+
 export function renderStorage() {
   renderStorageTabs();
   if (store.s.ui.storageTab === 'items') return renderItems();
 
   const grid = $('#storage-grid');
   const { storageSort, storageDir } = store.s.ui;
-  const list = [...store.s.storage].sort(SORTERS[storageSort] || SORTERS.id);
-  if (storageDir < 0) list.reverse();
+  sortedStorage = [...store.s.storage].sort(SORTERS[storageSort] || SORTERS.id);
+  if (storageDir < 0) sortedStorage.reverse();
+  const list = sortedStorage;
 
   $('#storage-empty').classList.toggle('hidden', list.length > 0);
   $('#storage-sort').value = storageSort;
@@ -89,14 +95,26 @@ export function renderStorage() {
     const max = maxHpOf(c);
     const hp = hpOf(c);
     const pct = Math.round((hp / max) * 100);
+    const selected = multiSelected.has(c.uid);
+    const selectable = multiSelectMode && !c.favourite && c.breeding == null;
 
     frag.append(el('button', {
-      class: 'cell' + (c.shiny ? ' shiny' : ''),
-      onclick: () => openCreatureSheet(c.uid)
+      class: 'cell' + (c.shiny ? ' shiny' : '') + (selected ? ' picked' : ''),
+      onclick: () => {
+        if (multiSelectMode) {
+          if (c.favourite || c.breeding != null || c.shiny) { toast('Cannot select favourites, shinies or breeding creatures', 'bad'); return; }
+          if (selected) multiSelected.delete(c.uid); else multiSelected.add(c.uid);
+          renderStorage();
+          return;
+        }
+        openCreatureSheet(c.uid);
+      }
     },
+      selected ? el('span', { class: 'pick-order', text: '✓' }) : null,
       el('span', { class: 'lvl', text: 'Lv' + c.level }),
       rarity ? el('span', { class: `rar r-${rarity}`, text: rarity }) : null,
       c.shiny ? el('span', { class: 'shiny-star', text: '★' }) : null,
+      c.favourite ? el('span', { class: 'fav-star', text: '♥' }) : null,
       el('img', { src: s.spritePath(c.shiny), alt: s.name, loading: 'lazy' }),
       el('span', { class: 'nm', text: s.name }),
       el('span', { class: 'hp-wrap' },
@@ -110,6 +128,46 @@ export function renderStorage() {
     ));
   }
   grid.append(frag);
+
+  // multi-select toolbar
+  let bar = document.getElementById('multi-bar');
+  if (multiSelectMode) {
+    if (!bar) {
+      bar = el('div', { id: 'multi-bar', class: 'multi-bar' });
+      grid.parentElement.insertBefore(bar, grid);
+    }
+    bar.innerHTML = '';
+    bar.append(
+      el('span', { class: 'muted', text: `${multiSelected.size} selected` }),
+      el('button', { class: 'btn danger', disabled: !multiSelected.size, onclick: doMassRelease },
+        `Release ${multiSelected.size}`),
+      el('button', { class: 'btn ghost', onclick: exitMultiSelect }, 'Cancel')
+    );
+  } else if (bar) {
+    bar.remove();
+  }
+}
+
+export function enterMultiSelect() {
+  multiSelectMode = true;
+  multiSelected.clear();
+  renderStorage();
+}
+
+function exitMultiSelect() {
+  multiSelectMode = false;
+  multiSelected.clear();
+  renderStorage();
+}
+
+function doMassRelease() {
+  if (!multiSelected.size) return;
+  const n = multiSelected.size;
+  if (!confirm(`Release ${n} creature${n > 1 ? 's' : ''}? You will earn ${n} candy total (1 per creature).`)) return;
+  const r = store.massRelease([...multiSelected]);
+  exitMultiSelect();
+  toast(`Released ${r.released} creature${r.released > 1 ? 's' : ''} · +${r.candy} candy`, 'good', 3400);
+  refreshAll();
 }
 
 /* ===============================================================
@@ -288,8 +346,28 @@ function renderCreatureSheet() {
   const evoCheck = store.canEvolve(c.uid);
   const target = s.evolvesToId ? species(s.evolvesToId) : null;
 
+  // Prev / next navigation via the current sort order
+  const idx = sortedStorage.findIndex(x => x.uid === c.uid);
+  const prevUid = idx > 0 ? sortedStorage[idx - 1].uid : null;
+  const nextUid = idx < sortedStorage.length - 1 ? sortedStorage[idx + 1].uid : null;
+
   body.innerHTML = '';
   body.append(
+    // ---- navigation arrows ----
+    el('div', { class: 'sheet-nav' },
+      el('button', { class: 'arrow-btn', disabled: !prevUid, onclick: () => { sheetUid = prevUid; renderCreatureSheet(); } }, '‹'),
+      el('span', { class: 'muted small', text: `${idx + 1} of ${sortedStorage.length}` }),
+      el('button', { class: 'arrow-btn', disabled: !nextUid, onclick: () => { sheetUid = nextUid; renderCreatureSheet(); } }, '›')
+    ),
+
+    // ---- favourite toggle ----
+    el('div', { class: 'btn-row', style: { justifyContent: 'flex-end', marginBottom: '6px' } },
+      el('button', {
+        class: 'btn ghost' + (c.favourite ? ' fav-active' : ''),
+        onclick: () => { store.toggleFavourite(c.uid); renderCreatureSheet(); refreshAll(); }
+      }, c.favourite ? '♥ Favourited' : '♡ Favourite')
+    ),
+
     el('div', { class: 'det-head' },
       el('img', { src: s.imagePath, alt: s.name }),
       el('div', { class: 'det-title' },
@@ -361,9 +439,9 @@ function renderCreatureSheet() {
         onclick: () => doLevelUp(c.uid)
       }, c.level >= MAX_CREATURE_LEVEL
         ? 'Max level'
-        : `Level up → Lv ${c.level + 1} · ${DUST_ICON} ${num(cost.stardust)} · ${CANDY_ICON} ${num(cost.candy)}`)
+        : cost ? `Level up → Lv ${c.level + 1} · ${DUST_ICON} ${num(cost.stardust)} · ${CANDY_ICON} ${num(cost.candy)}` : 'Max level')
     ),
-    !lvlCheck.ok && lvlCheck.reason !== 'max' && lvlCheck.reason !== 'missing'
+    (!lvlCheck.ok && lvlCheck.reason !== 'max' && lvlCheck.reason !== 'missing' && lvlCheck.shortDust != null)
       ? el('p', { class: 'hint', text: [
           lvlCheck.shortDust ? `${num(lvlCheck.shortDust)} more stardust` : null,
           lvlCheck.shortCandy ? `${num(lvlCheck.shortCandy)} more ${familyName(s.id)} candy` : null
@@ -387,8 +465,13 @@ function renderCreatureSheet() {
 
     // ---- release ----
     el('div', { class: 'btn-row' },
-      el('button', { class: 'btn danger', onclick: () => doRelease(c.uid) },
-        `Release · +${CANDY_ICON} 1 ${familyName(s.id)} candy`)
+      el('button', {
+        class: 'btn danger',
+        disabled: !!c.favourite,
+        onclick: () => doRelease(c.uid)
+      }, c.favourite
+        ? 'Unfavourite to release'
+        : `Release · +${CANDY_ICON} 1 ${familyName(s.id)} candy`)
     )
   );
 }

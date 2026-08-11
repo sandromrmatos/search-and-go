@@ -146,16 +146,17 @@ a { color: var(--accent); }
 
 /* countdown to the next spawn reset — the headline bit of map info */
 .reset-chip {
-  display: flex; align-items: center; gap: 7px;
+  display: inline-flex; align-items: center; gap: 7px;
   padding: 7px 14px; border-radius: 99px; font-size: 13px;
   background: rgba(11, 16, 36, .9);
   border: 1px solid rgba(123, 140, 255, .45);
   box-shadow: 0 3px 14px #0007, 0 0 18px #7b8cff22;
   white-space: nowrap;
+  max-width: 220px;
 }
-.reset-chip .reset-ico { color: var(--accent); font-size: 14px; line-height: 1; }
-.reset-chip .reset-label { color: var(--muted); }
-.reset-chip b { font-variant-numeric: tabular-nums; font-size: 15px; letter-spacing: .4px; }
+.reset-chip .reset-ico { color: var(--accent); font-size: 14px; line-height: 1; flex: 0 0 auto; }
+.reset-chip .reset-label { color: var(--muted); white-space: nowrap; }
+.reset-chip b { font-variant-numeric: tabular-nums; font-size: 15px; letter-spacing: .4px; min-width: 42px; text-align: center; flex: 0 0 auto; }
 .reset-chip.due b { color: var(--accent2); }
 .reset-chip.scanning { border-color: rgba(255, 209, 102, .5); }
 .reset-chip.scanning .reset-ico { color: var(--accent2); animation: spin 1s linear infinite; }
@@ -252,8 +253,8 @@ a { color: var(--accent); }
 }
 
 .ico-bang {
-  font-weight: 900; font-size: 26px; color: #fff0b8;
-  text-shadow: 0 0 10px #ffd166, 0 0 20px #ffae3466;
+  font-weight: 900; font-size: 26px; color: #ffb3b3;
+  text-shadow: 0 0 10px #ff4444, 0 0 20px #ff222266;
   animation: bangSpin 2s ease-in-out infinite;
 }
 @keyframes bangSpin {
@@ -282,7 +283,7 @@ a { color: var(--accent); }
 }
 
 .glow-disc  { background: radial-gradient(circle, #56b6ff55 0%, transparent 70%); }
-.glow-item  { background: radial-gradient(circle, #ffd16655 0%, transparent 70%); }
+.glow-item  { background: radial-gradient(circle, #ff444466 0%, transparent 70%); }
 .glow-raid  { background: radial-gradient(circle, #ff6b3c66 0%, transparent 70%); }
 .glow-grunt { background: radial-gradient(circle, #b07cff55 0%, transparent 70%); }
 
@@ -903,3 +904,66 @@ a { color: var(--accent); }
 }
 .info-body .keyline .k { font-size: 20px; width: 26px; text-align: center; flex: 0 0 auto; }
 .info-body .keyline span { font-size: 12.5px; }
+
+.daily-timer {
+  text-align: center; font-size: 12px; color: var(--muted); padding: 8px 14px 16px;
+}
+.daily-timer b { color: var(--txt); font-variant-numeric: tabular-nums; }
+
+/* ---- creature sheet navigation ---- */
+.sheet-nav {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 6px; padding: 0 2px;
+}
+.sheet-nav .arrow-btn { width: 36px; height: 36px; font-size: 20px; }
+
+/* ---- favourite ---- */
+.fav-star {
+  position: absolute; top: 5px; left: 5px;
+  font-size: 13px; color: #ff6b9d; text-shadow: 0 0 6px #ff6b9d88;
+}
+.fav-active { color: #ff6b9d !important; border-color: #ff6b9d66 !important; }
+
+/* ---- multi-select toolbar ---- */
+.multi-bar {
+  display: flex; align-items: center; gap: 8px; padding: 8px 14px;
+  background: #1b2450; border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; z-index: 10;
+}
+.multi-bar .muted { flex: 1; font-size: 13px; }
+.multi-bar .btn { padding: 8px 12px; font-size: 12.5px; flex: 0 0 auto; }
+
+/* ---- shiny reveal banner ---- */
+.new-banner:has(+ .reveal-img) { /* generic, just in case */ }
+.stage .new-banner {
+  transition: background .3s;
+}
+.stage .new-banner.shiny-banner {
+  background: linear-gradient(90deg, #ffd166, #ffffff, #ffd166);
+  color: #3a2800;
+  font-size: 17px;
+  letter-spacing: 3px;
+  animation: shinyPop .7s cubic-bezier(.2,1.7,.4,1), shinyGlow 1.2s ease-in-out infinite alternate;
+  box-shadow: 0 0 24px #ffd16688, 0 0 48px #ffd16644;
+}
+@keyframes shinyPop {
+  from { transform: scale(0) rotate(-20deg); }
+  to { transform: scale(1) rotate(0deg); }
+}
+@keyframes shinyGlow {
+  from { box-shadow: 0 0 24px #ffd16688, 0 0 48px #ffd16644; }
+  to { box-shadow: 0 0 36px #ffd166cc, 0 0 72px #ffd16688, 0 0 120px #ffd16644; }
+}
+
+/* ---- not registered badge on raid preview ---- */
+.not-registered-badge {
+  display: inline-block; margin-top: 10px; padding: 6px 14px;
+  border-radius: 99px; font-size: 12.5px; font-weight: 700; letter-spacing: .3px;
+  background: #ff4d8f; color: #fff; 
+  box-shadow: 0 0 12px #ff4d8f88, 0 0 24px #ff4d8f44;
+  animation: regPulse 1.6s ease-in-out infinite alternate;
+}
+@keyframes regPulse {
+  from { box-shadow: 0 0 12px #ff4d8f88, 0 0 24px #ff4d8f44; }
+  to { box-shadow: 0 0 20px #ff4d8fcc, 0 0 40px #ff4d8f88; }
+}

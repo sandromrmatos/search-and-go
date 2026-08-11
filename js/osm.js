@@ -63,7 +63,6 @@ function buildQuery(lat, lng, radius) {
   nwr["shop"](around:${radius},${la},${ln});
   nwr["amenity"](around:${radius},${la},${ln});
   nwr["leisure"="park"](around:${radius},${la},${ln});
-  nwr["leisure"="garden"](around:${radius},${la},${ln});
 );
 out tags center;`;
 }
@@ -144,7 +143,7 @@ export async function fetchPOIs(lat, lng, radius = 250, { force = false, signal 
 
 function hostOf(u) { try { return new URL(u).host; } catch { return u; } }
 
-const PARK_LEISURE = new Set(['park', 'garden']);
+const PARK_LEISURE = new Set(['park']);
 
 function normalise(json, origin, radius) {
   const out = [];
@@ -155,10 +154,14 @@ function normalise(json, origin, radius) {
     if (!tags.shop && !tags.amenity && !isPark) continue;
     const pt = elementPoint(el);
     if (!pt) continue;
-    // Overpass matches a way if any part of it is in range, but we spawn on the
-    // centre — so drop anything whose centre falls outside the drawn scan circle.
+    // Overpass's `around` filter already guarantees the element's geometry
+    // intersects the scan circle. For shops/amenities (points or small
+    // buildings) the centre is a fine proxy. But parks are often huge
+    // polygons whose centre can be far from the player even when the player
+    // is inside the park. So for parks we trust the Overpass match and skip
+    // the distance check — the player is inside or within range of the park.
     const d = distance(origin, pt);
-    if (d > radius) continue;
+    if (!isPark && d > radius) continue;
     const id = `${el.type}/${el.id}`;
     if (seen.has(id)) continue;
     seen.add(id);

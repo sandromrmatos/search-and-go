@@ -97,6 +97,7 @@
             </select>
           </label>
           <button id="storage-dir" class="mini-btn" title="Toggle sort direction">↑</button>
+          <button id="btn-multi-select" class="mini-btn" title="Select multiple to release">☐</button>
         </div>
         <div id="storage-grid" class="grid"></div>
         <p id="storage-empty" class="empty">Nothing here yet. Go catch something!</p>
@@ -166,7 +167,12 @@
         <h2>Missions</h2>
         <div class="view-head-right"><span id="missions-count" class="muted"></span></div>
       </div>
+      <div class="tabs" id="mission-tabs">
+        <button class="tab active" data-mtab="lifetime">Lifetime</button>
+        <button class="tab" data-mtab="daily">Daily</button>
+      </div>
       <div id="missions-list" class="mission-list"></div>
+      <div id="daily-timer" class="daily-timer hidden"></div>
     </section>
 
     <!-- PROFILE VIEW -->
@@ -317,7 +323,11 @@
       </div>
       <label class="dbg-toggle">
         <input type="checkbox" id="dbg-ignore-range" />
-        <span>Ignore 5 m capture range</span>
+        <span>Ignore 10 m capture range</span>
+      </label>
+      <label class="dbg-toggle">
+        <input type="checkbox" id="dbg-shiny-boost" />
+        <span>Shiny rate 50%</span>
       </label>
       <label class="dbg-toggle">
         <input type="checkbox" id="dbg-show-pois" />

@@ -77,7 +77,7 @@ function makeRaidPoint(poi, now) {
     raid: {
       ...raid,
       // You can see a shiny raid boss before you fight it.
-      shiny: rollShiny('raid'),
+      shiny: store.s.debug.shinyBoost ? chance(0.5) : rollShiny('raid'),
       defeated: false
     }
   };
@@ -173,18 +173,29 @@ export async function runScan(pos, { force = false, forceKind = null, alwaysGrun
     }
 
     // ---- parks: battle grunts ----
+    // Parks can be large polygons. Overpass confirmed they intersect our scan
+    // circle, but the centre may be far away. So we place the grunt near the
+    // player with a small random offset, making it always reachable.
     for (const park of parks) {
       if (occupiedPOIs.has(park.id)) { skipped.occupied++; continue; }
-      if (tooClose(park, taken, RULES.MIN_SPAWN_SEPARATION_M)) { skipped.tooClose++; continue; }
-      if (tooClose(park, gruntSpots, RULES.MIN_GRUNT_SEPARATION_M)) { skipped.gruntTooClose++; continue; }
+
+      // Use a spawn coordinate near the player, not the park centre
+      const spawnLat = pos.lat + (Math.random() - 0.5) * 0.00012;  // ~6-7 m jitter
+      const spawnLng = pos.lng + (Math.random() - 0.5) * 0.00016;
+      const spawnPt = { lat: spawnLat, lng: spawnLng };
+
+      if (tooClose(spawnPt, taken, RULES.MIN_SPAWN_SEPARATION_M)) { skipped.tooClose++; continue; }
+      if (tooClose(spawnPt, gruntSpots, RULES.MIN_GRUNT_SEPARATION_M)) { skipped.gruntTooClose++; continue; }
       if (!alwaysGrunt && !chance(RULES.GRUNT_CHANCE)) { skipped.gruntRoll++; continue; }
 
-      const point = makeGruntPoint(park, now, store.level);
+      // Override the POI lat/lng so the grunt appears near the player
+      const nearPark = { ...park, lat: spawnLat, lng: spawnLng };
+      const point = makeGruntPoint(nearPark, now, store.level);
       created.push(point);
       counts.grunt++;
       occupiedPOIs.add(park.id);
-      taken.push({ lat: park.lat, lng: park.lng });
-      gruntSpots.push({ lat: park.lat, lng: park.lng });
+      taken.push(spawnPt);
+      gruntSpots.push(spawnPt);
     }
 
     store.s.lastScanAt = now;

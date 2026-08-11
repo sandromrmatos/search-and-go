@@ -19,9 +19,9 @@ export const ITEM_DIR = 'items';
    --------------------------------------------------------------- */
 export const RULES = {
   SCAN_RADIUS_M: 250,           // POI search radius around the player
-  CAPTURE_RANGE_M: 5,           // must be this close to interact with anything
-  MIN_SPAWN_SEPARATION_M: 25,   // no two map points within 25 m
-  MIN_GRUNT_SEPARATION_M: 50,   // grunts also keep 50 m from each other
+  CAPTURE_RANGE_M: 10,         // must be this close to interact with anything
+  MIN_SPAWN_SEPARATION_M: 15,   // no two map points within 15 m
+  MIN_GRUNT_SEPARATION_M: 25,   // grunts also keep 25 m from each other
   SCAN_INTERVAL_MS: 5 * 60_000, // everything re-rolls every 5 minutes
 
   CAPTURE_ANIM_MS: 5000,
@@ -54,11 +54,11 @@ export const RULES = {
  * and must total 100.
  */
 export const POI_OUTCOMES = [
-  { kind: 'creature', weight: 15 },
-  { kind: 'discs',    weight: 25 },
+  { kind: 'creature', weight: 22 },
+  { kind: 'discs',    weight: 28 },
   { kind: 'items',    weight: 15 },
   { kind: 'raid',     weight: 5 },
-  { kind: 'nothing',  weight: 40 }
+  { kind: 'nothing',  weight: 30 }
 ];
 
 /** A "discs" point rolls one of these payloads. */
@@ -109,13 +109,13 @@ export const RAID_CAPTURE_LEVEL = 3;
 /** Cost to reach the given creature level: stardust + candy of that family. */
 export const CREATURE_LEVEL_COST = {
   2:  { stardust: 250,   candy: 10 },
-  3:  { stardust: 600,   candy: 20 },
-  4:  { stardust: 1200,  candy: 40 },
-  5:  { stardust: 2500,  candy: 80 },
-  6:  { stardust: 4500,  candy: 130 },
-  7:  { stardust: 8000,  candy: 200 },
-  8:  { stardust: 15000, candy: 300 },
-  9:  { stardust: 28000, candy: 400 },
+  3:  { stardust: 500,   candy: 20 },
+  4:  { stardust: 750,   candy: 30 },
+  5:  { stardust: 1000,  candy: 40 },
+  6:  { stardust: 2000,  candy: 60 },
+  7:  { stardust: 4000,  candy: 100 },
+  8:  { stardust: 10000, candy: 200 },
+  9:  { stardust: 25000, candy: 300 },
   10: { stardust: 50000, candy: 500 }
 };
 export const MAX_CREATURE_LEVEL = 10;
@@ -127,6 +127,12 @@ export const PLAYER_LEVEL_XP = {
   1: 0, 2: 25, 3: 100, 4: 250, 5: 1000, 6: 2000, 7: 3500, 8: 6000,
   9: 10000, 10: 15000, 11: 22000, 12: 30000, 13: 38000, 14: 45000, 15: 50000
 };
+/** Every player level grants these items. Level 3 also awards a breeding centre. */
+export const LEVEL_UP_REWARDS = {
+  every: { capture_disc: 5, incense: 1, stardust_magnet: 1 },
+  special: { 3: { breeding_center: 1 } }
+};
+
 export const MAX_PLAYER_LEVEL = 15;
 
 /** Every player level past 1 adds this much to any stardust reward. */
@@ -190,8 +196,8 @@ export const GRUNT_PHRASES = [
 /** Grunt creature levels scale with the player's level. */
 export const GRUNT_LEVEL_BANDS = [
   { maxPlayerLevel: 3,        levels: [2, 3] },
-  { maxPlayerLevel: 5,        levels: [3, 6] },
-  { maxPlayerLevel: 7,        levels: [5, 7] },
+  { maxPlayerLevel: 6,        levels: [2, 5] },
+  { maxPlayerLevel: 9,        levels: [3, 7] },
   { maxPlayerLevel: Infinity, levels: [6, 9] }
 ];
 
@@ -549,7 +555,7 @@ function readMoves(row, name) {
       level,
       buffStat: isBuff ? buffStat : null,
       buffPct: isBuff ? buffPct : null,
-      get isBuff() { return this.power === 0 && !!this.buffStat; }
+      isBuff
     };
     moves.push(move);
     if (!DB.moveIndex.has(move.name)) DB.moveIndex.set(move.name, move);

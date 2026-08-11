@@ -10,7 +10,7 @@ import { Persist } from './persist.js';
 import { store } from './state.js';
 import { Geo, distance, parseCoords, formatDistance, offsetMeters } from './geo.js';
 import { fetchPOIs, clearPOICache } from './osm.js';
-import { describeDrop } from './items.js';
+import { describeDrop, itemImage, itemName } from './items.js';
 import {
   runScan, debugPointAt, tickIncense, msUntilNextScan, formatCountdown, isScanning
 } from './spawns.js';
@@ -20,7 +20,7 @@ import { initBattleUI, openBattle, isBattleOpen } from './battleui.js';
 import {
   renderHUD, renderStorage, renderCollection, renderProfile, renderSaveStatus,
   initCollectionFilters, refreshAll, renderView, renderStorageTabs,
-  renderEffectChips, openNicknamePrompt, setViewHooks
+  renderEffectChips, openNicknamePrompt, setViewHooks, enterMultiSelect
 } from './views.js';
 import {
   initExtras, renderMissions, renderMissionBadge, openBreeding
@@ -147,7 +147,16 @@ function onLocation(pos) {
 async function scanWhenReady() {
   const pos = Geo.current || await Geo.waitForFix(15000);
   if (!pos) { dlog('No location fix yet — scan postponed'); return; }
-  await doScan({ reason: 'session start' });
+
+  // Only scan if the timer has already expired. If the player refreshed
+  // mid-countdown, the existing spawns are still in storage and the game
+  // loop will fire the next scan when the interval naturally elapses.
+  if (msUntilNextScan() <= 0) {
+    await doScan({ reason: 'session start' });
+  } else {
+    dlog(`Resuming timer — next scan in ${Math.ceil(msUntilNextScan() / 1000)} s`);
+    syncMap();
+  }
 }
 
 /* ===============================================================
@@ -192,6 +201,30 @@ async function doScan({ force = false, reason = 'auto', forceKind = null, always
 /* ===============================================================
    Capture
    =============================================================== */
+/** Shows a celebratory popup when the player levels up, listing rewards. */
+function showLevelUpPopup(levelUp) {
+  if (!levelUp.levelledUp) return;
+  const body = $('#sheet-body');
+  body.innerHTML = '';
+  body.append(
+    el('div', { style: { textAlign: 'center', padding: '16px 0' } },
+      el('div', { class: 'lvl-badge big', text: String(levelUp.to), style: { margin: '0 auto 12px' } }),
+      el('h3', { text: `Level ${levelUp.to}!`, style: { margin: '0 0 6px' } }),
+      el('p', { class: 'muted', text: 'Congratulations! You received:' }),
+      el('div', { class: 'rewards', style: { marginTop: '12px', justifyContent: 'center' } },
+        ...levelUp.rewards.map(r =>
+          el('span', { class: 'reward' },
+            el('img', { src: itemImage(r.id), alt: '', style: { width: '20px', height: '20px', objectFit: 'contain' } }),
+            el('span', { text: `${r.n}× ${itemName(r.id, r.n)}` })
+          )
+        )
+      ),
+      el('button', { class: 'btn primary wide', style: { marginTop: '18px' }, onclick: () => closeSheet('sheet') }, 'Awesome!')
+    )
+  );
+  openSheet('sheet');
+}
+
 /* ===============================================================
    Breeding centre placement
    =============================================================== */
@@ -252,28 +285,67 @@ async function onPointTap(point) {
   if (live.kind === 'raid' || live.kind === 'grunt') return openBattle(live);
 }
 
-/** Picking up a disc or item point. */
-function collectItems(live) {
+/** Picking up a disc or item point — show what you got. */
+async function collectItems(live) {
   const gained = store.addItems(live.drop || {});
   store.markCollected(live.id);
   syncMap();
   if (!gained) return;
+
   const label = describeDrop(live.drop);
   dlog(`Collected ${label} at "${live.poiName}"`);
-  toast(`Collected ${label}`, 'good', 3200);
+
+  // Show a popup with what the player just got
+  const entries = Object.entries(live.drop || {});
+  const body = $('#sheet-body');
+  body.innerHTML = '';
+  body.append(
+    el('div', { style: { textAlign: 'center', padding: '12px 0' } },
+      ...entries.map(([id, qty]) =>
+        el('div', { style: { marginBottom: '12px' } },
+          el('img', { src: itemImage(id), alt: '', style: { width: '72px', height: '72px', objectFit: 'contain' } }),
+          el('p', { style: { margin: '6px 0 0', fontWeight: '700', fontSize: '15px' },
+                    text: `${qty > 1 ? qty + '× ' : ''}${itemName(id, qty)}` })
+        )
+      ),
+      el('button', { class: 'btn primary wide', onclick: () => closeSheet('sheet') }, 'Nice!')
+    )
+  );
+  openSheet('sheet');
   refreshAll();
 }
 
-/** Capturing a wild creature — needs a capturing disc. */
+/** Capturing a wild creature — first confirm the disc, then animate. */
 async function captureCreature(live) {
   if (!store.hasItem('capture_disc')) {
     toast("You have no Capturing Discs, so you can't capture this creature", 'bad', 4200);
     return;
   }
 
+  // Show a confirmation step with the disc count
+  const discCount = store.itemCount('capture_disc');
+  const body = $('#sheet-body');
+  body.innerHTML = '';
+  body.append(
+    el('div', { style: { textAlign: 'center', padding: '12px 0' } },
+      el('img', { src: itemImage('capture_disc'), alt: '',
+                  style: { width: '80px', height: '80px', objectFit: 'contain' } }),
+      el('p', { style: { margin: '8px 0 4px', fontWeight: '700', fontSize: '16px' },
+                text: 'Capturing Disc' }),
+      el('p', { class: 'muted', text: `You have ${discCount}` }),
+      el('div', { class: 'btn-row', style: { justifyContent: 'center', marginTop: '14px' } },
+        el('button', { class: 'btn ghost', onclick: () => closeSheet('sheet') }, 'Cancel'),
+        el('button', { class: 'btn primary', onclick: () => { closeSheet('sheet'); doCapture(live); } }, 'Use one')
+      )
+    )
+  );
+  openSheet('sheet');
+}
+
+/** The actual capture sequence after the disc is confirmed. */
+async function doCapture(live) {
   capturing = true;
   try {
-    // Mark collected up front so a double tap cannot capture twice.
     store.markCollected(live.id);
     store.spendItem('capture_disc');
     syncMap();
@@ -291,9 +363,9 @@ async function captureCreature(live) {
     ];
     if (res.shiny) rewards.unshift({ icon: '✨', label: 'Shiny!' });
 
-    await playCapture({ sp: res.sp, isNew: res.isNew, rewards, imageSrc: sprite });
+    await playCapture({ sp: res.sp, isNew: res.isNew, rewards, imageSrc: sprite, shiny: res.shiny });
 
-    if (res.levelUp.levelledUp) toast(`Player level ${res.levelUp.to}!`, 'good', 3200);
+    if (res.levelUp.levelledUp) showLevelUpPopup(res.levelUp);
     refreshAll();
   } finally {
     capturing = false;
@@ -436,6 +508,7 @@ function initUI() {
     store.setUI({ storageDir: store.s.ui.storageDir > 0 ? -1 : 1 });
     renderStorage();
   });
+  $('#btn-multi-select').addEventListener('click', () => enterMultiSelect());
 
   // ---- collection filters + set nav ----
   $('#filter-type').addEventListener('change', e => { store.setUI({ filterType: e.target.value }); renderCollection(); });
@@ -549,6 +622,7 @@ function initDebugPanel() {
   $('#btn-debug').addEventListener('click', () => {
     $('#dbg-enable').checked = !!store.s.debug.enabled;
     $('#dbg-ignore-range').checked = !!store.s.debug.ignoreRange;
+    $('#dbg-shiny-boost').checked = !!store.s.debug.shinyBoost;
     $('#dbg-show-pois').checked = !!store.s.debug.showPois;
     const cur = Geo.current;
     $('#dbg-lat').value = store.s.debug.lat ?? (cur ? cur.lat.toFixed(6) : '');
@@ -598,7 +672,12 @@ function initDebugPanel() {
 
   $('#dbg-ignore-range').addEventListener('change', e => {
     store.setDebug({ ignoreRange: e.target.checked });
-    toast(e.target.checked ? '5 m range check disabled' : '5 m range check enabled');
+    toast(e.target.checked ? '10 m range check disabled' : '10 m range check enabled');
+  });
+
+  $('#dbg-shiny-boost').addEventListener('change', e => {
+    store.setDebug({ shinyBoost: e.target.checked });
+    toast(e.target.checked ? 'Shiny rate set to 50%' : 'Shiny rate back to normal');
   });
 
   $('#dbg-show-pois').addEventListener('change', async e => {

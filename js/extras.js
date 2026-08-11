@@ -32,13 +32,23 @@ export function initExtras({ onChange } = {}) {
 
 const MISSION_ICON = { registered: '📖', captures: '🎯', capturesToday: '📅' };
 
+let missionTab = 'lifetime';
+
 export function renderMissions() {
   const host = $('#missions-list');
   const all = store.allMissions();
 
+  // Wire tabs
+  $$('#mission-tabs .tab').forEach(b => {
+    b.classList.toggle('active', b.dataset.mtab === missionTab);
+    b.onclick = () => { missionTab = b.dataset.mtab; renderMissions(); };
+  });
+
+  const showing = all.filter(m => missionTab === 'daily' ? m.daily : !m.daily);
+
   // Claimable first, then in progress, then claimed at the bottom.
   const rank = m => (m.claimable ? 0 : m.claimed ? 2 : 1);
-  const sorted = [...all].sort((a, b) =>
+  const sorted = [...showing].sort((a, b) =>
     rank(a) - rank(b) ||
     (b.progress / b.target) - (a.progress / a.target) ||
     a.target - b.target
@@ -53,6 +63,21 @@ export function renderMissions() {
   // Daily / Lifetime tag rather than sitting under a heading.
   host.innerHTML = '';
   for (const m of sorted) host.append(missionRow(m));
+
+  // Daily timer
+  const timer = $('#daily-timer');
+  if (missionTab === 'daily') {
+    timer.classList.remove('hidden');
+    const now = new Date();
+    const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0);
+    const ms = tomorrow - now;
+    const h = Math.floor(ms / 3_600_000);
+    const min = Math.floor((ms % 3_600_000) / 60_000);
+    timer.innerHTML = `Daily missions reset in <b>${h}h ${min}m</b>`;
+  } else {
+    timer.classList.add('hidden');
+  }
+
   renderMissionBadge();
 }
 
@@ -68,7 +93,6 @@ function missionRow(m) {
       el('b', { text: m.def.label }),
       el('div', { class: 'mission-bar' }, el('i', { style: { width: pct + '%' } })),
       el('div', { class: 'mission-meta' },
-        el('span', { class: 'kind', text: m.daily ? 'Daily' : 'Lifetime' }),
         el('span', { text: `${num(Math.min(m.progress, m.target))} / ${num(m.target)}` }),
         el('span', { class: 'r', text: `⭐ ${m.def.xp} XP` }),
         el('span', { class: 'r', text: `${DUST_ICON} ${num(dust)}` })

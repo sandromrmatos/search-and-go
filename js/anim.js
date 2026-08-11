@@ -105,14 +105,21 @@ function hideStage() {
 /* ---------------------------------------------------------------
    Reveal card
    --------------------------------------------------------------- */
-function showReveal({ sp, isNew, rewards, title, imageSrc }) {
+function showReveal({ sp, isNew, rewards, title, imageSrc, shiny }) {
   $('#stage-anim').classList.add('hidden');
   const reveal = $('#reveal');
   reveal.classList.remove('hidden');
 
   const banner = $('#reveal-new');
-  banner.textContent = title || 'NEW!';
-  banner.classList.toggle('hidden', !isNew);
+  if (shiny) {
+    banner.textContent = '★ SHINY ★';
+    banner.className = 'new-banner shiny-banner';
+    banner.classList.remove('hidden');
+  } else {
+    banner.textContent = title || 'NEW!';
+    banner.className = 'new-banner';
+    banner.classList.toggle('hidden', !isNew);
+  }
 
   $('#reveal-img').src = imageSrc || sp.imagePath;
   $('#reveal-img').alt = sp.name;
@@ -143,7 +150,89 @@ function showReveal({ sp, isNew, rewards, title, imageSrc }) {
     ));
   }
 
-  if (isNew) stopConfetti = confettiBurst($('#confetti'), { count: 170, duration: 3000 });
+  if (shiny) {
+    stopConfetti = shinyFireworks($('#confetti'));
+  } else if (isNew) {
+    stopConfetti = confettiBurst($('#confetti'), { count: 170, duration: 3000 });
+  }
+}
+
+/** Massive fireworks burst for shiny catches — gold/white stars + sparks. */
+function shinyFireworks(canvas) {
+  if (!canvas) return () => {};
+  const ctx = canvas.getContext('2d');
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const COLOURS = ['#ffd166', '#ffffff', '#ffe9a8', '#ff8ec7', '#7b8cff', '#4ade80', '#56d2f0', '#ffcc4d'];
+  const STAR = '★✦✧✩✫❋⭐';
+  const count = 280;
+  const duration = 4200;
+
+  const parts = Array.from({ length: count }, (_, i) => {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 3 + Math.random() * 14;
+    const isStar = i < 60;
+    return {
+      x: w / 2 + (Math.random() - 0.5) * w * 0.2,
+      y: h * 0.42 + (Math.random() - 0.5) * 30,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - (isStar ? 4 : 0),
+      g: 0.12 + Math.random() * 0.1,
+      size: isStar ? 10 + Math.random() * 16 : 3 + Math.random() * 7,
+      rot: Math.random() * Math.PI,
+      vr: (Math.random() - 0.5) * 0.4,
+      colour: COLOURS[Math.floor(Math.random() * COLOURS.length)],
+      char: isStar ? STAR[Math.floor(Math.random() * STAR.length)] : null,
+      delay: Math.random() * 600
+    };
+  });
+
+  const start = performance.now();
+  let raf = 0;
+
+  function frame(t) {
+    const elapsed = t - start;
+    ctx.clearRect(0, 0, w, h);
+    for (const p of parts) {
+      const age = elapsed - p.delay;
+      if (age < 0) continue;
+      const fade = Math.max(0, 1 - age / duration);
+      p.vy += p.g;
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vx *= 0.994;
+      p.rot += p.vr;
+      ctx.save();
+      ctx.globalAlpha = fade;
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot);
+      if (p.char) {
+        ctx.font = `${p.size}px sans-serif`;
+        ctx.fillStyle = p.colour;
+        ctx.shadowColor = p.colour;
+        ctx.shadowBlur = 12;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(p.char, 0, 0);
+      } else {
+        ctx.fillStyle = p.colour;
+        ctx.shadowColor = p.colour;
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.arc(0, 0, p.size / 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+    if (elapsed < duration + 600) raf = requestAnimationFrame(frame);
+    else ctx.clearRect(0, 0, w, h);
+  }
+  raf = requestAnimationFrame(frame);
+  return () => { cancelAnimationFrame(raf); ctx.clearRect(0, 0, w, h); };
 }
 
 /** Waits for the player to dismiss the reveal card. */
@@ -158,7 +247,7 @@ function waitForDismiss() {
 /* ---------------------------------------------------------------
    Capture: sparkles grow → shake → explode → creature revealed
    --------------------------------------------------------------- */
-export async function playCapture({ sp, isNew, rewards, imageSrc }) {
+export async function playCapture({ sp, isNew, rewards, imageSrc, shiny }) {
   resetStage();
   const total = RULES.CAPTURE_ANIM_MS;
   const growMs = Math.max(1200, total - 700);
@@ -181,7 +270,7 @@ export async function playCapture({ sp, isNew, rewards, imageSrc }) {
   await sleep(revealAt - growMs);
   await ready;
 
-  showReveal({ sp, isNew, rewards, imageSrc: src });
+  showReveal({ sp, isNew, rewards, imageSrc: src, shiny });
   await waitForDismiss();
 }
 
