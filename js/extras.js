@@ -6,7 +6,7 @@ import {
   species, familyName, familyRarity, RARITY_NAMES, RULES,
   BREEDING_UNLOCK_LEVEL, BREEDING_CANDY_CAP, BREEDING_SLOTS_BY_LEVEL,
   MAX_CREATURE_LEVEL, CREATURE_LEVEL_COST, POI_OUTCOMES, SHINY_ODDS,
-  BONANZA_HOUR, STAT_LABELS
+  BONANZA_HOUR_START, BONANZA_HOUR_END, STAT_LABELS
 } from './data.js';
 import { store, maxHpOf, hpOf, isFainted } from './state.js';
 import { itemImage, ITEMS, itemsInOrder } from './items.js';
@@ -289,7 +289,7 @@ function renderInfo(tab = 'basics') {
         el('li', { html: `Nothing appears within <b>${RULES.MIN_SPAWN_SEPARATION_M} m</b> of another point, and grunts stay <b>${RULES.MIN_GRUNT_SEPARATION_M} m</b> apart.` })
       ),
       el('h4', { text: 'Shiny creatures' }),
-      el('p', { html: `Roughly <b>${pct(SHINY_ODDS.normal.spawn)}</b> of wild catches and <b>${pct(SHINY_ODDS.normal.raid)}</b> of raid catches are shiny — a colour variant, marked with a ★ in storage. Odds double during <b>Shiny Bonanza Hour</b> (${BONANZA_HOUR}:00–${BONANZA_HOUR + 1}:00 every day) and all of <b>Shiny Bonanza Day</b>, the last Saturday of the month.` })
+      el('p', { html: `Roughly <b>${pct(SHINY_ODDS.normal.spawn)}</b> of wild catches and <b>${pct(SHINY_ODDS.normal.raid)}</b> of raid catches are shiny — a colour variant, marked with a ★ in storage. Odds double during <b>Shiny Bonanza Hour</b> (5:30 PM–6:30 PM every day) and all of <b>Shiny Bonanza Day</b>, the last Saturday of the month.` })
     );
   }
 

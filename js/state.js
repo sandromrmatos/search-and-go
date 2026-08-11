@@ -30,7 +30,7 @@ function blankState() {
     xp: 0,
     stardust: 0,
     candy: {},          // familyRootId -> candy
-    inventory: {},      // itemId -> quantity
+    inventory: { capture_disc: 5 },      // start with 5 capturing discs
     storage: [],        // individual creatures
     registered: {},     // speciesId -> first registered at
 

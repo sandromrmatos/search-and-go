@@ -218,8 +218,9 @@ export const SHINY_ODDS = {
   bonanza: { spawn: 0.02, raid: 0.04 }
 };
 
-/** Shiny Bonanza Hour: local 17:00–17:59. */
-export const BONANZA_HOUR = 17;
+/** Shiny Bonanza Hour: local 17:30–18:30. */
+export const BONANZA_HOUR_START = 17.5;  // 17:30
+export const BONANZA_HOUR_END = 18.5;    // 18:30
 
 /* ---------------------------------------------------------------
    Move unlock luck (rolled once per captured creature, kept by the family)
@@ -747,8 +748,11 @@ export function isBonanzaDay(now = new Date()) {
   return probe.getMonth() !== now.getMonth();
 }
 
-/** 17:00–17:59 local = Shiny Bonanza Hour. */
-export const isBonanzaHour = (now = new Date()) => now.getHours() === BONANZA_HOUR;
+/** 17:30–18:30 local = Shiny Bonanza Hour. */
+export const isBonanzaHour = (now = new Date()) => {
+  const t = now.getHours() + now.getMinutes() / 60;
+  return t >= BONANZA_HOUR_START && t < BONANZA_HOUR_END;
+};
 
 export function bonanzaState(now = new Date()) {
   const day = isBonanzaDay(now);
