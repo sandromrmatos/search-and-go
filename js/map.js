@@ -66,8 +66,16 @@ export const GameMap = {
       zoomControl: false,
       attributionControl: true,
       tap: true,
-      worldCopyJump: true
+      worldCopyJump: true,
+      touchZoom: true,
+      // Allow two-finger rotation via CSS transform
+      rotate: true,
+      rotateControl: false,
+      bearing: 0
     }).setView([51.5079, -0.1283], 17);
+
+    // Two-finger rotation via touch events on the container
+    this._initRotation(containerId);
 
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
@@ -87,6 +95,42 @@ export const GameMap = {
   },
 
   invalidate() { setTimeout(() => this.map?.invalidateSize(), 60); },
+
+  /** Two-finger rotation using CSS transform on the map container. */
+  _initRotation(containerId) {
+    const el = document.getElementById(containerId);
+    let startAngle = null;
+    let currentRotation = 0;
+    let baseRotation = 0;
+
+    function angleBetweenTouches(t1, t2) {
+      return Math.atan2(t2.clientY - t1.clientY, t2.clientX - t1.clientX) * 180 / Math.PI;
+    }
+
+    el.addEventListener('touchstart', e => {
+      if (e.touches.length === 2) {
+        startAngle = angleBetweenTouches(e.touches[0], e.touches[1]);
+        baseRotation = currentRotation;
+      }
+    }, { passive: true });
+
+    el.addEventListener('touchmove', e => {
+      if (e.touches.length === 2 && startAngle !== null) {
+        const angle = angleBetweenTouches(e.touches[0], e.touches[1]);
+        currentRotation = baseRotation + (angle - startAngle);
+        el.style.transform = `rotate(${currentRotation}deg)`;
+      }
+    }, { passive: true });
+
+    el.addEventListener('touchend', () => { startAngle = null; }, { passive: true });
+
+    this._mapRotation = () => currentRotation;
+    this._resetRotation = () => {
+      currentRotation = 0;
+      baseRotation = 0;
+      el.style.transform = '';
+    };
+  },
 
   /* ---------------- player ---------------- */
 

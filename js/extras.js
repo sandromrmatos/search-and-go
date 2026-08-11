@@ -95,7 +95,8 @@ function missionRow(m) {
       el('div', { class: 'mission-meta' },
         el('span', { text: `${num(Math.min(m.progress, m.target))} / ${num(m.target)}` }),
         el('span', { class: 'r', text: `⭐ ${m.def.xp} XP` }),
-        el('span', { class: 'r', text: `${DUST_ICON} ${num(dust)}` })
+        el('span', { class: 'r', text: `${DUST_ICON} ${num(dust)}` }),
+        m.def.discs ? el('span', { class: 'r', text: `◉ ${m.def.discs} disc${m.def.discs > 1 ? 's' : ''}` }) : null
       )
     ),
     el('div', { class: 'mission-act' },
@@ -111,7 +112,9 @@ function missionRow(m) {
 function claim(id) {
   const r = store.claimMission(id);
   if (!r.ok) { toast('That mission cannot be claimed yet', 'bad'); return; }
-  toast(`${r.label} · +${r.xp} XP, +${num(r.dust)} stardust`, 'good', 3400);
+  let msg = `${r.label} · +${r.xp} XP, +${num(r.dust)} stardust`;
+  if (r.discs) msg += `, +${r.discs} Capturing Disc${r.discs > 1 ? 's' : ''}`;
+  toast(msg, 'good', 3400);
   if (r.levelUp.levelledUp) toast(`Player level ${r.levelUp.to}!`, 'good', 3200);
   renderMissions();
   refresh?.();
@@ -202,16 +205,71 @@ function emptySlot(index, inRange) {
       el('b', { text: `Slot ${index + 1} · empty` })
     ),
     el('div', { class: 'breed-next', text: pairs.length
-      ? 'Pick a species you own at least two of.'
+      ? 'Pick a species, then choose which two to leave.'
       : 'You need two of the same species (not fainted, not already inside).' }),
     pairs.length
       ? el('div', { class: 'btn-row wrap' }, ...pairs.slice(0, 8).map(pr =>
           el('button', {
             class: 'btn ghost', disabled: !inRange,
-            onclick: () => addPair(pr.uids[0], pr.uids[1])
+            onclick: () => openBreedingPicker(pr.speciesId)
           }, `${species(pr.speciesId).name} ×${pr.count}`)))
       : null
   );
+}
+
+/** Opens a picker to choose exactly 2 creatures of the given species. */
+let breedPickSpecies = null;
+let breedPicked = [];
+
+function openBreedingPicker(speciesId) {
+  breedPickSpecies = speciesId;
+  breedPicked = [];
+  renderBreedingPicker();
+  openSheet('picker');
+}
+
+function renderBreedingPicker() {
+  const sp = species(breedPickSpecies);
+  const available = store.s.storage.filter(c =>
+    c.speciesId === breedPickSpecies && c.breeding == null
+  );
+
+  $('#picker-title').textContent = `Choose 2 ${sp.name} to leave`;
+  $('#picker-hint').textContent = `${available.length} available. Tap two to select them.`;
+  $('#picker-empty').classList.add('hidden');
+
+  const grid = $('#picker-grid');
+  grid.innerHTML = '';
+  for (const c of available) {
+    const s = sp;
+    const picked = breedPicked.includes(c.uid);
+    grid.append(el('button', {
+      class: 'cell' + (picked ? ' picked' : ''),
+      onclick: () => {
+        if (picked) {
+          breedPicked = breedPicked.filter(u => u !== c.uid);
+        } else if (breedPicked.length < 2) {
+          breedPicked.push(c.uid);
+        }
+        if (breedPicked.length === 2) {
+          closeSheet('picker');
+          addPair(breedPicked[0], breedPicked[1]);
+          breedPicked = [];
+        } else {
+          renderBreedingPicker();
+        }
+      }
+    },
+      picked ? el('span', { class: 'pick-order', text: String(breedPicked.indexOf(c.uid) + 1) }) : null,
+      el('span', { class: 'lvl', text: 'Lv' + c.level }),
+      c.shiny ? el('span', { class: 'shiny-star', text: '★' }) : null,
+      el('img', { src: s.spritePath(c.shiny), alt: s.name, loading: 'lazy' }),
+      el('span', { class: 'nm', text: s.name }),
+      el('span', { class: 'sub', text: `Lv ${c.level}` })
+    ));
+  }
+  // update hint with pick count
+  $('#picker-hint').textContent = `${breedPicked.length} of 2 selected · ${available.length} available`;
 }
 
 /** Species the player owns two or more free copies of. */

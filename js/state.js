@@ -33,6 +33,8 @@ function blankState() {
     inventory: { capture_disc: 5 },      // start with 5 capturing discs
     storage: [],        // individual creatures
     registered: {},     // speciesId -> first registered at
+    shinyCaught: {},   // speciesId -> true when a shiny of this species has been caught
+    caughtCount: {},   // speciesId -> total number ever caught (including released)
 
     points: [],         // live map points of every kind
     effects: { incense: null, magnet: null },
@@ -91,6 +93,8 @@ function migrate(raw) {
     candy: { ...(raw.candy || {}) },
     inventory: { ...(raw.inventory || {}) },
     registered: { ...(raw.registered || {}) },
+    shinyCaught: { ...(raw.shinyCaught || {}) },
+    caughtCount: { ...(raw.caughtCount || {}) },
     stats: { ...base.stats, ...(raw.stats || {}) },
     debug: { ...base.debug, ...(raw.debug || {}) },
     ui: { ...base.ui, ...(raw.ui || {}) },
@@ -179,6 +183,25 @@ function migrate(raw) {
     if (n > maxUid) maxUid = n;
   }
   s.nextUid = Math.max(Number(s.nextUid) || 1, maxUid + 1);
+
+  // ---- backfill shinyCaught from existing storage (for old saves) ----
+  for (const c of s.storage) {
+    if (c.shiny && c.speciesId) s.shinyCaught[c.speciesId] = true;
+  }
+
+  // ---- backfill caughtCount from storage (for old saves without it) ----
+  // Use current storage count as the minimum — the real total is at least that.
+  for (const c of s.storage) {
+    if (!c.speciesId) continue;
+    if (!s.caughtCount[c.speciesId]) s.caughtCount[c.speciesId] = 0;
+    s.caughtCount[c.speciesId]++;
+  }
+  // But don't lower an existing count (catches after the update are already tracked)
+  for (const [id, n] of Object.entries(s.caughtCount)) {
+    const inStorage = s.storage.filter(c => c.speciesId === id).length;
+    if (n < inStorage) s.caughtCount[id] = inStorage;
+  }
+
   return s;
 }
 
@@ -315,6 +338,8 @@ class Store {
   /* ---------------- collection ---------------- */
 
   isRegistered(speciesId) { return !!this.s.registered[speciesId]; }
+  hasShinyCaught(speciesId) { return !!this.s.shinyCaught?.[speciesId]; }
+  totalCaughtOf(speciesId) { return this.s.caughtCount?.[speciesId] || 0; }
   get registeredCount() { return Object.keys(this.s.registered).length; }
 
   register(speciesId) {
@@ -511,7 +536,7 @@ class Store {
 
     const magnet = this.isMagnetActive();
     const candy = candyForCapture(rarity) + (opts.bonusCandy || 0);
-    const dust = dustForCapture(rarity, this.level) + (magnet ? RULES.MAGNET_BONUS_DUST : 0);
+    const dust = dustForCapture(rarity, this.level) + (magnet ? RULES.MAGNET_BONUS_MULTIPLIER * this.level : 0);
     const xp = xpForCapture(rarity);
 
     const isNew = this.register(sp.id);
@@ -520,7 +545,11 @@ class Store {
     const levelUp = this.addXP(xp);
 
     this.s.stats.captures++;
-    if (creature.shiny) this.s.stats.shinies++;
+    this.s.caughtCount[sp.id] = (this.s.caughtCount[sp.id] || 0) + 1;
+    if (creature.shiny) {
+      this.s.stats.shinies++;
+      this.s.shinyCaught[sp.id] = true;
+    }
     this.bumpDaily('capturesToday');
 
     this.touch('capture', { immediate: true });
@@ -575,6 +604,7 @@ class Store {
   canLevelUp(uid) {
     const c = this.creature(uid);
     if (!c) return { ok: false, reason: 'missing' };
+    if (c.breeding != null) return { ok: false, reason: 'breeding' };
     if (c.level >= MAX_CREATURE_LEVEL) return { ok: false, reason: 'max', cost: null };
 
     const cost = levelUpCost(c.level);
@@ -879,6 +909,10 @@ class Store {
     this.addStardust(dust);
     const levelUp = this.addXP(m.def.xp);
 
+    // Bonus items (e.g. capture discs on daily missions)
+    const bonusDiscs = m.def.discs || 0;
+    if (bonusDiscs > 0) this.addItem('capture_disc', bonusDiscs);
+
     if (m.daily) {
       this.s.daily.claimed = this.s.daily.claimed || {};
       this.s.daily.claimed[id] = Date.now();
@@ -886,7 +920,7 @@ class Store {
       this.s.missions[id] = { claimedAt: Date.now() };
     }
     this.touch('mission', { immediate: true });
-    return { ok: true, xp: m.def.xp, dust, levelUp, label: m.def.label };
+    return { ok: true, xp: m.def.xp, dust, levelUp, label: m.def.label, discs: bonusDiscs };
   }
 
   /* ---------------- debug / ui ---------------- */

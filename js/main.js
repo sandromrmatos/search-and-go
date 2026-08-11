@@ -469,6 +469,11 @@ function initUI() {
     GameMap.recenter();
     if (!Geo.current) toast('No location yet', 'bad');
   });
+  $('#btn-hide-chip').addEventListener('click', () => {
+    const wrap = $('#reset-chip-wrap');
+    const hidden = wrap.classList.toggle('chip-hidden');
+    $('#btn-hide-chip').textContent = hidden ? '⟳' : '✕';
+  });
   // There is deliberately no manual refresh — spawns only re-roll on the timer.
 
   initBattleUI({ onDone: () => { syncMap(); refreshAll(); } });
@@ -514,8 +519,10 @@ function initUI() {
   $('#filter-type').addEventListener('change', e => { store.setUI({ filterType: e.target.value }); renderCollection(); });
   $('#filter-stage').addEventListener('change', e => { store.setUI({ filterStage: e.target.value }); renderCollection(); });
   $('#filter-rarity').addEventListener('change', e => { store.setUI({ filterRarity: e.target.value }); renderCollection(); });
+  $('#collection-sort').addEventListener('change', () => renderCollection());
   $('#filter-reset').addEventListener('click', () => {
     store.setUI({ filterType: '', filterStage: '', filterRarity: '' });
+    if ($('#collection-sort')) $('#collection-sort').value = 'id';
     renderCollection();
   });
   $('#set-prev').addEventListener('click', () => {

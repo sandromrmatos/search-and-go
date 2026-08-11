@@ -369,7 +369,7 @@ function renderCreatureSheet() {
     ),
 
     el('div', { class: 'det-head' },
-      el('img', { src: s.imagePath, alt: s.name }),
+      el('img', { src: s.spritePath(c.shiny), alt: s.name }),
       el('div', { class: 'det-title' },
         el('h3', { text: s.name }),
         el('div', { class: 'id', text: s.id }),
@@ -603,6 +603,8 @@ async function doEvolve(uid) {
     from,
     to: result.to,
     isNew: result.isNew,
+    fromSrc: from.spritePath(result.shiny),
+    toSrc: result.to.spritePath(result.shiny),
     rewards: [
       { icon: CANDY_ICON, label: `−${num(result.cost)} candy` },
       { icon: '⭐', label: `+${result.xp} XP` },
@@ -652,12 +654,18 @@ export function renderCollection() {
   $('#filter-stage').value = ui.filterStage || '';
   $('#filter-rarity').value = ui.filterRarity || '';
 
-  const list = DB.species.filter(s => {
+  let list = DB.species.filter(s => {
     if (ui.filterType && s.type !== ui.filterType) return false;
     if (ui.filterStage && String(s.stage) !== String(ui.filterStage)) return false;
     if (ui.filterRarity && String(s.rarity ?? '') !== String(ui.filterRarity)) return false;
     return true;
   });
+
+  // Sort collection
+  const collSort = $('#collection-sort')?.value || 'id';
+  if (collSort === 'caught') {
+    list = [...list].sort((a, b) => store.countOfSpecies(b.id) - store.countOfSpecies(a.id) || a.order - b.order);
+  }
 
   const registeredHere = list.filter(s => store.isRegistered(s.id)).length;
   $('#collection-count').textContent =
@@ -694,11 +702,27 @@ export function openSpeciesSheet(speciesId) {
   const rarity = s.rarity;
   const chain = (DB.familyMembers.get(familyRoot(s.id)) || []).map(id => species(id));
 
+  const hasShiny = store.hasShinyCaught(s.id);
+  let showingShiny = false;
+
+  const img = el('img', { src: s.imagePath, alt: s.name, class: known ? '' : 'locked' });
+  const shinyBtn = hasShiny
+    ? el('button', {
+        class: 'btn ghost shiny-toggle',
+        onclick: () => {
+          showingShiny = !showingShiny;
+          img.src = showingShiny ? s.shinyPath : s.imagePath;
+          shinyBtn.textContent = showingShiny ? '★ Showing shiny' : '☆ Show shiny';
+          shinyBtn.classList.toggle('fav-active', showingShiny);
+        }
+      }, '☆ Show shiny')
+    : null;
+
   const body = $('#sheet-body');
   body.innerHTML = '';
   body.append(
     el('div', { class: 'det-head' },
-      el('img', { src: s.imagePath, alt: s.name, class: known ? '' : 'locked' }),
+      img,
       el('div', { class: 'det-title' },
         el('h3', { text: known ? s.name : '???' }),
         el('div', { class: 'id', text: s.id }),
@@ -706,8 +730,10 @@ export function openSpeciesSheet(speciesId) {
           el('span', { class: 'tag', text: s.stageLabel }),
           el('span', { class: `tag t-${s.type}`, text: s.type }),
           rarity ? el('span', { class: `tag r-${rarity}`, text: `${rarity} · ${RARITY_NAMES[rarity]}` }) : null,
-          el('span', { class: 'tag', text: known ? 'Registered' : 'Not registered' })
-        )
+          el('span', { class: 'tag', text: known ? 'Registered' : 'Not registered' }),
+          hasShiny ? el('span', { class: 'tag r-5', text: '★ Shiny caught' }) : null
+        ),
+        shinyBtn
       )
     ),
 
@@ -736,6 +762,11 @@ export function openSpeciesSheet(speciesId) {
         el('span', { text: '🎒' }),
         el('span', { text: 'In storage' }),
         el('b', { text: num(owned) })
+      ),
+      el('div', { class: 'det-row' },
+        el('span', { text: '🏆' }),
+        el('span', { text: 'Total caught' }),
+        el('b', { text: num(store.totalCaughtOf(s.id)) })
       ),
       el('div', { class: 'det-row' },
         el('span', { text: CANDY_ICON }),

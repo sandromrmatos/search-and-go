@@ -54,10 +54,13 @@
     <section class="view view-map active" id="view-map">
       <div id="map"></div>
       <div class="map-overlay-top">
-        <div id="reset-chip" class="reset-chip">
-          <span class="reset-ico">⟳</span>
-          <span class="reset-label">Spawns reset in</span>
-          <b id="next-scan">--:--</b>
+        <div id="reset-chip-wrap" class="reset-chip-wrap">
+          <div id="reset-chip" class="reset-chip">
+            <span class="reset-ico">⟳</span>
+            <span class="reset-label">Spawns reset in</span>
+            <b id="next-scan">--:--</b>
+          </div>
+          <button id="btn-hide-chip" class="chip-toggle" title="Hide/show timer">✕</button>
         </div>
         <div id="effect-chips" class="effect-chips"></div>
         <div id="geo-status" class="geo-status">Locating…</div>
@@ -143,6 +146,13 @@
               <option value="3">3 · Rare</option>
               <option value="4">4 · Epic</option>
               <option value="5">5 · Legendary</option>
+            </select>
+          </label>
+          <label class="sel">
+            <span>Sort</span>
+            <select id="collection-sort">
+              <option value="id">ID</option>
+              <option value="caught">Times caught</option>
             </select>
           </label>
           <button id="filter-reset" class="mini-btn">Reset</button>

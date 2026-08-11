@@ -67,7 +67,7 @@ export const ITEMS = {
     use: 'timed',
     order: 6,
     durationMs: RULES.MAGNET_DURATION_MS,
-    blurb: `For 15 minutes every creature you catch gives +${RULES.MAGNET_BONUS_DUST} stardust.`
+    blurb: `For 15 minutes every creature you catch gives an additional 4× your player level in stardust.`
   },
   breeding_center: {
     id: 'breeding_center',

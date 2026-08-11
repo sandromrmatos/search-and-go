@@ -19,7 +19,7 @@ export const ITEM_DIR = 'items';
    --------------------------------------------------------------- */
 export const RULES = {
   SCAN_RADIUS_M: 250,           // POI search radius around the player
-  CAPTURE_RANGE_M: 10,         // must be this close to interact with anything
+  CAPTURE_RANGE_M: 20,         // must be this close to interact with anything
   MIN_SPAWN_SEPARATION_M: 15,   // no two map points within 15 m
   MIN_GRUNT_SEPARATION_M: 25,   // grunts also keep 25 m from each other
   SCAN_INTERVAL_MS: 5 * 60_000, // everything re-rolls every 5 minutes
@@ -46,7 +46,7 @@ export const RULES = {
 
   // Stardust magnet
   MAGNET_DURATION_MS: 15 * 60_000,
-  MAGNET_BONUS_DUST: 2
+  MAGNET_BONUS_MULTIPLIER: 4   // bonus = 4 × playerLevel per capture
 };
 
 /**
@@ -63,9 +63,9 @@ export const POI_OUTCOMES = [
 
 /** A "discs" point rolls one of these payloads. */
 export const DISC_DROPS = [
-  { weight: 90, items: { capture_disc: 1 } },
-  { weight: 5,  items: { capture_disc: 2 } },
-  { weight: 5,  items: { ultra_disc: 1 } }
+  { weight: 70, items: { capture_disc: 1 } },
+  { weight: 20, items: { capture_disc: 2 } },
+  { weight: 10, items: { ultra_disc: 1 } }
 ];
 
 /** An "items" point rolls one of these payloads. */
@@ -136,7 +136,7 @@ export const LEVEL_UP_REWARDS = {
 export const MAX_PLAYER_LEVEL = 15;
 
 /** Every player level past 1 adds this much to any stardust reward. */
-export const DUST_BONUS_PER_PLAYER_LEVEL = 1;
+export const DUST_BONUS_PER_PLAYER_LEVEL = 3;
 
 /* ---------------------------------------------------------------
    Types and battle
@@ -264,9 +264,9 @@ export const MISSIONS = [
 ];
 
 export const DAILY_MISSIONS = [
-  { id: 'daily5',  kind: 'capturesToday', target: 5,  xp: 5,  dust: 20, label: 'Catch 5 creatures today' },
-  { id: 'daily20', kind: 'capturesToday', target: 20, xp: 10, dust: 30, label: 'Catch 20 creatures today' },
-  { id: 'daily50', kind: 'capturesToday', target: 50, xp: 20, dust: 50, label: 'Catch 50 creatures today' }
+  { id: 'daily5',  kind: 'capturesToday', target: 5,  xp: 5,  dust: 20, discs: 2, label: 'Catch 5 creatures today' },
+  { id: 'daily20', kind: 'capturesToday', target: 20, xp: 10, dust: 30, discs: 2, label: 'Catch 20 creatures today' },
+  { id: 'daily50', kind: 'capturesToday', target: 50, xp: 20, dust: 50, discs: 2, label: 'Catch 50 creatures today' }
 ];
 
 /* ---------------------------------------------------------------
