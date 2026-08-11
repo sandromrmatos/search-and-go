@@ -3,19 +3,29 @@
    ============================================================ */
 
 import {
-  loadDatabase, DB, RULES, SETS, RARITY_NAMES, species, familyName
+  loadDatabase, DB, RULES, SETS, RARITY_NAMES, species, familyName,
+  BREEDING_UNLOCK_LEVEL
 } from './data.js';
 import { Persist } from './persist.js';
 import { store } from './state.js';
 import { Geo, distance, parseCoords, formatDistance, offsetMeters } from './geo.js';
 import { fetchPOIs, clearPOICache } from './osm.js';
-import { runScan, debugSpawnAt, msUntilNextScan, formatCountdown, isScanning } from './spawns.js';
+import { describeDrop } from './items.js';
+import {
+  runScan, debugPointAt, tickIncense, msUntilNextScan, formatCountdown, isScanning
+} from './spawns.js';
 import { GameMap } from './map.js';
 import { playCapture } from './anim.js';
+import { initBattleUI, openBattle, isBattleOpen } from './battleui.js';
 import {
   renderHUD, renderStorage, renderCollection, renderProfile, renderSaveStatus,
-  initCollectionFilters, refreshAll, renderView
+  initCollectionFilters, refreshAll, renderView, renderStorageTabs,
+  renderEffectChips, openNicknamePrompt, setViewHooks
 } from './views.js';
+import {
+  initExtras, renderMissions, renderMissionBadge, openBreeding
+} from './extras.js';
+import { setMissionsRenderer } from './views.js';
 import { $, $$, el, toast, wireSheetClosers, openSheet, closeSheet, num } from './ui.js';
 
 const CANDY_ICON = '🍬';
@@ -56,10 +66,11 @@ async function boot() {
     dlog(`Save loaded from: ${src}`);
 
     msg('Setting up…');
+    setMissionsRenderer(renderMissions);
     initUI();
     try {
       GameMap.init('map');
-      GameMap.onSpawnClick = tryCapture;
+      GameMap.onSpawnClick = onPointTap;
     } catch (mapErr) {
       // Storage and Collection still work without a map, so don't kill the app.
       console.error(mapErr);
@@ -78,6 +89,7 @@ async function boot() {
     Geo.start();
 
     refreshAll();
+    renderMissionBadge();
     syncMap();
     startLoop();
 
@@ -86,6 +98,9 @@ async function boot() {
     GameMap.invalidate();
 
     onLocation(Geo.current);
+
+    // Ask for a nickname the very first time someone plays.
+    if (!store.nickname) openNicknamePrompt({ firstRun: true });
 
     // First scan of the session, as soon as we know where we are.
     scanWhenReady();
@@ -138,26 +153,29 @@ async function scanWhenReady() {
 /* ===============================================================
    Scanning
    =============================================================== */
-async function doScan({ chance = RULES.SPAWN_CHANCE, force = false, reason = 'auto' } = {}) {
+async function doScan({ force = false, reason = 'auto', forceKind = null, alwaysGrunt = false } = {}) {
   const pos = Geo.current;
   if (!pos) { toast('No location yet — set one in 🛠 debug', 'bad'); return; }
   if (isScanning()) return;
 
-  const btn = $('#btn-rescan');
-  btn.classList.add('spin');
   updateResetChip();
 
   try {
-    const r = await runScan(pos, { chance, force });
-    lastPOIs = r.pois;
-    dlog(`Scan (${reason}): ${r.candidates} POIs · ${r.created.length} new spawns · skipped ${r.skipped.occupied} occupied, ${r.skipped.tooClose} too close, ${r.skipped.roll} failed roll`);
+    const r = await runScan(pos, { force, forceKind, alwaysGrunt });
+    const c = r.counts;
+    dlog(`Scan (${reason}): ${r.places} places + ${r.parks} parks · ` +
+         `${c.creature} creatures, ${c.discs} discs, ${c.items} items, ${c.raid} raids, ${c.grunt} grunts · ` +
+         `skipped ${r.skipped.occupied} occupied, ${r.skipped.tooClose} too close, ${r.skipped.nothing} empty`);
 
-    if (store.s.debug.showPois) GameMap.showPOIs(lastPOIs);
+    if (store.s.debug.showPois) {
+      lastPOIs = await fetchPOIs(pos.lat, pos.lng, RULES.SCAN_RADIUS_M).catch(() => []);
+      GameMap.showPOIs(lastPOIs);
+    }
 
     const mins = RULES.SCAN_INTERVAL_MS / 60_000;
-    if (!r.candidates) toast(`No shops or amenities mapped within ${RULES.SCAN_RADIUS_M} m`, 'bad', 3200);
-    else if (r.created.length) toast(`${r.created.length} new spawn${r.created.length > 1 ? 's' : ''} appeared`, 'good');
-    else toast(`No spawns this time — next reset in ${mins} min`);
+    if (!r.pois) toast(`Nothing mapped within ${RULES.SCAN_RADIUS_M} m`, 'bad', 3200);
+    else if (r.created.length) toast(`${r.created.length} new point${r.created.length > 1 ? 's' : ''} appeared`, 'good');
+    else toast(`Nothing appeared — next reset in ${mins} min`);
 
     scanCooldownUntil = 0;
     syncMap();
@@ -166,7 +184,6 @@ async function doScan({ chance = RULES.SPAWN_CHANCE, force = false, reason = 'au
     dlog('Scan failed: ' + (e.message || e));
     toast('POI lookup failed: ' + (e.message || 'network error'), 'bad', 4000);
   } finally {
-    btn.classList.remove('spin');
     onLocation(Geo.current);
     updateResetChip();
   }
@@ -175,48 +192,106 @@ async function doScan({ chance = RULES.SPAWN_CHANCE, force = false, reason = 'au
 /* ===============================================================
    Capture
    =============================================================== */
-async function tryCapture(spawn) {
-  if (capturing) return;
-  const live = store.spawn(spawn.id);
-  if (!live) { toast('That spawn is gone', 'bad'); syncMap(); return; }
-  if (live.expiresAt <= Date.now()) {
-    store.removeSpawn(live.id);
-    syncMap();
-    toast('It despawned just in time…', 'bad');
-    return;
-  }
-
+/* ===============================================================
+   Breeding centre placement
+   =============================================================== */
+function placeBreedingCentre() {
   const pos = Geo.current;
   if (!pos) { toast('Waiting for your location…', 'bad'); return; }
+  if (store.s.breeding) { toast('Your breeding centre is already on the map', 'bad'); return; }
+  if (!store.breedingUnlocked) {
+    toast(`Breeding centres unlock at player level ${BREEDING_UNLOCK_LEVEL}`, 'bad', 3600);
+    return;
+  }
+  if (!confirm('Pin your breeding centre here? It stays at these coordinates permanently.')) return;
+
+  const r = store.placeBreedingCentre(pos.lat, pos.lng);
+  if (!r.ok) {
+    toast(r.reason === 'noItem' ? 'You have no Breeding Centre' : 'Could not place it', 'bad');
+    return;
+  }
+  closeSheet('sheet');
+  syncMap();
+  GameMap.recenter();
+  dlog(`Breeding centre placed at ${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}`);
+  toast('Breeding centre placed', 'good', 3200);
+  refreshAll();
+}
+
+/** Common gate: the point must still be live, uncollected and within 5 m. */
+function checkInteractable(point) {
+  const live = store.point(point.id);
+  if (!live) { toast('That point is gone', 'bad'); syncMap(); return null; }
+  if (live.expiresAt <= Date.now()) {
+    store.pruneExpired();
+    syncMap();
+    toast('It vanished just in time…', 'bad');
+    return null;
+  }
+  if (live.collected) { toast('You have already collected this one', 'bad'); return null; }
+
+  const pos = Geo.current;
+  if (!pos) { toast('Waiting for your location…', 'bad'); return null; }
 
   const d = distance(pos, live);
   if (d > RULES.CAPTURE_RANGE_M && !store.s.debug.ignoreRange) {
     toast(`Too far away — ${formatDistance(d)}. Get within ${RULES.CAPTURE_RANGE_M} m.`, 'bad');
+    return null;
+  }
+  return live;
+}
+
+/** Routes a tap on the map to whatever that point actually is. */
+async function onPointTap(point) {
+  if (capturing) return;
+  const live = checkInteractable(point);
+  if (!live) return;
+
+  if (live.kind === 'creature') return captureCreature(live);
+  if (live.kind === 'discs' || live.kind === 'items') return collectItems(live);
+  if (live.kind === 'raid' || live.kind === 'grunt') return openBattle(live);
+}
+
+/** Picking up a disc or item point. */
+function collectItems(live) {
+  const gained = store.addItems(live.drop || {});
+  store.markCollected(live.id);
+  syncMap();
+  if (!gained) return;
+  const label = describeDrop(live.drop);
+  dlog(`Collected ${label} at "${live.poiName}"`);
+  toast(`Collected ${label}`, 'good', 3200);
+  refreshAll();
+}
+
+/** Capturing a wild creature — needs a capturing disc. */
+async function captureCreature(live) {
+  if (!store.hasItem('capture_disc')) {
+    toast("You have no Capturing Discs, so you can't capture this creature", 'bad', 4200);
     return;
   }
 
   capturing = true;
   try {
-    // Remove first so a double tap cannot capture twice.
-    store.removeSpawn(live.id);
+    // Mark collected up front so a double tap cannot capture twice.
+    store.markCollected(live.id);
+    store.spendItem('capture_disc');
     syncMap();
 
-    const res = store.capture(live, {
-      poiId: live.poiId, poiName: live.poiName,
-      lat: live.lat, lng: live.lng
-    });
+    const res = store.capture(live, { origin: live.source === 'incense' ? 'incense' : 'wild' });
+    const sprite = res.sp.spritePath(res.shiny);
 
-    dlog(`Captured ${res.sp.name} (R${res.rarity}) at "${live.poiName}" · +${res.candy} candy, +${res.dust} dust, +${res.xp} XP${res.isNew ? ' · NEW' : ''}`);
+    dlog(`Captured ${res.sp.name} (R${res.rarity})${res.shiny ? ' SHINY' : ''} at "${live.poiName}" · ` +
+         `+${res.candy} candy, +${res.dust} dust, +${res.xp} XP${res.isNew ? ' · NEW' : ''}`);
 
-    await playCapture({
-      sp: res.sp,
-      isNew: res.isNew,
-      rewards: [
-        { icon: CANDY_ICON, label: `+${res.candy} ${familyName(res.sp.id)} candy` },
-        { icon: DUST_ICON, label: `+${num(res.dust)} stardust` },
-        { icon: '⭐', label: `+${res.xp} XP` }
-      ]
-    });
+    const rewards = [
+      { icon: CANDY_ICON, label: `+${res.candy} ${familyName(res.sp.id)} candy` },
+      { icon: DUST_ICON, label: `+${num(res.dust)} stardust${res.magnet ? ' (magnet)' : ''}` },
+      { icon: '⭐', label: `+${res.xp} XP` }
+    ];
+    if (res.shiny) rewards.unshift({ icon: '✨', label: 'Shiny!' });
+
+    await playCapture({ sp: res.sp, isNew: res.isNew, rewards, imageSrc: sprite });
 
     if (res.levelUp.levelledUp) toast(`Player level ${res.levelUp.to}!`, 'good', 3200);
     refreshAll();
@@ -256,10 +331,11 @@ function updateResetChip(now = Date.now()) {
 }
 
 function syncMap() {
-  const active = store.activeSpawns();
-  GameMap.syncSpawns(active);
-  const n = active.length;
-  $('#spawn-count').textContent = n === 1 ? '1 spawn active' : `${n} spawns active`;
+  const active = store.activePoints();
+  GameMap.syncPoints(active);
+  GameMap.syncBreeding(store.s.breeding);
+  const open = active.filter(p => !p.collected).length;
+  $('#spawn-count').textContent = open === 1 ? '1 point active' : `${open} points active`;
 }
 
 function startLoop() {
@@ -274,7 +350,18 @@ function startLoop() {
 
     GameMap.tick(now, Geo.current);
 
+    // Incense drops a creature at the player's feet every two minutes.
+    if (store.clearExpiredEffects(now)) refreshAll();
+    if (store.isIncenseActive(now) && Geo.current) {
+      const p = tickIncense(Geo.current, now);
+      if (p) {
+        dlog(`Incense spawned a creature (${Math.round(RULES.LIFETIME_MS.incense[0] / 1000)} s)`);
+        syncMap();
+      }
+    }
+
     updateResetChip(now);
+    renderEffectChips(now);
 
     const until = msUntilNextScan(now);
     if (until <= 0 && !isScanning() && Geo.current && !capturing && now >= scanCooldownUntil) {
@@ -310,7 +397,35 @@ function initUI() {
     GameMap.recenter();
     if (!Geo.current) toast('No location yet', 'bad');
   });
-  $('#btn-rescan').addEventListener('click', () => doScan({ force: true, reason: 'manual' }));
+  // There is deliberately no manual refresh — spawns only re-roll on the timer.
+
+  initBattleUI({ onDone: () => { syncMap(); refreshAll(); } });
+  initExtras({ onChange: () => { refreshAll(); renderMissionBadge(); } });
+
+  // Tapping the flag on the map opens the breeding centre, if you are close enough.
+  GameMap.onBreedingClick = centre => {
+    const pos = Geo.current;
+    const near = pos && (distance(pos, centre) <= RULES.CAPTURE_RANGE_M || store.s.debug.ignoreRange);
+    openBreeding({ inRange: !!near });
+    if (!near) {
+      toast(`Get within ${RULES.CAPTURE_RANGE_M} m of your breeding centre to use it`, 'bad', 3400);
+    }
+  };
+
+  // views needs a couple of map-aware actions
+  setViewHooks({
+    placeBreeding: placeBreedingCentre,
+    effectsChanged: () => { syncMap(); renderEffectChips(); }
+  });
+
+  // ---- storage tabs ----
+  $$('.tabs .tab').forEach(btn => btn.addEventListener('click', () => {
+    store.setUI({ storageTab: btn.dataset.tab });
+    renderStorage();
+  }));
+
+  // ---- nickname ----
+  $('#btn-edit-nick').addEventListener('click', () => openNicknamePrompt({ firstRun: false }));
 
   // ---- storage sorting ----
   $('#storage-sort').addEventListener('change', e => {
@@ -410,8 +525,8 @@ function initUI() {
 
   initDebugPanel();
 
-  // repaint the HUD whenever the save changes
-  store.subscribe(() => renderHUD());
+  // repaint the HUD and the missions badge whenever the save changes
+  store.subscribe(() => { renderHUD(); renderMissionBadge(); });
 }
 
 /* ===============================================================
@@ -499,16 +614,24 @@ function initDebugPanel() {
   });
 
   $('#dbg-scan').addEventListener('click', () => { closeSheet('debug'); doScan({ force: true, reason: 'debug' }); });
-  $('#dbg-force').addEventListener('click', () => { closeSheet('debug'); doScan({ chance: 1, force: true, reason: 'debug 100%' }); });
   $('#dbg-clear-spawns').addEventListener('click', () => {
-    store.clearSpawns();
+    store.clearPoints();
     syncMap();
-    toast('All spawns cleared');
+    toast('All map points cleared');
   });
+  $$('#debug [data-spawn]').forEach(btn => btn.addEventListener('click', () => {
+    const pos = Geo.current;
+    if (!pos) { toast('No location yet', 'bad'); return; }
+    const kind = btn.dataset.spawn;
+    debugPointAt(offsetMeters(pos, 2, 1), kind);
+    syncMap();
+    closeSheet('debug');
+    toast(`Debug ${kind} point created`, 'good');
+  }));
   $('#dbg-spawn-here').addEventListener('click', () => {
     const pos = Geo.current;
     if (!pos) { toast('No location yet', 'bad'); return; }
-    const s = debugSpawnAt(offsetMeters(pos, 2, 1));
+    const s = debugPointAt(offsetMeters(pos, 2, 1), 'creature');
     syncMap();
     closeSheet('debug');
     toast(`Debug spawn created (${species(s.speciesId).name} hidden until captured)`, 'good');
@@ -525,6 +648,12 @@ function initDebugPanel() {
     if (what === 'candy') {
       for (const rootId of DB.familyMembers.keys()) store.addCandy(rootId, 50);
       toast('+50 candy for every family', 'good');
+    }
+    if (what === 'discs') { store.addItem('capture_disc', 10); toast('+10 Capturing Discs', 'good'); }
+    if (what === 'items') {
+      for (const id of ['capture_disc', 'ultra_disc', 'potion', 'revive',
+                        'incense', 'stardust_magnet', 'breeding_center']) store.addItem(id, 5);
+      toast('+5 of every item', 'good');
     }
     store.touch('debug-give', { immediate: true });
     refreshAll();
@@ -549,4 +678,4 @@ function applyDebugLocation() {
 boot();
 
 // handy for poking around from devtools
-window.SAG = { store, Geo, GameMap, DB, doScan, tryCapture, syncMap, Persist, dlog };
+window.SAG = { store, Geo, GameMap, DB, doScan, onPointTap, syncMap, Persist, dlog };

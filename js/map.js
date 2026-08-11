@@ -6,15 +6,43 @@ import { RULES } from './data.js';
 import { distance } from './geo.js';
 import { timeLeftLabel } from './ui.js';
 
-const STAR_HTML = `
-  <div class="glow"></div>
-  <div class="stars">
-    <span class="s s1">✦</span>
-    <span class="s s2">✧</span>
-    <span class="s s3">★</span>
-    <span class="s s4">✩</span>
-    <span class="s s5">✫</span>
-  </div>`;
+/* Each kind of map point gets its own unmistakable icon. */
+const ICON_HTML = {
+  creature: `
+    <div class="glow"></div>
+    <div class="stars">
+      <span class="s s1">✦</span>
+      <span class="s s2">✧</span>
+      <span class="s s3">★</span>
+      <span class="s s4">✩</span>
+      <span class="s s5">✫</span>
+    </div>`,
+  discs: `
+    <div class="glow glow-disc"></div>
+    <div class="icon-wrap"><span class="ico-disc">◉</span></div>`,
+  items: `
+    <div class="glow glow-item"></div>
+    <div class="icon-wrap"><span class="ico-bang">!</span></div>`,
+  raid: `
+    <div class="glow glow-raid"></div>
+    <div class="icon-wrap"><span class="ico-flame">🔥</span></div>`,
+  grunt: `
+    <div class="glow glow-grunt"></div>
+    <div class="icon-wrap"><span class="ico-grunt">🧍</span></div>`
+};
+
+const GRUNT_GLYPH = {
+  young_man: '🧑', young_woman: '👩', adult_man: '👨', adult_woman: '👩‍🦰'
+};
+
+function iconFor(point) {
+  if (point.kind === 'grunt') {
+    const glyph = GRUNT_GLYPH[point.grunt?.character] || '🧍';
+    return `<div class="glow glow-grunt"></div>
+            <div class="icon-wrap"><span class="ico-grunt">${glyph}</span></div>`;
+  }
+  return ICON_HTML[point.kind] || ICON_HTML.creature;
+}
 
 export const GameMap = {
   map: null,
@@ -23,9 +51,12 @@ export const GameMap = {
   scanCircle: null,
   spawnLayer: null,
   poiLayer: null,
-  markers: new Map(),   // spawnId -> { marker, el, timerEl, spawn }
+  breedingLayer: null,
+  breedingMarker: null,
+  markers: new Map(),   // pointId -> { marker, el, timerEl, point }
   poiMarkers: new Map(),
   onSpawnClick: null,
+  onBreedingClick: null,
   followMe: true,
   _lastPos: null,
 
@@ -46,6 +77,7 @@ export const GameMap = {
     L.control.zoom({ position: 'topright' }).addTo(this.map);
 
     this.poiLayer = L.layerGroup().addTo(this.map);
+    this.breedingLayer = L.layerGroup().addTo(this.map);
     this.spawnLayer = L.layerGroup().addTo(this.map);
 
     // Any manual pan turns off auto-follow so the map stops fighting the user.
@@ -112,10 +144,10 @@ export const GameMap = {
 
   /* ---------------- spawns ---------------- */
 
-  /** Adds/removes markers so the map matches the given spawn list. */
-  syncSpawns(spawns) {
+  /** Adds/removes markers so the map matches the given point list. */
+  syncPoints(points) {
     if (!this.map) return;
-    const wanted = new Set(spawns.map(s => s.id));
+    const wanted = new Set(points.map(p => p.id));
 
     for (const [id, rec] of this.markers) {
       if (!wanted.has(id)) {
@@ -124,27 +156,32 @@ export const GameMap = {
       }
     }
 
-    for (const spawn of spawns) {
-      const existing = this.markers.get(spawn.id);
-      if (existing) { existing.spawn = spawn; continue; }
+    for (const point of points) {
+      const existing = this.markers.get(point.id);
+      if (existing) {
+        existing.point = point;
+        existing.el.classList.toggle('collected', !!point.collected);
+        continue;
+      }
 
       const root = document.createElement('div');
-      root.className = 'spawn-marker';
-      root.innerHTML = `<div class="spawn-timer">--:--</div>${STAR_HTML}`;
+      root.className = `spawn-marker kind-${point.kind}${point.collected ? ' collected' : ''}`;
+      root.innerHTML =
+        `<div class="spawn-timer">--:--</div>${iconFor(point)}<div class="tick">✓</div>`;
 
-      const marker = L.marker([spawn.lat, spawn.lng], {
+      const marker = L.marker([point.lat, point.lng], {
         icon: L.divIcon({ className: '', html: root, iconSize: [54, 66], iconAnchor: [27, 60] }),
-        zIndexOffset: 500,
+        zIndexOffset: point.kind === 'raid' ? 700 : 500,
         riseOnHover: true
       }).addTo(this.spawnLayer);
 
-      marker.on('click', () => this.onSpawnClick?.(spawn));
+      marker.on('click', () => this.onSpawnClick?.(this.markers.get(point.id)?.point || point));
 
-      this.markers.set(spawn.id, {
+      this.markers.set(point.id, {
         marker,
         el: root,
         timerEl: root.querySelector('.spawn-timer'),
-        spawn
+        point
       });
     }
   },
@@ -152,17 +189,49 @@ export const GameMap = {
   /** Refresh countdowns and in-range styling. Called about once a second. */
   tick(now, playerPos) {
     for (const rec of this.markers.values()) {
-      const left = rec.spawn.expiresAt - now;
+      const left = rec.point.expiresAt - now;
       rec.timerEl.textContent = timeLeftLabel(left);
       rec.timerEl.classList.toggle('urgent', left <= 60_000);
+      rec.el.classList.toggle('collected', !!rec.point.collected);
 
       if (playerPos) {
-        const d = distance(playerPos, rec.spawn);
-        const inRange = d <= RULES.CAPTURE_RANGE_M;
+        const d = distance(playerPos, rec.point);
+        const inRange = d <= RULES.CAPTURE_RANGE_M && !rec.point.collected;
         rec.el.classList.toggle('in-range', inRange);
         rec.el.classList.toggle('out-range', !inRange);
       }
     }
+    if (this.breedingMarker && playerPos) {
+      const d = distance(playerPos, this.breedingMarker.getLatLng
+        ? { lat: this.breedingMarker.getLatLng().lat, lng: this.breedingMarker.getLatLng().lng }
+        : playerPos);
+      const el = this.breedingMarker.getElement?.()?.querySelector('.breed-flag');
+      if (el) el.classList.toggle('in-range', d <= RULES.CAPTURE_RANGE_M);
+    }
+  },
+
+  /** The breeding centre is a permanent pin, so it lives on its own layer. */
+  syncBreeding(centre) {
+    if (!this.map || !this.breedingLayer) return;
+    if (!centre) {
+      this.breedingLayer.clearLayers();
+      this.breedingMarker = null;
+      return;
+    }
+    if (this.breedingMarker) {
+      this.breedingMarker.setLatLng([centre.lat, centre.lng]);
+      return;
+    }
+    this.breedingMarker = L.marker([centre.lat, centre.lng], {
+      icon: L.divIcon({
+        className: '',
+        html: '<div class="breed-flag"><span>⚑</span></div>',
+        iconSize: [40, 46],
+        iconAnchor: [20, 42]
+      }),
+      zIndexOffset: 400
+    }).addTo(this.breedingLayer);
+    this.breedingMarker.on('click', () => this.onBreedingClick?.(centre));
   },
 
   /* ---------------- debug POI overlay ---------------- */

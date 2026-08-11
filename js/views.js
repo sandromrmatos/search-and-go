@@ -3,16 +3,21 @@
    ============================================================ */
 
 import {
-  DB, SETS, RARITY_NAMES, MAX_CREATURE_LEVEL, MAX_PLAYER_LEVEL,
-  species, familyRoot, familyName, familyRarity, levelUpCost
+  DB, SETS, RARITY_NAMES, MAX_CREATURE_LEVEL, MAX_PLAYER_LEVEL, STAT_KEYS, STAT_LABELS,
+  species, familyRoot, familyName, familyRarity, levelUpCost, moveLevelFor, statsFor,
+  breedingSlotsFor, BREEDING_UNLOCK_LEVEL, bonanzaState
 } from './data.js';
-import { store } from './state.js';
+import { store, creatureStats, maxHpOf, hpOf, isFainted, isHurt } from './state.js';
 import { Persist } from './persist.js';
 import { playEvolution } from './anim.js';
-import { $, $$, el, toast, openSheet, closeSheet, num } from './ui.js';
+import { ITEMS, itemImage, itemName, itemsInOrder } from './items.js';
+import { $, $$, el, toast, openSheet, closeSheet, num, timeLeftLabel } from './ui.js';
 
 const CANDY_ICON = '🍬';
 const DUST_ICON = '✨';
+
+/* The highest base stat in the game, used to scale the little stat bars. */
+const STAT_BAR_MAX = 160;
 
 /* ===============================================================
    HUD
@@ -35,19 +40,42 @@ const SORTERS = {
   name:   (a, b) => sp(a).name.localeCompare(sp(b).name) || order(a) - order(b),
   type:   (a, b) => sp(a).type.localeCompare(sp(b).type) || order(a) - order(b),
   rarity: (a, b) => (rar(a) - rar(b)) || order(a) - order(b),
+  level:  (a, b) => (a.level - b.level) || order(a) - order(b),
+  shiny:  (a, b) => (Number(!!b.shiny) - Number(!!a.shiny)) || order(a) - order(b),
   recent: (a, b) => a.capturedAt - b.capturedAt
 };
 const sp = c => species(c.speciesId);
 const order = c => sp(c)?.order ?? 0;
 const rar = c => sp(c)?.rarity ?? familyRarity(c.speciesId) ?? 0;
 
+/* ---------------------------------------------------------------
+   Tabs
+   --------------------------------------------------------------- */
+export function renderStorageTabs() {
+  const tab = store.s.ui.storageTab === 'items' ? 'items' : 'creatures';
+  $$('.tabs .tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  $('#tab-creatures').classList.toggle('hidden', tab !== 'creatures');
+  $('#tab-items').classList.toggle('hidden', tab !== 'items');
+
+  const itemTab = $('.tabs .tab[data-tab="items"]');
+  const total = store.ownedItems().reduce((a, x) => a + x.qty, 0);
+  itemTab.innerHTML = 'Items';
+  if (total) itemTab.append(el('span', { class: 'tab-badge', text: String(total) }));
+
+  $('#storage-count').textContent = tab === 'items'
+    ? `${total} item${total === 1 ? '' : 's'}`
+    : `${store.s.storage.length} stored`;
+}
+
 export function renderStorage() {
+  renderStorageTabs();
+  if (store.s.ui.storageTab === 'items') return renderItems();
+
   const grid = $('#storage-grid');
   const { storageSort, storageDir } = store.s.ui;
   const list = [...store.s.storage].sort(SORTERS[storageSort] || SORTERS.id);
   if (storageDir < 0) list.reverse();
 
-  $('#storage-count').textContent = `${list.length} stored`;
   $('#storage-empty').classList.toggle('hidden', list.length > 0);
   $('#storage-sort').value = storageSort;
   $('#storage-dir').textContent = storageDir > 0 ? '↑' : '↓';
@@ -58,19 +86,181 @@ export function renderStorage() {
     const s = sp(c);
     if (!s) continue;
     const rarity = s.rarity || familyRarity(s.id);
+    const max = maxHpOf(c);
+    const hp = hpOf(c);
+    const pct = Math.round((hp / max) * 100);
+
     frag.append(el('button', {
-      class: 'cell',
+      class: 'cell' + (c.shiny ? ' shiny' : ''),
       onclick: () => openCreatureSheet(c.uid)
     },
       el('span', { class: 'lvl', text: 'Lv' + c.level }),
       rarity ? el('span', { class: `rar r-${rarity}`, text: rarity }) : null,
-      el('img', { src: s.imagePath, alt: s.name, loading: 'lazy' }),
+      c.shiny ? el('span', { class: 'shiny-star', text: '★' }) : null,
+      el('img', { src: s.spritePath(c.shiny), alt: s.name, loading: 'lazy' }),
       el('span', { class: 'nm', text: s.name }),
+      el('span', { class: 'hp-wrap' },
+        el('span', { class: `hp-bar${pct <= 25 ? ' critical' : pct <= 60 ? ' low' : ''}` },
+          el('i', { style: { width: pct + '%' } }))
+      ),
       el('span', { class: `sub t-${s.type}`, text: s.type }),
-      el('span', { class: 'stg', text: 'S' + s.stage })
+      el('span', { class: 'stg', text: 'S' + s.stage }),
+      c.breeding != null ? el('span', { class: 'breed-badge', text: '⚑' }) : null,
+      isFainted(c) ? el('span', { class: 'fainted-badge', text: 'FAINTED' }) : null
     ));
   }
   grid.append(frag);
+}
+
+/* ===============================================================
+   ITEMS TAB
+   =============================================================== */
+export function renderItems() {
+  const grid = $('#items-grid');
+  const owned = store.ownedItems();
+  $('#items-empty').classList.toggle('hidden', owned.length > 0);
+
+  grid.innerHTML = '';
+  for (const { def, qty } of owned) {
+    const tappable = def.use !== 'none';
+    grid.append(el('button', {
+      class: `cell item-cell ${tappable ? 'tappable' : 'passive'}`,
+      onclick: () => openItemSheet(def.id)
+    },
+      el('span', { class: 'qty', text: String(qty) }),
+      el('img', { src: itemImage(def.id), alt: def.name, loading: 'lazy' }),
+      el('span', { class: 'nm', text: def.name }),
+      el('span', { class: 'use-hint', text: tappable ? 'Tap to use' : 'Used automatically' })
+    ));
+  }
+}
+
+/** Item detail: explains it, and offers the right way to use it. */
+export function openItemSheet(itemId) {
+  const def = ITEMS[itemId];
+  if (!def) return;
+  const qty = store.itemCount(itemId);
+  const body = $('#sheet-body');
+
+  const actions = [];
+  if (def.use === 'creature') {
+    actions.push(el('button', {
+      class: 'btn primary',
+      disabled: qty < 1,
+      onclick: () => { closeSheet('sheet'); openCreaturePicker(itemId); }
+    }, itemId === 'potion' ? 'Use on a creature' : 'Revive a creature'));
+  }
+  if (def.use === 'timed') {
+    const kind = itemId === 'incense' ? 'incense' : 'magnet';
+    const active = store.effect(kind);
+    actions.push(el('button', {
+      class: 'btn primary',
+      disabled: qty < 1 || !!active,
+      onclick: () => useTimedItem(kind, def)
+    }, active
+      ? `Already running · ${timeLeftLabel(active.endsAt - Date.now())}`
+      : `Use one now`));
+  }
+  if (def.use === 'place') {
+    const placed = !!store.s.breeding;
+    const unlocked = store.breedingUnlocked;
+    actions.push(el('button', {
+      class: 'btn primary',
+      disabled: qty < 1 || placed || !unlocked,
+      onclick: () => onPlaceBreeding?.()
+    }, placed ? 'Already placed on the map'
+       : !unlocked ? `Unlocks at player level ${BREEDING_UNLOCK_LEVEL}`
+       : 'Place at my location'));
+  }
+
+  body.innerHTML = '';
+  body.append(
+    el('div', { class: 'det-head' },
+      el('img', { src: itemImage(itemId), alt: def.name }),
+      el('div', { class: 'det-title' },
+        el('h3', { text: def.name }),
+        el('div', { class: 'det-tags' },
+          el('span', { class: 'tag', text: `You have ${num(qty)}` })
+        )
+      )
+    ),
+    el('p', { class: 'hint', text: def.blurb }),
+    actions.length ? el('div', { class: 'btn-row' }, ...actions) : null
+  );
+  openSheet('sheet');
+}
+
+function useTimedItem(kind, def) {
+  const label = def.name;
+  const mins = Math.round(def.durationMs / 60000);
+  if (!confirm(`Use one ${label}? It runs for ${mins} minutes and cannot be stopped early.`)) return;
+  const r = store.startEffect(kind);
+  if (!r.ok) {
+    toast(r.reason === 'active' ? `A ${label} is already running` : `No ${label} left`, 'bad');
+    return;
+  }
+  closeSheet('sheet');
+  toast(`${label} active for ${mins} minutes`, 'good', 3200);
+  refreshAll();
+  onEffectsChanged?.();
+}
+
+/** main.js supplies these so views does not need to know about the map. */
+export let onPlaceBreeding = null;
+export let onEffectsChanged = null;
+export function setViewHooks({ placeBreeding, effectsChanged }) {
+  onPlaceBreeding = placeBreeding;
+  onEffectsChanged = effectsChanged;
+}
+
+/* ===============================================================
+   CREATURE PICKER (potions, revives, breeding pairs)
+   =============================================================== */
+export function openCreaturePicker(itemId) {
+  const isPotion = itemId === 'potion';
+  const eligible = store.s.storage.filter(c => {
+    if (c.breeding != null) return false;
+    return isPotion ? (!isFainted(c) && isHurt(c)) : isFainted(c);
+  });
+
+  $('#picker-title').textContent = isPotion ? 'Heal which creature?' : 'Revive which creature?';
+  $('#picker-hint').textContent = isPotion
+    ? 'Potions restore 50 HP. Fainted creatures need a Revive instead.'
+    : 'Revives bring a fainted creature back to full HP.';
+  $('#picker-empty').textContent = isPotion
+    ? 'None of your creatures are hurt.'
+    : 'None of your creatures have fainted.';
+  $('#picker-empty').classList.toggle('hidden', eligible.length > 0);
+
+  const grid = $('#picker-grid');
+  grid.innerHTML = '';
+  for (const c of eligible) {
+    const s = sp(c);
+    const max = maxHpOf(c), hp = hpOf(c);
+    const pct = Math.round((hp / max) * 100);
+    grid.append(el('button', {
+      class: 'cell',
+      onclick: () => {
+        const r = isPotion ? store.usePotion(c.uid) : store.useRevive(c.uid);
+        if (!r.ok) { toast('Could not use that item', 'bad'); return; }
+        toast(isPotion
+          ? `${s.name} healed ${r.gained} HP (${r.after}/${r.max})`
+          : `${s.name} revived to ${r.max} HP`, 'good');
+        closeSheet('picker');
+        refreshAll();
+      }
+    },
+      el('span', { class: 'lvl', text: 'Lv' + c.level }),
+      c.shiny ? el('span', { class: 'shiny-star', text: '★' }) : null,
+      el('img', { src: s.spritePath(c.shiny), alt: s.name, loading: 'lazy' }),
+      el('span', { class: 'nm', text: s.name }),
+      el('span', { class: 'sub', text: `${hp} / ${max} HP` }),
+      el('span', { class: 'hp-wrap' },
+        el('span', { class: `hp-bar${pct <= 25 ? ' critical' : pct <= 60 ? ' low' : ''}` },
+          el('i', { style: { width: pct + '%' } })))
+    ));
+  }
+  openSheet('picker');
 }
 
 /* ===============================================================
@@ -114,6 +304,27 @@ function renderCreatureSheet() {
       )
     ),
 
+    // ---- HP ----
+    (() => {
+      const max = maxHpOf(c), hp = hpOf(c);
+      const pct = Math.round((hp / max) * 100);
+      return el('div', { class: 'det-row' },
+        el('span', { text: '❤' }),
+        el('span', { class: `hp-bar${pct <= 25 ? ' critical' : pct <= 60 ? ' low' : ''}` },
+          el('i', { style: { width: pct + '%' } })),
+        el('b', { text: `${hp} / ${max}` })
+      );
+    })(),
+
+    // ---- stats with the +10% / -10% arrows ----
+    el('h4', { class: 'sheet-h4', text: 'Stats' }),
+    el('div', { class: 'det-rows' }, ...statRows(c)),
+    el('p', { class: 'hint', text: `Stat modifier: ${STAT_LABELS[c.statMod.up]} up 10%, ${STAT_LABELS[c.statMod.down]} down 10%. Each level adds 5% of the base stat.` }),
+
+    // ---- moves ----
+    el('h4', { class: 'sheet-h4', text: 'Moves' }),
+    movesBlock(c, s),
+
     el('div', { class: 'det-rows' },
       el('div', { class: 'det-row' },
         el('span', { text: CANDY_ICON }),
@@ -134,10 +345,15 @@ function renderCreatureSheet() {
         el('span', { text: '🔢' }),
         el('span', { text: 'You own' }),
         el('b', { text: `${store.countOfSpecies(s.id)} of this` })
-      )
+      ),
+      c.breeding != null ? el('div', { class: 'det-row' },
+        el('span', { text: '⚑' }),
+        el('span', { text: 'In the breeding centre' }),
+        el('b', { text: 'Collect it there' })
+      ) : null
     ),
 
-    // ---- level up ----
+    // ---- level up (costs stardust AND family candy) ----
     el('div', { class: 'btn-row' },
       el('button', {
         class: 'btn primary',
@@ -145,10 +361,13 @@ function renderCreatureSheet() {
         onclick: () => doLevelUp(c.uid)
       }, c.level >= MAX_CREATURE_LEVEL
         ? 'Max level'
-        : `Level up → Lv ${c.level + 1} · ${DUST_ICON} ${num(cost)}`)
+        : `Level up → Lv ${c.level + 1} · ${DUST_ICON} ${num(cost.stardust)} · ${CANDY_ICON} ${num(cost.candy)}`)
     ),
-    !lvlCheck.ok && lvlCheck.reason === 'dust'
-      ? el('p', { class: 'hint', text: `Need ${num(lvlCheck.short)} more stardust.` })
+    !lvlCheck.ok && lvlCheck.reason !== 'max' && lvlCheck.reason !== 'missing'
+      ? el('p', { class: 'hint', text: [
+          lvlCheck.shortDust ? `${num(lvlCheck.shortDust)} more stardust` : null,
+          lvlCheck.shortCandy ? `${num(lvlCheck.shortCandy)} more ${familyName(s.id)} candy` : null
+        ].filter(Boolean).join(' and ') + ' needed.' })
       : null,
 
     // ---- evolve ----
@@ -174,13 +393,113 @@ function renderCreatureSheet() {
   );
 }
 
+/** One row per stat, with a bar and the modifier arrow. */
+function statRows(c) {
+  const stats = creatureStats(c);
+  return STAT_KEYS.map(k => {
+    const arrow = c.statMod.up === k ? 'up' : c.statMod.down === k ? 'down' : '';
+    return el('div', { class: 'stat-row' },
+      el('span', { class: 'lbl', text: STAT_LABELS[k] }),
+      el('span', { class: 'bar' },
+        el('i', { style: { width: Math.min(100, (stats[k] / STAT_BAR_MAX) * 100) + '%' } })),
+      el('span', { class: 'val', text: num(stats[k]) }),
+      el('span', { class: `arrow ${arrow}`, text: arrow === 'up' ? '▲' : arrow === 'down' ? '▼' : '' })
+    );
+  });
+}
+
+/**
+ * Move list for a stored creature: what it knows now, and when the rest arrive.
+ * Also spells out the early-unlock luck it was caught with.
+ */
+function movesBlock(c, s) {
+  const host = el('div', { class: 'move-list' });
+  const evolvesLater = !!s.evolvesToId;
+
+  for (const m of s.moves) {
+    const at = moveLevelFor(m, c.moveUnlock);
+    const early = at < m.level;
+    const known = at <= c.level;
+    host.append(el('div', { class: 'move' + (known ? '' : ' locked') },
+      el('div', { class: 'move-top' },
+        el('b', { text: m.name }),
+        el('span', { class: 'lv' + (early ? ' early' : ''), text: known ? 'Known' : `Lv ${at}` })
+      ),
+      el('div', { class: 'move-meta' },
+        m.isBuff
+          ? el('span', { class: 'bf', text: `Raises ${STAT_LABELS[m.buffStat]} by ${Math.round(m.buffPct * 100)}%` })
+          : el('span', { class: 'pw', text: `${m.power} power` }),
+        early ? el('span', { text: ` · unlocked Lv ${at} instead of Lv ${m.level}` }) : null
+      )
+    ));
+  }
+
+  // Moves this creature can only get after evolving
+  if (evolvesLater) {
+    const next = species(s.evolvesToId);
+    const extra = next.moves.filter(m => !s.moves.some(x => x.name === m.name));
+    for (const m of extra) {
+      const at = moveLevelFor(m, c.moveUnlock);
+      const early = at < m.level;
+      host.append(el('div', { class: 'move locked' },
+        el('div', { class: 'move-top' },
+          el('b', { text: m.name }),
+          el('span', { class: 'lv' + (early ? ' early' : ''), text: `Lv ${at}` })
+        ),
+        el('div', { class: 'move-meta' },
+          m.isBuff
+            ? el('span', { class: 'bf', text: `Raises ${STAT_LABELS[m.buffStat]} by ${Math.round(m.buffPct * 100)}%` })
+            : el('span', { class: 'pw', text: `${m.power} power` }),
+          el('span', {
+            text: early
+              ? ` · unlocked Lv ${at} instead of Lv ${m.level}, requires evolution`
+              : ' · requires evolution'
+          })
+        )
+      ));
+    }
+  }
+
+  const nextMove = nextMoveFor(c, s);
+  if (nextMove) {
+    host.append(el('p', {
+      class: 'hint',
+      text: `Next move: ${nextMove.name} at level ${nextMove.at}` +
+            (nextMove.needsEvolution ? ' (after evolving)' : '')
+    }));
+  }
+  return host;
+}
+
+/** The soonest move this creature has not learned yet. */
+function nextMoveFor(c, s) {
+  const own = s.moves
+    .map(m => ({ name: m.name, at: moveLevelFor(m, c.moveUnlock), needsEvolution: false }))
+    .filter(m => m.at > c.level);
+  let pool = own;
+  if (s.evolvesToId) {
+    const next = species(s.evolvesToId);
+    const extra = next.moves
+      .filter(m => !s.moves.some(x => x.name === m.name))
+      .map(m => ({ name: m.name, at: moveLevelFor(m, c.moveUnlock), needsEvolution: true }));
+    pool = own.concat(extra);
+  }
+  pool.sort((a, b) => a.at - b.at);
+  return pool[0] || null;
+}
+
 function doLevelUp(uid) {
   const r = store.levelUp(uid);
   if (!r.ok) {
-    toast(r.reason === 'max' ? 'Already at max level' : 'Not enough stardust', 'bad');
+    toast(({
+      max: 'Already at max level',
+      dust: 'Not enough stardust',
+      candy: 'Not enough candy',
+      both: 'Not enough stardust or candy'
+    })[r.reason] || 'Cannot level up', 'bad');
     return;
   }
-  toast(`Levelled up to Lv ${r.level} (−${num(r.cost)} stardust)`, 'good');
+  toast(`Levelled up to Lv ${r.level} (−${num(r.cost.stardust)} stardust, −${num(r.cost.candy)} candy)`, 'good');
   refreshAll();
   renderCreatureSheet();
 }
@@ -342,6 +661,33 @@ export function openSpeciesSheet(speciesId) {
       )
     ),
 
+    // ---- base stats at level 1 ----
+    el('h4', { class: 'sheet-h4', text: 'Base stats (level 1)' }),
+    el('div', { class: 'det-rows' }, ...STAT_KEYS.map(k =>
+      el('div', { class: 'stat-row' },
+        el('span', { class: 'lbl', text: STAT_LABELS[k] }),
+        el('span', { class: 'bar' },
+          el('i', { style: { width: Math.min(100, (s.baseStats[k] / STAT_BAR_MAX) * 100) + '%' } })),
+        el('span', { class: 'val', text: num(s.baseStats[k]) }),
+        el('span', { class: 'arrow', text: '' })
+      ))),
+    el('p', { class: 'hint', text: 'Each level adds 5% of the base stat. Every creature you catch also gets one stat 10% higher and another 10% lower.' }),
+
+    // ---- everything it can learn ----
+    el('h4', { class: 'sheet-h4', text: `Moves (${s.moves.length})` }),
+    el('div', { class: 'move-list' }, ...s.moves.map(m =>
+      el('div', { class: 'move' },
+        el('div', { class: 'move-top' },
+          el('b', { text: m.name }),
+          el('span', { class: 'lv', text: `Lv ${m.level}` })
+        ),
+        el('div', { class: 'move-meta' },
+          m.isBuff
+            ? el('span', { class: 'bf', text: `Raises ${STAT_LABELS[m.buffStat]} by ${Math.round(m.buffPct * 100)}%` })
+            : el('span', { class: 'pw', text: `${m.power} power` })
+        )
+      ))),
+
     chain.length > 1 ? el('p', { class: 'hint', text: 'Family: ' + chain.map(x => x.name).join(' → ') }) : null,
     s.stage === 1
       ? el('p', { class: 'hint', text: 'Found in the wild at shops and amenities.' })
@@ -355,6 +701,7 @@ export function openSpeciesSheet(speciesId) {
    =============================================================== */
 export function renderProfile() {
   const p = store.progress;
+  $('#p-nickname').textContent = store.nickname || 'Nameless hunter';
   $('#p-level').textContent = p.level;
   $('#p-xp').textContent = num(store.s.xp);
   $('#p-xp-fill').style.width = p.pct + '%';
@@ -408,16 +755,92 @@ export function renderSaveStatus() {
 /* ===============================================================
    Global refresh
    =============================================================== */
+/** Chips on the map showing incense / stardust magnet countdowns. */
+export function renderEffectChips(now = Date.now()) {
+  const host = $('#effect-chips');
+  if (!host) return;
+  host.innerHTML = '';
+
+  const bits = [
+    { kind: 'incense', id: 'incense', label: 'Incense' },
+    { kind: 'magnet', id: 'stardust_magnet', label: 'Magnet' }
+  ];
+  for (const b of bits) {
+    const fx = store.effect(b.kind, now);
+    if (!fx) continue;
+    host.append(el('div', { class: `fx-chip ${b.kind}` },
+      el('img', { src: itemImage(b.id), alt: '' }),
+      el('span', { text: b.label }),
+      el('b', { text: timeLeftLabel(fx.endsAt - now) })
+    ));
+  }
+
+  const bonanza = bonanzaState(new Date(now));
+  if (bonanza.active) {
+    host.append(el('div', { class: 'fx-chip magnet' },
+      el('span', { text: '✨' }),
+      el('span', { text: bonanza.day ? 'Shiny Bonanza Day' : 'Shiny Bonanza Hour' })
+    ));
+  }
+}
+
 export function refreshAll() {
   renderHUD();
+  renderEffectChips();
   const active = document.querySelector('.view.active')?.id;
   if (active === 'view-storage') renderStorage();
   if (active === 'view-collection') renderCollection();
   if (active === 'view-profile') renderProfile();
+  if (active === 'view-missions') missionsRenderer?.();
 }
+
+/** main.js registers the Missions renderer here to avoid a circular import. */
+let missionsRenderer = null;
+export function setMissionsRenderer(fn) { missionsRenderer = fn; }
 
 export function renderView(name) {
   if (name === 'storage') renderStorage();
   else if (name === 'collection') renderCollection();
   else if (name === 'profile') renderProfile();
+  else if (name === 'missions') missionsRenderer?.();
+}
+
+/* ===============================================================
+   NICKNAME
+   =============================================================== */
+export function openNicknamePrompt({ firstRun = false, onDone = null } = {}) {
+  const wrap = $('#nickname');
+  const input = $('#nick-input');
+  const err = $('#nick-error');
+
+  $('#nick-title').textContent = firstRun ? 'What should we call you?' : 'Change your nickname';
+  $('#nick-save').textContent = firstRun ? "Let's go" : 'Save';
+  $('#nick-cancel').classList.toggle('hidden', firstRun);
+  err.classList.add('hidden');
+  input.value = store.nickname || '';
+  wrap.classList.remove('hidden');
+  setTimeout(() => input.focus(), 80);
+
+  const save = () => {
+    const value = input.value.trim();
+    if (value.length < 2) { err.classList.remove('hidden'); return; }
+    store.setNickname(value);
+    cleanup();
+    toast(`Nice to meet you, ${store.nickname}`, 'good');
+    refreshAll();
+    onDone?.();
+  };
+  const cancel = () => { cleanup(); onDone?.(); };
+  const onKey = e => { if (e.key === 'Enter') save(); if (e.key === 'Escape' && !firstRun) cancel(); };
+
+  function cleanup() {
+    wrap.classList.add('hidden');
+    $('#nick-save').removeEventListener('click', save);
+    $('#nick-cancel').removeEventListener('click', cancel);
+    input.removeEventListener('keydown', onKey);
+  }
+
+  $('#nick-save').addEventListener('click', save);
+  $('#nick-cancel').addEventListener('click', cancel);
+  input.addEventListener('keydown', onKey);
 }

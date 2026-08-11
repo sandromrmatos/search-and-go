@@ -1,0 +1,13 @@
+# Local test harness and scratch files — not part of the game
+_t/
+_audit*.py
+_audit*.txt
+_*.txt
+_*.py
+__pycache__/
+
+# Editor / OS noise
+.~lock.*#
+*.tmp
+Thumbs.db
+.DS_Store

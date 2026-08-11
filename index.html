@@ -6,8 +6,10 @@
 <meta name="theme-color" content="#0b1024" />
 <title>Search and Go</title>
 <link rel="manifest" href="manifest.webmanifest" />
-<link rel="icon" href="images/fairydiamond.png" />
-<link rel="apple-touch-icon" href="images/fairydiamond.png" />
+<link rel="icon" href="images/Game%20Intro.png" />
+<link rel="apple-touch-icon" href="images/Game%20Intro.png" />
+<!-- The splash art is the first thing on screen, so fetch it straight away -->
+<link rel="preload" as="image" href="images/Game%20Intro.png" fetchpriority="high" />
 <!-- Leaflet is vendored locally so the game does not depend on a CDN being reachable -->
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
 <link rel="stylesheet" href="styles.css" />
@@ -16,7 +18,7 @@
 
 <!-- ============ BOOT / LOADING ============ -->
 <div id="boot" class="boot">
-  <img src="images/fairydiamond.png" alt="" class="boot-logo" />
+  <img src="images/Game%20Intro.png" alt="Search and Go" class="boot-logo" decoding="async" />
   <h1>Search <span>and</span> Go</h1>
   <p id="boot-msg">Loading creature data…</p>
   <div class="boot-bar"><i></i></div>
@@ -40,6 +42,7 @@
       <div class="hud-chip" title="Stardust">
         <span class="chip-ico">✨</span><span id="hud-stardust">0</span>
       </div>
+      <button id="btn-info" class="hud-btn" title="How to play">ℹ</button>
       <button id="btn-debug" class="hud-btn" title="Debug tools">🛠</button>
     </div>
   </header>
@@ -56,12 +59,12 @@
           <span class="reset-label">Spawns reset in</span>
           <b id="next-scan">--:--</b>
         </div>
+        <div id="effect-chips" class="effect-chips"></div>
         <div id="geo-status" class="geo-status">Locating…</div>
       </div>
       <div class="map-overlay-bottom">
-        <div id="spawn-count" class="spawn-count">0 spawns nearby</div>
+        <div id="spawn-count" class="spawn-count">0 points active</div>
         <button id="btn-recenter" class="round-btn" title="Recentre">◎</button>
-        <button id="btn-rescan" class="round-btn" title="Scan for spawns now">⟳</button>
       </div>
     </section>
 
@@ -73,21 +76,38 @@
           <span id="storage-count" class="muted">0</span>
         </div>
       </div>
-      <div class="toolbar">
-        <label class="sel">
-          <span>Sort</span>
-          <select id="storage-sort">
-            <option value="id">Creature ID</option>
-            <option value="name">Name</option>
-            <option value="type">Type</option>
-            <option value="rarity">Rarity</option>
-            <option value="recent">Most recent</option>
-          </select>
-        </label>
-        <button id="storage-dir" class="mini-btn" title="Toggle sort direction">↑</button>
+
+      <div class="tabs">
+        <button class="tab active" data-tab="creatures">Creatures</button>
+        <button class="tab" data-tab="items">Items</button>
       </div>
-      <div id="storage-grid" class="grid"></div>
-      <p id="storage-empty" class="empty">Nothing here yet. Go catch something!</p>
+
+      <div id="tab-creatures">
+        <div class="toolbar">
+          <label class="sel">
+            <span>Sort</span>
+            <select id="storage-sort">
+              <option value="id">Creature ID</option>
+              <option value="name">Name</option>
+              <option value="type">Type</option>
+              <option value="rarity">Rarity</option>
+              <option value="level">Level</option>
+              <option value="shiny">Shiny</option>
+              <option value="recent">Most recent</option>
+            </select>
+          </label>
+          <button id="storage-dir" class="mini-btn" title="Toggle sort direction">↑</button>
+        </div>
+        <div id="storage-grid" class="grid"></div>
+        <p id="storage-empty" class="empty">Nothing here yet. Go catch something!</p>
+      </div>
+
+      <div id="tab-items" class="hidden">
+        <div id="items-grid" class="grid items-grid"></div>
+        <p id="items-empty" class="empty">
+          No items yet. Spinning discs and rotating <b>!</b> points on the map hand them out.
+        </p>
+      </div>
     </section>
 
     <!-- COLLECTION VIEW -->
@@ -140,6 +160,15 @@
       </div>
     </section>
 
+    <!-- MISSIONS VIEW -->
+    <section class="view view-missions" id="view-missions">
+      <div class="view-head">
+        <h2>Missions</h2>
+        <div class="view-head-right"><span id="missions-count" class="muted"></span></div>
+      </div>
+      <div id="missions-list" class="mission-list"></div>
+    </section>
+
     <!-- PROFILE VIEW -->
     <section class="view view-profile" id="view-profile">
       <div class="view-head"><h2>Profile</h2></div>
@@ -148,6 +177,10 @@
         <div class="profile-top">
           <div class="lvl-badge big" id="p-level">1</div>
           <div class="profile-meta">
+            <div class="nick-row">
+              <b id="p-nickname">—</b>
+              <button id="btn-edit-nick" class="mini-btn" title="Change nickname">✎</button>
+            </div>
             <div class="p-row"><b id="p-xp">0</b> total XP</div>
             <div class="xp-bar tall"><i id="p-xp-fill"></i></div>
             <div class="muted" id="p-next">25 XP to level 2</div>
@@ -200,10 +233,11 @@
   </main>
 
   <!-- ---- BOTTOM NAV ---- -->
-  <nav class="nav">
+  <nav class="nav nav-5">
     <button class="nav-btn active" data-view="map"><span>🗺</span>Map</button>
     <button class="nav-btn" data-view="storage"><span>🎒</span>Storage</button>
     <button class="nav-btn" data-view="collection"><span>📖</span>Collection</button>
+    <button class="nav-btn" data-view="missions" id="nav-missions"><span>🎯</span>Missions</button>
     <button class="nav-btn" data-view="profile"><span>👤</span>Profile</button>
   </nav>
 </div>
@@ -270,9 +304,16 @@
       <h4>Spawns</h4>
       <div class="btn-row wrap">
         <button id="dbg-scan" class="btn ghost">Force scan now</button>
-        <button id="dbg-force" class="btn ghost">Force scan (100% rate)</button>
-        <button id="dbg-clear-spawns" class="btn ghost">Clear all spawns</button>
-        <button id="dbg-spawn-here" class="btn ghost">Spawn at my feet</button>
+        <button id="dbg-clear-spawns" class="btn ghost">Clear all points</button>
+        <button id="dbg-spawn-here" class="btn ghost">Creature at my feet</button>
+        <button class="btn ghost" data-spawn="discs">Disc point</button>
+        <button class="btn ghost" data-spawn="items">Item point</button>
+        <button class="btn ghost" data-spawn="raid">Raid point</button>
+        <button class="btn ghost" data-spawn="grunt">Grunt point</button>
+      </div>
+      <div class="btn-row wrap">
+        <button class="btn ghost" data-give="discs">+10 Capturing Discs</button>
+        <button class="btn ghost" data-give="items">+5 of every item</button>
       </div>
       <label class="dbg-toggle">
         <input type="checkbox" id="dbg-ignore-range" />
@@ -297,6 +338,151 @@
       <h4>Log</h4>
       <pre id="dbg-log" class="dbg-log"></pre>
     </div>
+  </div>
+</div>
+
+<!-- ============ BATTLE ============ -->
+<div id="battle" class="battle hidden">
+
+  <!-- step 1: what am I up against -->
+  <div id="bt-preview" class="bt-step">
+    <div class="bt-head">
+      <h2 id="bt-title">Raid</h2>
+      <button class="bt-close" data-bt-close>✕</button>
+    </div>
+    <div id="bt-preview-body" class="bt-body"></div>
+    <div class="bt-foot">
+      <button id="bt-start" class="btn primary wide">Choose your team</button>
+    </div>
+  </div>
+
+  <!-- step 2: pick three -->
+  <div id="bt-pick" class="bt-step hidden">
+    <div class="bt-head">
+      <h2>Pick 3 creatures</h2>
+      <button class="bt-close" data-bt-close>✕</button>
+    </div>
+    <div class="toolbar">
+      <label class="sel">
+        <span>Sort</span>
+        <select id="bt-sort">
+          <option value="level">Level</option>
+          <option value="name">Name</option>
+          <option value="rarity">Rarity</option>
+          <option value="type">Type</option>
+        </select>
+      </label>
+      <span id="bt-pick-count" class="muted">0 of 3 chosen</span>
+    </div>
+    <p class="hint" style="padding:0 14px">They battle in the order you tap them. Fainted creatures and any in the breeding centre can't come.</p>
+    <div id="bt-pick-grid" class="grid"></div>
+    <p id="bt-pick-empty" class="empty hidden"></p>
+    <div class="bt-foot">
+      <button id="bt-fight" class="btn primary wide" disabled>Battle!</button>
+    </div>
+  </div>
+
+  <!-- step 3: the fight -->
+  <div id="bt-arena" class="bt-step hidden">
+    <div class="bt-head">
+      <h2 id="bt-arena-title">Battle</h2>
+      <button class="bt-close" data-bt-close>✕</button>
+    </div>
+
+    <div class="bt-side enemy">
+      <div id="bt-enemy-team" class="bt-team"></div>
+      <div class="bt-fighter">
+        <div class="bt-info">
+          <div class="bt-name"><b id="bt-enemy-name">—</b><span id="bt-enemy-lv" class="lv"></span></div>
+          <div class="hp-wrap"><span class="hp-bar"><i id="bt-enemy-hp"></i></span></div>
+          <div class="bt-hpnum"><span id="bt-enemy-hpnum">0 / 0</span></div>
+          <div id="bt-enemy-buffs" class="bt-buffs"></div>
+        </div>
+        <img id="bt-enemy-img" class="bt-sprite" alt="" />
+      </div>
+    </div>
+
+    <div id="bt-log" class="bt-log"></div>
+
+    <div class="bt-side mine">
+      <div class="bt-fighter">
+        <img id="bt-mine-img" class="bt-sprite" alt="" />
+        <div class="bt-info">
+          <div class="bt-name"><b id="bt-mine-name">—</b><span id="bt-mine-lv" class="lv"></span></div>
+          <div class="hp-wrap"><span class="hp-bar"><i id="bt-mine-hp"></i></span></div>
+          <div class="bt-hpnum"><span id="bt-mine-hpnum">0 / 0</span></div>
+          <div id="bt-mine-buffs" class="bt-buffs"></div>
+        </div>
+      </div>
+      <div id="bt-my-team" class="bt-team"></div>
+    </div>
+
+    <div id="bt-moves" class="bt-moves"></div>
+  </div>
+
+  <!-- step 4: result -->
+  <div id="bt-result" class="bt-step hidden">
+    <div id="bt-result-body" class="bt-body"></div>
+    <div class="bt-foot">
+      <button id="bt-again" class="btn ghost hidden">Try again</button>
+      <button id="bt-catch" class="btn primary hidden">Throw Ultra Disc</button>
+      <button id="bt-done" class="btn primary">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ NICKNAME ============ -->
+<div id="nickname" class="modal-wrap hidden">
+  <div class="modal-backdrop"></div>
+  <div class="modal">
+    <h3 id="nick-title">What should we call you?</h3>
+    <p class="muted small">This is your name as a creature hunter. You can change it later in Profile.</p>
+    <input id="nick-input" type="text" maxlength="20" placeholder="Your nickname"
+           autocomplete="off" autocapitalize="words" spellcheck="false" />
+    <p id="nick-error" class="nick-error hidden">Please enter at least 2 characters.</p>
+    <div class="btn-row">
+      <button id="nick-cancel" class="btn ghost hidden">Cancel</button>
+      <button id="nick-save" class="btn primary">Let's go</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ BREEDING CENTRE ============ -->
+<div id="breeding" class="sheet-wrap hidden">
+  <div class="sheet-backdrop" data-close="breeding"></div>
+  <div class="sheet">
+    <button class="sheet-close" data-close="breeding">✕</button>
+    <h3>⚑ Breeding Centre</h3>
+    <p id="breeding-hint" class="muted small"></p>
+    <div id="breeding-slots" class="breed-slots"></div>
+  </div>
+</div>
+
+<!-- ============ INFO / HOW TO PLAY ============ -->
+<div id="info" class="sheet-wrap hidden">
+  <div class="sheet-backdrop" data-close="info"></div>
+  <div class="sheet">
+    <button class="sheet-close" data-close="info">✕</button>
+    <h3>How to play</h3>
+    <div class="tabs" id="info-tabs">
+      <button class="tab active" data-info="basics">Basics</button>
+      <button class="tab" data-info="items">Items</button>
+      <button class="tab" data-info="battles">Battles</button>
+      <button class="tab" data-info="growing">Growing</button>
+    </div>
+    <div id="info-body" class="info-body"></div>
+  </div>
+</div>
+
+<!-- ============ CREATURE PICKER (potions / revives / breeding) ============ -->
+<div id="picker" class="sheet-wrap hidden">
+  <div class="sheet-backdrop" data-close="picker"></div>
+  <div class="sheet">
+    <button class="sheet-close" data-close="picker">✕</button>
+    <h3 id="picker-title">Choose a creature</h3>
+    <p id="picker-hint" class="muted small"></p>
+    <div id="picker-grid" class="grid"></div>
+    <p id="picker-empty" class="empty hidden">No eligible creatures.</p>
   </div>
 </div>
 

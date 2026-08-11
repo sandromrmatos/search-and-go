@@ -56,10 +56,14 @@ function remember(key, lat, lng, radius, pois) {
 
 function buildQuery(lat, lng, radius) {
   const la = lat.toFixed(7), ln = lng.toFixed(7);
+  // shops/amenities become creature, item, disc and raid points;
+  // parks are where battle grunts hang around.
   return `[out:json][timeout:25];
 (
   nwr["shop"](around:${radius},${la},${ln});
   nwr["amenity"](around:${radius},${la},${ln});
+  nwr["leisure"="park"](around:${radius},${la},${ln});
+  nwr["leisure"="garden"](around:${radius},${la},${ln});
 );
 out tags center;`;
 }
@@ -74,6 +78,7 @@ function labelFor(tags) {
   return tags.name || tags['name:en'] || tags.brand || tags.operator ||
     (tags.shop ? prettify(tags.shop) : null) ||
     (tags.amenity ? prettify(tags.amenity) : null) ||
+    (tags.leisure ? prettify(tags.leisure) : null) ||
     'Point of interest';
 }
 
@@ -139,12 +144,15 @@ export async function fetchPOIs(lat, lng, radius = 250, { force = false, signal 
 
 function hostOf(u) { try { return new URL(u).host; } catch { return u; } }
 
+const PARK_LEISURE = new Set(['park', 'garden']);
+
 function normalise(json, origin, radius) {
   const out = [];
   const seen = new Set();
   for (const el of json.elements || []) {
     const tags = el.tags || {};
-    if (!tags.shop && !tags.amenity) continue;
+    const isPark = PARK_LEISURE.has(tags.leisure);
+    if (!tags.shop && !tags.amenity && !isPark) continue;
     const pt = elementPoint(el);
     if (!pt) continue;
     // Overpass matches a way if any part of it is in range, but we spawn on the
@@ -154,18 +162,29 @@ function normalise(json, origin, radius) {
     const id = `${el.type}/${el.id}`;
     if (seen.has(id)) continue;
     seen.add(id);
+    // A place tagged as both a shop and a park counts as a shop.
+    const kind = tags.shop ? 'shop' : tags.amenity ? 'amenity' : 'park';
     out.push({
       id,
       lat: pt.lat,
       lng: pt.lng,
       name: labelFor(tags),
-      kind: tags.shop ? 'shop' : 'amenity',
-      kindValue: tags.shop || tags.amenity,
+      kind,
+      kindValue: tags.shop || tags.amenity || tags.leisure,
+      isPark: kind === 'park',
       distance: d
     });
   }
   out.sort((a, b) => a.distance - b.distance);
   return out;
+}
+
+/** Splits a POI list into the shop/amenity points and the parks. */
+export function splitPOIs(pois) {
+  return {
+    places: pois.filter(p => !p.isPark),
+    parks: pois.filter(p => p.isPark)
+  };
 }
 
 export function clearPOICache() { cache.clear(); }

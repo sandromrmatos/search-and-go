@@ -57,15 +57,36 @@ function buildBurst(host, count = 34) {
   host.classList.add('go');
 }
 
+/**
+ * Decode an image before we show it. Without this the <img> keeps painting the
+ * previous creature for a frame or two after `src` changes, which looked like a
+ * flash of whatever you caught last.
+ */
+function preload(src) {
+  return new Promise(resolve => {
+    const img = new Image();
+    const done = () => resolve(src);
+    img.onload = () => (img.decode ? img.decode().then(done, done) : done());
+    img.onerror = done;
+    img.src = src;
+  });
+}
+
 function resetStage() {
   const stage = $('#stage');
   stage.classList.remove('hidden');
   $('#reveal').classList.add('hidden');
   $('#reveal-new').classList.add('hidden');
   $('#stage-anim').classList.remove('hidden');
+
+  // Drop the old bitmap so a stale image can never be shown.
+  const rev = $('#reveal-img');
+  rev.removeAttribute('src');
+
   const img = $('#anim-img');
   img.classList.add('hidden');
   img.classList.remove('shake', 'pop');
+  img.removeAttribute('src');
   img.style.animation = '';
   $('#burst').classList.remove('go');
   $('#burst').innerHTML = '';
@@ -84,7 +105,7 @@ function hideStage() {
 /* ---------------------------------------------------------------
    Reveal card
    --------------------------------------------------------------- */
-function showReveal({ sp, isNew, rewards, title }) {
+function showReveal({ sp, isNew, rewards, title, imageSrc }) {
   $('#stage-anim').classList.add('hidden');
   const reveal = $('#reveal');
   reveal.classList.remove('hidden');
@@ -93,7 +114,7 @@ function showReveal({ sp, isNew, rewards, title }) {
   banner.textContent = title || 'NEW!';
   banner.classList.toggle('hidden', !isNew);
 
-  $('#reveal-img').src = sp.imagePath;
+  $('#reveal-img').src = imageSrc || sp.imagePath;
   $('#reveal-img').alt = sp.name;
   $('#reveal-name').textContent = sp.name;
 
@@ -137,11 +158,15 @@ function waitForDismiss() {
 /* ---------------------------------------------------------------
    Capture: sparkles grow → shake → explode → creature revealed
    --------------------------------------------------------------- */
-export async function playCapture({ sp, isNew, rewards }) {
+export async function playCapture({ sp, isNew, rewards, imageSrc }) {
   resetStage();
   const total = RULES.CAPTURE_ANIM_MS;
   const growMs = Math.max(1200, total - 700);
   const revealAt = growMs + 350;
+  const src = imageSrc || sp.imagePath;
+
+  // We have five seconds of sparkles — plenty of time to fetch and decode.
+  const ready = preload(src);
 
   const cluster = $('#sparkle-cluster');
   buildSparkles(cluster, 9);
@@ -154,26 +179,32 @@ export async function playCapture({ sp, isNew, rewards }) {
   buildBurst($('#burst'), 36);
 
   await sleep(revealAt - growMs);
+  await ready;
 
-  showReveal({ sp, isNew, rewards });
+  showReveal({ sp, isNew, rewards, imageSrc: src });
   await waitForDismiss();
 }
 
 /* ---------------------------------------------------------------
    Evolution: current form shakes → explodes → new form revealed
    --------------------------------------------------------------- */
-export async function playEvolution({ from, to, isNew, rewards }) {
+export async function playEvolution({ from, to, isNew, rewards, fromSrc, toSrc }) {
   resetStage();
   const total = RULES.EVOLVE_ANIM_MS;
   const shakeMs = Math.max(1200, total - 700);
   const revealAt = shakeMs + 350;
+  const beforeSrc = fromSrc || from.imagePath;
+  const afterSrc = toSrc || to.imagePath;
 
   const cluster = $('#sparkle-cluster');
   cluster.innerHTML = '';
   cluster.style.animation = '';
 
   const img = $('#anim-img');
-  img.src = from.imagePath;
+  await preload(beforeSrc);
+  const ready = preload(afterSrc);
+
+  img.src = beforeSrc;
   img.alt = from.name;
   img.classList.remove('hidden');
   void img.offsetWidth;
@@ -185,8 +216,9 @@ export async function playEvolution({ from, to, isNew, rewards }) {
   buildBurst($('#burst'), 40);
 
   await sleep(revealAt - shakeMs);
+  await ready;
 
-  showReveal({ sp: to, isNew, rewards, title: isNew ? 'NEW!' : 'EVOLVED!' });
+  showReveal({ sp: to, isNew, rewards, title: isNew ? 'NEW!' : 'EVOLVED!', imageSrc: afterSrc });
   // Evolutions always feel celebratory, even for a repeat.
   if (!isNew) stopConfetti = confettiBurst($('#confetti'), { count: 90, duration: 2200 });
   await waitForDismiss();
