@@ -5,8 +5,9 @@
 import {
   DB, SETS, RARITY_NAMES, MAX_CREATURE_LEVEL, MAX_PLAYER_LEVEL, STAT_KEYS, STAT_LABELS,
   species, familyRoot, familyName, familyRarity, levelUpCost, moveLevelFor, statsFor,
+  fullLearnset, finalEvolutionOf,
   breedingSlotsFor, BREEDING_UNLOCK_LEVEL, bonanzaState,
-  isRelaxHour, relaxHourEndsIn, RELAX_HOUR_LABEL
+  isRelaxHour, relaxHourEndsIn, RELAX_HOUR_LABEL, RULES
 } from './data.js';
 import { store, creatureStats, maxHpOf, hpOf, isFainted, isHurt } from './state.js';
 import { Persist } from './persist.js';
@@ -498,12 +499,24 @@ function statRows(c) {
  */
 function movesBlock(c, s) {
   const host = el('div', { class: 'move-list' });
-  const evolvesLater = !!s.evolvesToId;
+  // The whole family's learnset, not just this form's. An early form often
+  // only carries the first two or three slots, with the rest waiting on the
+  // final evolution — but all four belong in this list, early-unlock luck
+  // included, so the player can see what the creature is working towards.
+  const learnset = fullLearnset(s.id);
+  const finalSp = finalEvolutionOf(s.id);
 
-  for (const m of s.moves) {
+  for (const m of learnset) {
     const at = moveLevelFor(m, c.moveUnlock);
     const early = at < m.level;
-    const known = at <= c.level;
+    // Does the form it is in right now actually have this move slot?
+    const hasSlot = s.moves.some(x => x.slot === m.slot);
+    const known = hasSlot && at <= c.level;
+
+    const notes = [];
+    if (early) notes.push(`unlocked Lv ${at} instead of Lv ${m.level}`);
+    if (!hasSlot) notes.push(`needs ${m.fromName}`);
+
     host.append(el('div', { class: 'move' + (known ? '' : ' locked') },
       el('div', { class: 'move-top' },
         el('b', { text: m.name }),
@@ -513,63 +526,42 @@ function movesBlock(c, s) {
         m.isBuff
           ? el('span', { class: 'bf', text: `Raises ${STAT_LABELS[m.buffStat]} by ${Math.round(m.buffPct * 100)}%` })
           : el('span', { class: 'pw', text: `${m.power} power` }),
-        early ? el('span', { text: ` · unlocked Lv ${at} instead of Lv ${m.level}` }) : null
+        notes.length ? el('span', { text: ' · ' + notes.join(' · ') }) : null
       )
     ));
   }
 
-  // Moves this creature can only get after evolving
-  if (evolvesLater) {
-    const next = species(s.evolvesToId);
-    const extra = next.moves.filter(m => !s.moves.some(x => x.name === m.name));
-    for (const m of extra) {
-      const at = moveLevelFor(m, c.moveUnlock);
-      const early = at < m.level;
-      host.append(el('div', { class: 'move locked' },
-        el('div', { class: 'move-top' },
-          el('b', { text: m.name }),
-          el('span', { class: 'lv' + (early ? ' early' : ''), text: `Lv ${at}` })
-        ),
-        el('div', { class: 'move-meta' },
-          m.isBuff
-            ? el('span', { class: 'bf', text: `Raises ${STAT_LABELS[m.buffStat]} by ${Math.round(m.buffPct * 100)}%` })
-            : el('span', { class: 'pw', text: `${m.power} power` }),
-          el('span', {
-            text: early
-              ? ` · unlocked Lv ${at} instead of Lv ${m.level}, requires evolution`
-              : ' · requires evolution'
-          })
-        )
-      ));
-    }
-  }
-
   const nextMove = nextMoveFor(c, s);
   if (nextMove) {
-    host.append(el('p', {
-      class: 'hint',
-      text: `Next move: ${nextMove.name} at level ${nextMove.at}` +
-            (nextMove.needsEvolution ? ' (after evolving)' : '')
-    }));
+    host.append(el('p', { class: 'hint', text: nextMoveLabel(nextMove, c) }));
+  }
+  if (finalSp && finalSp.id !== s.id) {
+    host.append(el('p', { class: 'hint', text: `Full move list for the line, up to ${finalSp.name}.` }));
   }
   return host;
 }
 
-/** The soonest move this creature has not learned yet. */
+function nextMoveLabel(next, c) {
+  if (!next.needsEvolution) return `Next move: ${next.name} at level ${next.at}`;
+  return next.at <= c.level
+    ? `Next move: ${next.name}, as soon as it evolves into ${next.fromName}`
+    : `Next move: ${next.name} at level ${next.at}, once it is a ${next.fromName}`;
+}
+
+/**
+ * The soonest move this creature cannot use yet — either because its level is
+ * too low, or because the move belongs to a later form.
+ */
 function nextMoveFor(c, s) {
-  const own = s.moves
-    .map(m => ({ name: m.name, at: moveLevelFor(m, c.moveUnlock), needsEvolution: false }))
-    .filter(m => m.at > c.level);
-  let pool = own;
-  if (s.evolvesToId) {
-    const next = species(s.evolvesToId);
-    const extra = next.moves
-      .filter(m => !s.moves.some(x => x.name === m.name))
-      .map(m => ({ name: m.name, at: moveLevelFor(m, c.moveUnlock), needsEvolution: true }));
-    pool = own.concat(extra);
-  }
-  pool.sort((a, b) => a.at - b.at);
-  return pool[0] || null;
+  return fullLearnset(s.id)
+    .map(m => ({
+      name: m.name,
+      at: moveLevelFor(m, c.moveUnlock),
+      fromName: m.fromName,
+      needsEvolution: !s.moves.some(x => x.slot === m.slot)
+    }))
+    .filter(m => m.needsEvolution || m.at > c.level)
+    .sort((a, b) => a.at - b.at)[0] || null;
 }
 
 function doLevelUp(uid) {
@@ -702,6 +694,8 @@ export function openSpeciesSheet(speciesId) {
   const from = DB.evolvesFrom.get(s.id) ? species(DB.evolvesFrom.get(s.id)) : null;
   const rarity = s.rarity;
   const chain = (DB.familyMembers.get(familyRoot(s.id)) || []).map(id => species(id));
+  // All four moves for the line, even the ones held back until the final form.
+  const lineMoves = fullLearnset(s.id);
 
   const hasShiny = store.hasShinyCaught(s.id);
   let showingShiny = false;
@@ -788,10 +782,11 @@ export function openSpeciesSheet(speciesId) {
       ))),
     el('p', { class: 'hint', text: 'Each level adds 5% of the base stat. Every creature you catch also gets one stat 10% higher and another 10% lower.' }),
 
-    // ---- everything it can learn ----
-    el('h4', { class: 'sheet-h4', text: `Moves (${s.moves.length})` }),
-    el('div', { class: 'move-list' }, ...s.moves.map(m =>
-      el('div', { class: 'move' },
+    // ---- everything the line can learn, across the whole family ----
+    el('h4', { class: 'sheet-h4', text: `Moves (${lineMoves.length})` }),
+    el('div', { class: 'move-list' }, ...lineMoves.map(m => {
+      const hasSlot = s.moves.some(x => x.slot === m.slot);
+      return el('div', { class: 'move' + (hasSlot ? '' : ' locked') },
         el('div', { class: 'move-top' },
           el('b', { text: m.name }),
           el('span', { class: 'lv', text: `Lv ${m.level}` })
@@ -799,9 +794,11 @@ export function openSpeciesSheet(speciesId) {
         el('div', { class: 'move-meta' },
           m.isBuff
             ? el('span', { class: 'bf', text: `Raises ${STAT_LABELS[m.buffStat]} by ${Math.round(m.buffPct * 100)}%` })
-            : el('span', { class: 'pw', text: `${m.power} power` })
+            : el('span', { class: 'pw', text: `${m.power} power` }),
+          hasSlot ? null : el('span', { text: ` · needs ${m.fromName}` })
         )
-      ))),
+      );
+    })),
 
     chain.length > 1 ? el('p', { class: 'hint', text: 'Family: ' + chain.map(x => x.name).join(' → ') }) : null,
     s.stage === 1
@@ -912,12 +909,12 @@ export function renderEffectChips(now = Date.now()) {
     ));
   }
 
-  // 23:30–23:45 — the interaction radius is switched off
+  // 23:30–23:45 — the interaction radius widens to RULES.RELAX_RANGE_M
   const nowDate = new Date(now);
   if (isRelaxHour(nowDate)) {
     host.append(el('div', { class: 'fx-chip relax' },
       el('span', { text: '🌙' }),
-      el('span', { text: RELAX_HOUR_LABEL }),
+      el('span', { text: `${RELAX_HOUR_LABEL} · ${RULES.RELAX_RANGE_M} m reach` }),
       el('b', { text: timeLeftLabel(relaxHourEndsIn(nowDate)) })
     ));
   }

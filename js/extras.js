@@ -351,7 +351,7 @@ function renderInfo(tab = 'basics') {
     const o = Object.fromEntries(POI_OUTCOMES.map(x => [x.kind, x.weight]));
     out.push(
       el('p', { html: `Real shops, cafes and other amenities around you become points on the map. Everything within <b>${RULES.SCAN_RADIUS_M} m</b> is checked, and the whole map re-rolls every <b>${RULES.SCAN_INTERVAL_MS / 60000} minutes</b>.` }),
-      el('p', { html: `You must be within <b>${RULES.CAPTURE_RANGE_M} m</b> of a point to interact with it — creatures, items, raids, grunts and the breeding centre all use the same rule. The one exception is <b>${RELAX_HOUR_LABEL}</b>, see Daily events below.` }),
+      el('p', { html: `You must be within <b>${RULES.CAPTURE_RANGE_M} m</b> of a point to interact with it — creatures, items, raids, grunts and the breeding centre all use the same rule. The green circle around you shows that reach. It widens to <b>${RULES.RELAX_RANGE_M} m</b> during <b>${RELAX_HOUR_LABEL}</b>, see Daily events below.` }),
       el('h4', { text: 'What each icon means' }),
       keyline('✦', 'Flickering stars — a wild creature. You only see which one after you catch it.'),
       keyline('◉', 'Spinning disc — Capturing Discs, and occasionally an Ultra Capture Disc.'),
@@ -364,6 +364,7 @@ function renderInfo(tab = 'basics') {
       el('ul', {},
         el('li', { html: `<b>${o.creature}%</b> a creature · <b>${o.discs}%</b> discs · <b>${o.items}%</b> a potion or revive · <b>${o.raid}%</b> a raid · <b>${o.nothing}%</b> nothing` }),
         el('li', { html: `Parks roll separately: <b>${pct(RULES.GRUNT_CHANCE)}</b> chance of a grunt in a <b>leisure=park</b>, and <b>${pct(RULES.GARDEN_GRUNT_CHANCE)}</b> in a quieter <b>leisure=garden</b>.` }),
+        el('li', { html: `Each park rolls <b>${RULES.GRUNT_ROLLS_PER_PARK}</b> times, so a big park can hold several grunts. They do not stand at the middle of the park — they appear <b>${RULES.GRUNT_SPAWN_MIN_M}–${RULES.GRUNT_SPAWN_MAX_M} m</b> from you in any direction, up to <b>${RULES.MAX_ACTIVE_GRUNTS}</b> at a time.` }),
         el('li', { html: `Nothing appears within <b>${RULES.MIN_SPAWN_SEPARATION_M} m</b> of another point, and grunts stay <b>${RULES.MIN_GRUNT_SEPARATION_M} m</b> apart.` })
       ),
       el('h4', { text: 'Shiny creatures' }),
@@ -371,7 +372,7 @@ function renderInfo(tab = 'basics') {
       el('h4', { text: 'Daily events' }),
       el('ul', {},
         el('li', { html: `<b>Shiny Bonanza Hour</b> — ${clockLabel(BONANZA_HOUR_START)} to ${clockLabel(BONANZA_HOUR_END)}. Shiny odds double.` }),
-        el('li', { html: `<b>${RELAX_HOUR_LABEL}</b> — ${clockLabel(RELAX_HOUR_START)} to ${clockLabel(RELAX_HOUR_END)}. Your interaction radius is switched off, so you can tap <b>anything</b> loaded on your map from wherever you are: creatures, discs, items, raids, grunts and your breeding centre. A moonlit chip appears on the map while it is running.` })
+        el('li', { html: `<b>${RELAX_HOUR_LABEL}</b> — ${clockLabel(RELAX_HOUR_START)} to ${clockLabel(RELAX_HOUR_END)}. Your reach grows from <b>${RULES.CAPTURE_RANGE_M} m</b> to <b>${RULES.RELAX_RANGE_M} m</b>, so you can tap creatures, discs, items, raids, grunts and your breeding centre from the sofa instead of walking to them. The green circle on the map grows to match, and a moonlit chip shows how long is left.` })
       ),
       el('h4', { text: 'Steps' }),
       el('p', { html: `Your walking is tracked while the game is open and shown in your Profile. One step is counted per <b>${RULES.METRES_PER_STEP} m</b> of real movement; jumps over <b>${RULES.MAX_WALK_JUMP_M} m</b> are ignored as GPS noise, and a fake debug location never counts.` })

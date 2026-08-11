@@ -199,7 +199,8 @@ async function doScan({ force = false, reason = 'auto', forceKind = null, always
     const c = r.counts;
     dlog(`Scan (${reason}): ${r.places} places + ${r.parks} parks · ` +
          `${c.creature} creatures, ${c.discs} discs, ${c.items} items, ${c.raid} raids, ${c.grunt} grunts · ` +
-         `skipped ${r.skipped.occupied} occupied, ${r.skipped.tooClose} too close, ${r.skipped.nothing} empty`);
+         `skipped ${r.skipped.occupied} occupied, ${r.skipped.tooClose} too close, ${r.skipped.nothing} empty · ` +
+         `grunts: ${r.skipped.gruntRoll} lost the roll, ${r.skipped.gruntTooClose} no room, ${r.skipped.gruntCap} over cap`);
 
     if (store.s.debug.showPois) {
       lastPOIs = await fetchPOIs(pos.lat, pos.lng, RULES.SCAN_RADIUS_M).catch(() => []);
@@ -277,11 +278,13 @@ function placeBreedingCentre() {
 }
 
 /**
- * True when distance checks should be skipped entirely: the debug override,
- * or the nightly "Relax and Good Night" window.
+ * How close you have to be to interact with something right now.
+ * Normally CAPTURE_RANGE_M; the nightly "Relax and Good Night" window widens
+ * it to RELAX_RANGE_M, and the debug toggle removes the limit entirely.
  */
-function rangeChecksOff() {
-  return !!store.s.debug.ignoreRange || isRelaxHour(new Date());
+function interactRange(now = new Date()) {
+  if (store.s.debug.ignoreRange) return Infinity;
+  return isRelaxHour(now) ? RULES.RELAX_RANGE_M : RULES.CAPTURE_RANGE_M;
 }
 
 /** Common gate: the point must still be live, uncollected and within range. */
@@ -300,8 +303,9 @@ function checkInteractable(point) {
   if (!pos) { toast('Waiting for your location…', 'bad'); return null; }
 
   const d = distance(pos, live);
-  if (d > RULES.CAPTURE_RANGE_M && !rangeChecksOff()) {
-    toast(`Too far away — ${formatDistance(d)}. Get within ${RULES.CAPTURE_RANGE_M} m.`, 'bad');
+  const range = interactRange();
+  if (d > range) {
+    toast(`Too far away — ${formatDistance(d)}. Get within ${range} m.`, 'bad');
     return null;
   }
   return live;
@@ -453,7 +457,7 @@ function startLoop() {
       syncMap();
     }
 
-    GameMap.tick(now, Geo.current, { ignoreRange: rangeChecksOff() });
+    GameMap.tick(now, Geo.current, { range: interactRange() });
 
     // Incense drops a creature at the player's feet every two minutes.
     if (store.clearExpiredEffects(now)) refreshAll();
@@ -515,10 +519,11 @@ function initUI() {
   // Tapping the flag on the map opens the breeding centre, if you are close enough.
   GameMap.onBreedingClick = centre => {
     const pos = Geo.current;
-    const near = rangeChecksOff() || (pos && distance(pos, centre) <= RULES.CAPTURE_RANGE_M);
+    const range = interactRange();
+    const near = !isFinite(range) || (pos && distance(pos, centre) <= range);
     openBreeding({ inRange: !!near });
     if (!near) {
-      toast(`Get within ${RULES.CAPTURE_RANGE_M} m of your breeding centre to use it`, 'bad', 3400);
+      toast(`Get within ${range} m of your breeding centre to use it`, 'bad', 3400);
     }
   };
 

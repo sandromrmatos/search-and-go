@@ -1,13 +1,14 @@
 /* ============================================================
    spawns.js — deciding what appears on the map, and when
 
-   Rules implemented here (numbers live in RULES / data.js):
+   Rules implemented here (the numbers all live in RULES / data.js):
      • every shop or amenity within the scan radius rolls one outcome:
-         15% creature · 25% discs · 15% items · 5% raid · 40% nothing
-     • leisure=park rolls separately for a battle grunt (20%),
-       leisure=garden rolls the same way but at 5%
-     • nothing may appear within 25 m of another map point,
-       and grunts also keep 50 m from other grunts
+         22% creature · 28% discs · 15% items · 5% raid · 30% nothing
+     • leisure=park rolls separately for a battle grunt, leisure=garden rolls
+       the same way at a lower chance; grunts are scattered on a ring around
+       the player, not at the park centre, and are capped per player
+     • nothing may appear within MIN_SPAWN_SEPARATION_M of another map point,
+       and grunts also keep MIN_GRUNT_SEPARATION_M from other grunts
      • one point per POI at a time
      • lifetimes: creature/discs/items 15–25 min, raid 25–35, grunt 20–25
      • a collected point stays put, ticked, until its timer runs out
@@ -20,7 +21,7 @@ import {
   rollRaid, rollShiny, species, gruntLevelRange, GRUNT_CHARACTERS, GRUNT_PHRASES,
   BATTLE_TEAM_SIZE, DB, chance
 } from './data.js';
-import { distance } from './geo.js';
+import { distance, offsetMeters } from './geo.js';
 import { fetchPOIs, splitPOIs } from './osm.js';
 import { store } from './state.js';
 
@@ -122,6 +123,51 @@ function tooClose(candidate, taken, minMetres) {
   return taken.some(p => distance(p, candidate) < minMetres);
 }
 
+/**
+ * Reads a number out of RULES with a fallback. Hand-editing data.js is normal,
+ * and a missing key used to silently switch grunts off completely (a loop of
+ * `i < undefined` never runs), which is impossible to spot from the map.
+ */
+function rule(key, fallback) {
+  const v = Number(RULES[key]);
+  if (Number.isFinite(v) && v > 0) return v;
+  if (!warnedRules.has(key)) {
+    warnedRules.add(key);
+    console.warn(`[spawns] RULES.${key} is missing or invalid — using ${fallback}`);
+  }
+  return fallback;
+}
+const warnedRules = new Set();
+
+/**
+ * A random point on the ring between `minM` and `maxM` around `pos`.
+ * The sqrt spreads points evenly over the ring's area instead of bunching
+ * them near the inner edge.
+ */
+function scatterNear(pos, minM, maxM) {
+  const bearing = Math.random() * Math.PI * 2;
+  const d = Math.sqrt(minM * minM + Math.random() * (maxM * maxM - minM * minM));
+  return offsetMeters(pos, Math.cos(bearing) * d, Math.sin(bearing) * d);
+}
+
+/**
+ * Finds somewhere in the scan radius to drop a grunt that respects both
+ * separation rules. One unlucky spot should not waste a roll, so this tries
+ * a number of places before giving up.
+ */
+function findGruntSpot(pos, taken, gruntSpots) {
+  const minM = rule('GRUNT_SPAWN_MIN_M', 15);
+  const maxM = Math.max(minM + 1, rule('GRUNT_SPAWN_MAX_M', RULES.SCAN_RADIUS_M || 250));
+  const tries = rule('GRUNT_PLACEMENT_TRIES', 24);
+  for (let i = 0; i < tries; i++) {
+    const pt = scatterNear(pos, minM, maxM);
+    if (tooClose(pt, taken, rule('MIN_SPAWN_SEPARATION_M', 15))) continue;
+    if (tooClose(pt, gruntSpots, rule('MIN_GRUNT_SEPARATION_M', 20))) continue;
+    return pt;
+  }
+  return null;
+}
+
 /* ---------------------------------------------------------------
    Scan
    --------------------------------------------------------------- */
@@ -150,7 +196,7 @@ export async function runScan(pos, { force = false, forceKind = null, alwaysGrun
 
     const created = [];
     const counts = { creature: 0, discs: 0, items: 0, raid: 0, grunt: 0 };
-    const skipped = { occupied: 0, tooClose: 0, nothing: 0, gruntTooClose: 0, gruntRoll: 0 };
+    const skipped = { occupied: 0, tooClose: 0, nothing: 0, gruntTooClose: 0, gruntRoll: 0, gruntCap: 0 };
 
     // ---- shops and amenities ----
     for (const poi of places) {
@@ -174,31 +220,42 @@ export async function runScan(pos, { force = false, forceKind = null, alwaysGrun
     }
 
     // ---- parks and gardens: battle grunts ----
-    // Parks can be large polygons. Overpass confirmed they intersect our scan
-    // circle, but the centre may be far away. So we place the grunt near the
-    // player with a small random offset, making it always reachable.
+    // A park is one POI no matter how big it is, so a single roll would make
+    // the middle of a huge park as quiet as a pocket garden. Each park gets
+    // several rolls and holds that many grunts, topped up on every scan, and
+    // they are scattered across the whole scan radius like any other spawn.
+    const rollsPerPark = rule('GRUNT_ROLLS_PER_PARK', 3);
+    const maxGrunts = rule('MAX_ACTIVE_GRUNTS', 6);
+    // How many live grunts each park is already responsible for.
+    const gruntsPerPOI = new Map();
+    for (const p of active) {
+      if (p.kind !== 'grunt') continue;
+      gruntsPerPOI.set(p.poiId, (gruntsPerPOI.get(p.poiId) || 0) + 1);
+    }
+
+    let liveGrunts = gruntSpots.length;
     for (const park of parks) {
-      if (occupiedPOIs.has(park.id)) { skipped.occupied++; continue; }
+      const slots = rollsPerPark - (gruntsPerPOI.get(park.id) || 0);
+      if (slots <= 0) { skipped.occupied++; continue; }
 
-      // Use a spawn coordinate near the player, not the park centre
-      const spawnLat = pos.lat + (Math.random() - 0.5) * 0.00012;  // ~6-7 m jitter
-      const spawnLng = pos.lng + (Math.random() - 0.5) * 0.00016;
-      const spawnPt = { lat: spawnLat, lng: spawnLng };
-
-      if (tooClose(spawnPt, taken, RULES.MIN_SPAWN_SEPARATION_M)) { skipped.tooClose++; continue; }
-      if (tooClose(spawnPt, gruntSpots, RULES.MIN_GRUNT_SEPARATION_M)) { skipped.gruntTooClose++; continue; }
       // leisure=garden is a quieter spot than leisure=park, so it rolls lower.
       const gruntChance = park.isGarden ? RULES.GARDEN_GRUNT_CHANCE : RULES.GRUNT_CHANCE;
-      if (!alwaysGrunt && !chance(gruntChance)) { skipped.gruntRoll++; continue; }
 
-      // Override the POI lat/lng so the grunt appears near the player
-      const nearPark = { ...park, lat: spawnLat, lng: spawnLng };
-      const point = makeGruntPoint(nearPark, now, store.level);
-      created.push(point);
-      counts.grunt++;
-      occupiedPOIs.add(park.id);
-      taken.push(spawnPt);
-      gruntSpots.push(spawnPt);
+      for (let roll = 0; roll < slots; roll++) {
+        if (liveGrunts >= maxGrunts) { skipped.gruntCap++; break; }
+        if (!alwaysGrunt && !chance(gruntChance)) { skipped.gruntRoll++; continue; }
+
+        const spawnPt = findGruntSpot(pos, taken, gruntSpots);
+        if (!spawnPt) { skipped.gruntTooClose++; continue; }
+
+        // Override the POI lat/lng: the park's own centre is not usable.
+        const point = makeGruntPoint({ ...park, lat: spawnPt.lat, lng: spawnPt.lng }, now, store.level);
+        created.push(point);
+        counts.grunt++;
+        liveGrunts++;
+        taken.push(spawnPt);
+        gruntSpots.push(spawnPt);
+      }
     }
 
     store.s.lastScanAt = now;

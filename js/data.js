@@ -17,11 +17,15 @@ export const ITEM_DIR = 'items';
 /* ---------------------------------------------------------------
    Core rules
    --------------------------------------------------------------- */
+/** Shared so the grunt spread and the POI search can never drift apart. */
+const SCAN_RADIUS_M = 250;
+
 export const RULES = {
-  SCAN_RADIUS_M: 250,           // POI search radius around the player
+  SCAN_RADIUS_M,                // POI search radius around the player
   CAPTURE_RANGE_M: 20,         // must be this close to interact with anything
+  RELAX_RANGE_M: 100,          // widened reach during Relax and Good Night
   MIN_SPAWN_SEPARATION_M: 15,   // no two map points within 15 m
-  MIN_GRUNT_SEPARATION_M: 25,   // grunts also keep 25 m from each other
+  MIN_GRUNT_SEPARATION_M: 20,   // grunts also keep 20 m from each other
   SCAN_INTERVAL_MS: 5 * 60_000, // everything re-rolls every 5 minutes
 
   CAPTURE_ANIM_MS: 5000,
@@ -38,8 +42,21 @@ export const RULES = {
   },
 
   // Parks roll separately from shops/amenities
-  GRUNT_CHANCE: 0.20,
-  GARDEN_GRUNT_CHANCE: 0.05,    // leisure=garden is a much quieter spot
+  GRUNT_CHANCE: 0.40,
+  GARDEN_GRUNT_CHANCE: 0.25,    // leisure=garden is a much quieter spot
+
+  /* Grunt placement.
+     A park is a single POI however big it is, so one roll per park would make
+     the middle of a huge park as quiet as a pocket garden. Each park instead
+     gets GRUNT_ROLLS_PER_PARK independent rolls and keeps that many grunts
+     alive, topped up on every scan. They are scattered across the whole scan
+     radius, exactly like every other spawn, because a park polygon's centre
+     is often nowhere near the player. */
+  GRUNT_ROLLS_PER_PARK: 3,
+  GRUNT_SPAWN_MIN_M: 15,        // never right on top of you
+  GRUNT_SPAWN_MAX_M: SCAN_RADIUS_M,
+  GRUNT_PLACEMENT_TRIES: 24,    // random spots tried before a roll gives up
+  MAX_ACTIVE_GRUNTS: 6,         // hard ceiling across every park at once
 
   // Step counter
   METRES_PER_STEP: 0.75,        // average stride length
@@ -228,8 +245,9 @@ export const BONANZA_HOUR_START = 17.5;  // 17:30
 export const BONANZA_HOUR_END = 18.5;    // 18:30
 
 /* ---------------------------------------------------------------
-   Relax and Good Night: local 23:30–23:45, range checks are switched off
-   so anything on the map can be interacted with from anywhere.
+   Relax and Good Night: local 23:30–23:45, the interaction range widens
+   from CAPTURE_RANGE_M to RELAX_RANGE_M so you can reach most of what is
+   on screen without walking to it.
    --------------------------------------------------------------- */
 export const RELAX_HOUR_START = 23.5;    // 23:30
 export const RELAX_HOUR_END = 23.75;     // 23:45
@@ -380,12 +398,44 @@ export class Species {
 
 /**
  * The level a move is actually learned at for one creature. `offsets` shifts
- * move slots 3 and 4 earlier (never below the previous move's level or 1).
+ * move slots 3 and 4 earlier, never below level 1. A big shift on slot 4 can
+ * bring it in ahead of slot 3, which is intentional — the roll table has an
+ * entry that moves only slot 4.
  */
 export function moveLevelFor(move, offsets) {
   if (!offsets) return move.level;
   const shift = offsets[move.slot] || 0;
   return Math.max(1, move.level - shift);
+}
+
+/**
+ * The last species in a creature's family — Stage 2 or Stage 3 depending on
+ * whether the middle form evolves again.
+ */
+export function finalEvolutionOf(speciesId) {
+  const chain = familyChain(speciesId);
+  return chain[chain.length - 1] || species(speciesId) || null;
+}
+
+/**
+ * Every move a creature line can ever learn, gathered across the whole family
+ * so an early form still lists all four. Earlier forms often only carry the
+ * first two or three slots, and the missing ones live on the final evolution.
+ *
+ * Each entry keeps the first species in the chain that actually has that slot,
+ * which is what decides whether the move needs an evolution to become usable.
+ */
+export function fullLearnset(speciesId) {
+  const bySlot = new Map();
+  for (const sp of familyChain(speciesId)) {
+    if (!sp) continue;
+    for (const m of sp.moves) {
+      // The earliest form to learn a slot wins: that is where it unlocks.
+      if (bySlot.has(m.slot)) continue;
+      bySlot.set(m.slot, { ...m, fromId: sp.id, fromName: sp.name, fromStage: sp.stage });
+    }
+  }
+  return [...bySlot.values()].sort((a, b) => a.level - b.level || a.slot - b.slot);
 }
 
 export const DB = {

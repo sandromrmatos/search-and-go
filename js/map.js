@@ -59,7 +59,7 @@ export const GameMap = {
   onBreedingClick: null,
   followMe: true,
   _lastPos: null,
-  _rangeHidden: null,   // tracks the last "range checks off" state we painted
+  _paintedRange: null,  // interaction radius the green ring is currently drawn at
 
   init(containerId = 'map') {
     if (typeof L === 'undefined') throw new Error('Leaflet failed to load (vendor/leaflet/leaflet.js)');
@@ -190,18 +190,22 @@ export const GameMap = {
 
   /**
    * Refresh countdowns and in-range styling. Called about once a second.
-   * `ignoreRange` makes everything read as reachable (debug override and the
-   * nightly Relax and Good Night window).
+   * `range` is how far the player can reach right now: normally
+   * RULES.CAPTURE_RANGE_M, wider during Relax and Good Night, and Infinity
+   * when the debug override is on.
    */
-  tick(now, playerPos, { ignoreRange = false } = {}) {
-    // The green ring is meaningless while range checks are off, so hide it.
-    // Only restyle when the flag actually flips — this runs every second.
-    if (this.meAccuracy && this._rangeHidden !== ignoreRange) {
-      this._rangeHidden = ignoreRange;
-      this.meAccuracy.setStyle({
-        opacity: ignoreRange ? 0 : .7,
-        fillOpacity: ignoreRange ? 0 : .12
-      });
+  tick(now, playerPos, { range = RULES.CAPTURE_RANGE_M } = {}) {
+    const unlimited = !isFinite(range);
+    // Keep the green ring showing the real reach. Only touch Leaflet when the
+    // number actually changes — this runs every second.
+    if (this.meAccuracy && this._paintedRange !== range) {
+      this._paintedRange = range;
+      if (unlimited) {
+        this.meAccuracy.setStyle({ opacity: 0, fillOpacity: 0 });
+      } else {
+        this.meAccuracy.setRadius(range);
+        this.meAccuracy.setStyle({ opacity: .7, fillOpacity: .12 });
+      }
     }
 
     for (const rec of this.markers.values()) {
@@ -210,16 +214,16 @@ export const GameMap = {
       rec.timerEl.classList.toggle('urgent', left <= 60_000);
       rec.el.classList.toggle('collected', !!rec.point.collected);
 
-      if (playerPos || ignoreRange) {
-        const near = ignoreRange || distance(playerPos, rec.point) <= RULES.CAPTURE_RANGE_M;
+      if (playerPos || unlimited) {
+        const near = unlimited || distance(playerPos, rec.point) <= range;
         const inRange = near && !rec.point.collected;
         rec.el.classList.toggle('in-range', inRange);
         rec.el.classList.toggle('out-range', !inRange);
       }
     }
-    if (this.breedingMarker && (playerPos || ignoreRange)) {
+    if (this.breedingMarker && (playerPos || unlimited)) {
       const ll = this.breedingMarker.getLatLng();
-      const near = ignoreRange || distance(playerPos, { lat: ll.lat, lng: ll.lng }) <= RULES.CAPTURE_RANGE_M;
+      const near = unlimited || distance(playerPos, { lat: ll.lat, lng: ll.lng }) <= range;
       const el = this.breedingMarker.getElement?.()?.querySelector('.breed-flag');
       if (el) el.classList.toggle('in-range', near);
     }
