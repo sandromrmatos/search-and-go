@@ -51,6 +51,11 @@
     <section class="view view-map active" id="view-map">
       <div id="map"></div>
       <div class="map-overlay-top">
+        <div id="reset-chip" class="reset-chip">
+          <span class="reset-ico">⟳</span>
+          <span class="reset-label">Spawns reset in</span>
+          <b id="next-scan">--:--</b>
+        </div>
         <div id="geo-status" class="geo-status">Locating…</div>
       </div>
       <div class="map-overlay-bottom">
@@ -58,7 +63,6 @@
         <button id="btn-recenter" class="round-btn" title="Recentre">◎</button>
         <button id="btn-rescan" class="round-btn" title="Scan for spawns now">⟳</button>
       </div>
-      <div id="next-scan" class="next-scan">Next scan: --:--</div>
     </section>
 
     <!-- STORAGE VIEW -->

@@ -22,10 +22,36 @@ const TOTAL_TIMEOUT_MS = 35_000;
 
 /** Cache POI results so repeated scans from the same spot are cheap. */
 const CACHE_TTL_MS = 30 * 60_000;
-const cache = new Map(); // key -> { at, pois }
+/**
+ * Reuse a cached result if the player has drifted less than this from the point
+ * it was fetched at. Keeps the 5-minute rescans from hammering Overpass while
+ * standing still or wandering a few paces.
+ */
+const CACHE_REUSE_M = 30;
+const MAX_CACHE_ENTRIES = 40;
+const cache = new Map(); // key -> { at, pois, centre, radius }
 
 function cacheKey(lat, lng, radius) {
   return `${lat.toFixed(4)},${lng.toFixed(4)},${radius}`;
+}
+
+/** Newest still-valid cache entry taken close enough to `lat,lng` to reuse. */
+function findReusable(lat, lng, radius) {
+  const now = Date.now();
+  let best = null, bestDist = Infinity;
+  for (const entry of cache.values()) {
+    if (entry.radius !== radius) continue;
+    if (now - entry.at >= CACHE_TTL_MS) continue;
+    const d = distance({ lat, lng }, entry.centre);
+    if (d <= CACHE_REUSE_M && d < bestDist) { best = entry; bestDist = d; }
+  }
+  return best;
+}
+
+function remember(key, lat, lng, radius, pois) {
+  cache.set(key, { at: Date.now(), pois, centre: { lat, lng }, radius });
+  // Drop the oldest entries if the map grows too far (Map preserves insertion order).
+  while (cache.size > MAX_CACHE_ENTRIES) cache.delete(cache.keys().next().value);
 }
 
 function buildQuery(lat, lng, radius) {
@@ -59,10 +85,10 @@ function prettify(v) {
  * Fetch shop/amenity POIs around a point.
  * @returns {Promise<Array<{id,lat,lng,name,kind,kindValue}>>}
  */
-export async function fetchPOIs(lat, lng, radius = 100, { force = false, signal } = {}) {
+export async function fetchPOIs(lat, lng, radius = 250, { force = false, signal } = {}) {
   const key = cacheKey(lat, lng, radius);
-  const hit = cache.get(key);
-  if (!force && hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.pois;
+  const hit = force ? null : findReusable(lat, lng, radius);
+  if (hit) return hit.pois;
 
   const body = 'data=' + encodeURIComponent(buildQuery(lat, lng, radius));
   const giveUpAt = Date.now() + TOTAL_TIMEOUT_MS;
@@ -91,7 +117,7 @@ export async function fetchPOIs(lat, lng, radius = 100, { force = false, signal 
       if (!res.ok) { lastErr = new Error(`Overpass ${res.status} at ${hostOf(url)}`); continue; }
       const json = await res.json();
       const pois = normalise(json, { lat, lng }, radius);
-      cache.set(key, { at: Date.now(), pois });
+      remember(key, lat, lng, radius, pois);
       return pois;
     } catch (e) {
       // An outer cancellation is fatal; our own timeout just means "try the next mirror".
@@ -105,8 +131,9 @@ export async function fetchPOIs(lat, lng, radius = 100, { force = false, signal 
     }
   }
 
-  // Every mirror failed — fall back to a stale cache entry if we have one.
-  if (hit) return hit.pois;
+  // Every mirror failed — fall back to a stale nearby result if we have one.
+  const stale = cache.get(key);
+  if (stale) return stale.pois;
   throw lastErr || new Error('Could not reach any Overpass server');
 }
 
@@ -121,7 +148,7 @@ function normalise(json, origin, radius) {
     const pt = elementPoint(el);
     if (!pt) continue;
     // Overpass matches a way if any part of it is in range, but we spawn on the
-    // centre — so drop anything whose centre falls outside the drawn 100 m circle.
+    // centre — so drop anything whose centre falls outside the drawn scan circle.
     const d = distance(origin, pt);
     if (d > radius) continue;
     const id = `${el.type}/${el.id}`;

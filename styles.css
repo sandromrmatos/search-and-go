@@ -129,7 +129,28 @@ a { color: var(--accent); }
 .leaflet-bar { border: 1px solid var(--line) !important; }
 .leaflet-bar a { background: #151d3f !important; color: var(--txt) !important; border-bottom-color: var(--line) !important; }
 
-.map-overlay-top { position: absolute; top: 8px; left: 8px; right: 8px; z-index: 450; display: flex; justify-content: center; pointer-events: none; }
+.map-overlay-top {
+  position: absolute; top: 8px; left: 8px; right: 8px; z-index: 450;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  pointer-events: none;
+}
+
+/* countdown to the next spawn reset — the headline bit of map info */
+.reset-chip {
+  display: flex; align-items: center; gap: 7px;
+  padding: 7px 14px; border-radius: 99px; font-size: 13px;
+  background: rgba(11, 16, 36, .9);
+  border: 1px solid rgba(123, 140, 255, .45);
+  box-shadow: 0 3px 14px #0007, 0 0 18px #7b8cff22;
+  white-space: nowrap;
+}
+.reset-chip .reset-ico { color: var(--accent); font-size: 14px; line-height: 1; }
+.reset-chip .reset-label { color: var(--muted); }
+.reset-chip b { font-variant-numeric: tabular-nums; font-size: 15px; letter-spacing: .4px; }
+.reset-chip.due b { color: var(--accent2); }
+.reset-chip.scanning { border-color: rgba(255, 209, 102, .5); }
+.reset-chip.scanning .reset-ico { color: var(--accent2); animation: spin 1s linear infinite; }
+.reset-chip.soon b { color: var(--accent2); }
 .geo-status {
   pointer-events: none; font-size: 12px; padding: 5px 12px; border-radius: 99px;
   background: rgba(11,16,36,.82); border: 1px solid var(--line); color: var(--muted);
@@ -150,11 +171,7 @@ a { color: var(--accent); }
 }
 .round-btn.spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.next-scan {
-  position: absolute; bottom: 62px; right: 10px; z-index: 450;
-  font-size: 11px; color: var(--muted); background: rgba(11,16,36,.8);
-  border: 1px solid var(--line); border-radius: 99px; padding: 4px 10px;
-}
+
 
 /* --- player marker --- */
 .me-dot { position: relative; width: 20px; height: 20px; }

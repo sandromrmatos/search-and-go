@@ -145,7 +145,7 @@ async function doScan({ chance = RULES.SPAWN_CHANCE, force = false, reason = 'au
 
   const btn = $('#btn-rescan');
   btn.classList.add('spin');
-  $('#geo-status').textContent = 'Scanning for spawns…';
+  updateResetChip();
 
   try {
     const r = await runScan(pos, { chance, force });
@@ -154,9 +154,10 @@ async function doScan({ chance = RULES.SPAWN_CHANCE, force = false, reason = 'au
 
     if (store.s.debug.showPois) GameMap.showPOIs(lastPOIs);
 
-    if (!r.candidates) toast('No shops or amenities mapped within 100 m', 'bad', 3200);
+    const mins = RULES.SCAN_INTERVAL_MS / 60_000;
+    if (!r.candidates) toast(`No shops or amenities mapped within ${RULES.SCAN_RADIUS_M} m`, 'bad', 3200);
     else if (r.created.length) toast(`${r.created.length} new spawn${r.created.length > 1 ? 's' : ''} appeared`, 'good');
-    else toast('No spawns this time — next check in 10 min');
+    else toast(`No spawns this time — next reset in ${mins} min`);
 
     scanCooldownUntil = 0;
     syncMap();
@@ -167,6 +168,7 @@ async function doScan({ chance = RULES.SPAWN_CHANCE, force = false, reason = 'au
   } finally {
     btn.classList.remove('spin');
     onLocation(Geo.current);
+    updateResetChip();
   }
 }
 
@@ -226,6 +228,33 @@ async function tryCapture(spawn) {
 /* ===============================================================
    Map sync + game loop
    =============================================================== */
+
+/** Keeps the "Spawns reset in m:ss" chip on the map view current. */
+function updateResetChip(now = Date.now()) {
+  const chip = $('#reset-chip');
+  const value = $('#next-scan');
+  if (!chip || !value) return;
+
+  if (isScanning()) {
+    chip.className = 'reset-chip scanning';
+    chip.querySelector('.reset-label').textContent = 'Finding spawns';
+    value.textContent = 'now';
+    return;
+  }
+
+  chip.querySelector('.reset-label').textContent = 'Spawns reset in';
+
+  if (!store.s.lastScanAt) {
+    chip.className = 'reset-chip due';
+    value.textContent = '--:--';
+    return;
+  }
+
+  const until = msUntilNextScan(now);
+  value.textContent = formatCountdown(until);
+  chip.className = 'reset-chip' + (until <= 60_000 ? ' soon' : '');
+}
+
 function syncMap() {
   const active = store.activeSpawns();
   GameMap.syncSpawns(active);
@@ -245,13 +274,11 @@ function startLoop() {
 
     GameMap.tick(now, Geo.current);
 
-    const until = msUntilNextScan(now);
-    $('#next-scan').textContent = store.s.lastScanAt
-      ? `Next scan: ${formatCountdown(until)}`
-      : 'Next scan: pending';
+    updateResetChip(now);
 
+    const until = msUntilNextScan(now);
     if (until <= 0 && !isScanning() && Geo.current && !capturing && now >= scanCooldownUntil) {
-      doScan({ reason: '10 min timer' });
+      doScan({ reason: `${RULES.SCAN_INTERVAL_MS / 60_000} min timer` });
     }
   }, 1000);
 

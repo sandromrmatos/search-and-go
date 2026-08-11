@@ -9,16 +9,17 @@ export const SET_NAME = 'Elemental Awakening';
    Tunable game rules (all values come from the game spec)
    --------------------------------------------------------------- */
 export const RULES = {
-  SCAN_RADIUS_M: 100,        // POI search radius around the player
-  CAPTURE_RANGE_M: 5,        // must be this close to capture
-  SPAWN_CHANCE: 0.30,        // 30% chance per eligible POI per scan
-  SPAWN_MIN_MS: 10 * 60_000, // spawn lifetime lower bound (10 min)
-  SPAWN_MAX_MS: 20 * 60_000, // spawn lifetime upper bound (20 min)
-  MIN_SPAWN_SEPARATION_M: 5, // no two spawns within 5 m
-  SCAN_INTERVAL_MS: 10 * 60_000, // re-scan every 10 minutes
-  CAPTURE_ANIM_MS: 5000,     // 5 second capture animation
-  EVOLVE_ANIM_MS: 5000       // 5 second evolution animation
+  SCAN_RADIUS_M: 250,         // POI search radius around the player
+  CAPTURE_RANGE_M: 5,         // must be this close to capture
+  SPAWN_CHANCE: 0.30,         // 30% chance per eligible POI per scan
+  SPAWN_MIN_MS: 10 * 60_000,  // spawn lifetime lower bound (10 min)
+  SPAWN_MAX_MS: 20 * 60_000,  // spawn lifetime upper bound (20 min)
+  MIN_SPAWN_SEPARATION_M: 25, // no two spawns within 25 m
+  SCAN_INTERVAL_MS: 5 * 60_000, // re-scan every 5 minutes
+  CAPTURE_ANIM_MS: 5000,      // 5 second capture animation
+  EVOLVE_ANIM_MS: 5000        // 5 second evolution animation
 };
+
 
 /* Rarity → spawn weight (%) */
 export const RARITY_WEIGHTS = { 1: 60, 2: 28, 3: 8, 4: 3, 5: 1 };

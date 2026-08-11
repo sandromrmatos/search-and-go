@@ -89,7 +89,8 @@ export const GameMap = {
         interactive: false
       }).addTo(this.map);
 
-      this.map.setView(ll, 18);
+      // Open on a zoom that shows the whole spawn radius, whatever it is set to.
+      this.fitScanArea();
     } else {
       this.meMarker.setLatLng(ll);
       this.scanCircle.setLatLng(ll);
@@ -98,9 +99,15 @@ export const GameMap = {
     }
   },
 
+  /** Frames the whole scannable area around the player. */
+  fitScanArea() {
+    if (!this.map || !this.scanCircle) return;
+    this.map.fitBounds(this.scanCircle.getBounds(), { padding: [24, 24], animate: false });
+  },
+
   recenter() {
     this.followMe = true;
-    if (this._lastPos && this.map) this.map.setView([this._lastPos.lat, this._lastPos.lng], Math.max(this.map.getZoom(), 18));
+    if (this._lastPos && this.map) this.fitScanArea();
   },
 
   /* ---------------- spawns ---------------- */

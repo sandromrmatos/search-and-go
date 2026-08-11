@@ -1,13 +1,13 @@
 /* ============================================================
    spawns.js — deciding where and when creatures appear
 
-   Rules implemented here:
-     • every POI (shop=* / amenity=*) inside 100 m is a candidate
+   Rules implemented here (all numbers live in RULES in data.js):
+     • every POI (shop=* / amenity=*) inside the scan radius is a candidate
      • each candidate rolls a 30% chance to produce a spawn
      • a POI holds at most one spawn at a time
-     • no spawn may sit within 5 m of another spawn
+     • no spawn may sit within MIN_SPAWN_SEPARATION_M of another spawn
      • a spawn lives 10–20 minutes, then vanishes instantly
-     • the scan repeats every 10 minutes and on game open
+     • the scan repeats on the SCAN_INTERVAL_MS timer and on game open
      • spawns persist, so leaving the area (or the game) keeps them alive
    ============================================================ */
 
