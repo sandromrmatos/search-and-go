@@ -6,10 +6,11 @@ import {
   species, familyName, familyRarity, RARITY_NAMES, RULES,
   BREEDING_UNLOCK_LEVEL, BREEDING_CANDY_CAP, BREEDING_SLOTS_BY_LEVEL,
   MAX_CREATURE_LEVEL, CREATURE_LEVEL_COST, POI_OUTCOMES, SHINY_ODDS,
-  BONANZA_HOUR_START, BONANZA_HOUR_END, STAT_LABELS
+  BONANZA_HOUR_START, BONANZA_HOUR_END, STAT_LABELS,
+  RELAX_HOUR_START, RELAX_HOUR_END, RELAX_HOUR_LABEL, dustBonusFor
 } from './data.js';
 import { store, maxHpOf, hpOf, isFainted } from './state.js';
-import { itemImage, ITEMS, itemsInOrder } from './items.js';
+import { itemImage, itemName, ITEMS, itemsInOrder } from './items.js';
 import { $, $$, el, toast, openSheet, closeSheet, num, timeLeftLabel } from './ui.js';
 
 const DUST_ICON = '✨';
@@ -83,7 +84,15 @@ export function renderMissions() {
 
 function missionRow(m) {
   const pct = Math.min(100, Math.round((m.progress / m.target) * 100));
-  const dust = m.def.dust + Math.max(0, store.level - 1);
+  const dust = m.def.dust + dustBonusFor(store.level);
+
+  // Extra named items, shown with their real inventory artwork
+  const itemChips = Object.entries(m.def.items || {})
+    .filter(([id, n]) => ITEMS[id] && n > 0)
+    .map(([id, n]) => el('span', { class: 'r reward-item' },
+      el('img', { class: 'reward-item-img', src: itemImage(id), alt: '' }),
+      el('span', { text: `${n > 1 ? n + ' ' : ''}${ITEMS[id].name}` })
+    ));
 
   return el('div', {
     class: 'mission' + (m.claimable ? ' claimable' : m.claimed ? ' claimed' : '')
@@ -96,7 +105,8 @@ function missionRow(m) {
         el('span', { text: `${num(Math.min(m.progress, m.target))} / ${num(m.target)}` }),
         el('span', { class: 'r', text: `⭐ ${m.def.xp} XP` }),
         el('span', { class: 'r', text: `${DUST_ICON} ${num(dust)}` }),
-        m.def.discs ? el('span', { class: 'r', text: `◉ ${m.def.discs} disc${m.def.discs > 1 ? 's' : ''}` }) : null
+        m.def.discs ? el('span', { class: 'r', text: `◉ ${m.def.discs} disc${m.def.discs > 1 ? 's' : ''}` }) : null,
+        ...itemChips
       )
     ),
     el('div', { class: 'mission-act' },
@@ -114,6 +124,7 @@ function claim(id) {
   if (!r.ok) { toast('That mission cannot be claimed yet', 'bad'); return; }
   let msg = `${r.label} · +${r.xp} XP, +${num(r.dust)} stardust`;
   if (r.discs) msg += `, +${r.discs} Capturing Disc${r.discs > 1 ? 's' : ''}`;
+  for (const [id, n] of Object.entries(r.items || {})) msg += `, +${n} ${itemName(id, n)}`;
   toast(msg, 'good', 3400);
   if (r.levelUp.levelledUp) toast(`Player level ${r.levelUp.to}!`, 'good', 3200);
   renderMissions();
@@ -318,6 +329,15 @@ function collect(index) {
 
 const pct = n => `${Math.round(n * 100)}%`;
 
+/** 17.5 -> "5:30 PM", 23.75 -> "11:45 PM". */
+function clockLabel(hoursFloat) {
+  const h24 = Math.floor(hoursFloat);
+  const mins = Math.round((hoursFloat - h24) * 60);
+  const suffix = h24 >= 12 ? 'PM' : 'AM';
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${h12}:${String(mins).padStart(2, '0')} ${suffix}`;
+}
+
 function keyline(k, text) {
   return el('div', { class: 'keyline' }, el('span', { class: 'k', text: k }), el('span', { html: text }));
 }
@@ -331,23 +351,30 @@ function renderInfo(tab = 'basics') {
     const o = Object.fromEntries(POI_OUTCOMES.map(x => [x.kind, x.weight]));
     out.push(
       el('p', { html: `Real shops, cafes and other amenities around you become points on the map. Everything within <b>${RULES.SCAN_RADIUS_M} m</b> is checked, and the whole map re-rolls every <b>${RULES.SCAN_INTERVAL_MS / 60000} minutes</b>.` }),
-      el('p', { html: `You must be within <b>${RULES.CAPTURE_RANGE_M} m</b> of a point to interact with it — creatures, items, raids, grunts and the breeding centre all use the same rule.` }),
+      el('p', { html: `You must be within <b>${RULES.CAPTURE_RANGE_M} m</b> of a point to interact with it — creatures, items, raids, grunts and the breeding centre all use the same rule. The one exception is <b>${RELAX_HOUR_LABEL}</b>, see Daily events below.` }),
       el('h4', { text: 'What each icon means' }),
       keyline('✦', 'Flickering stars — a wild creature. You only see which one after you catch it.'),
       keyline('◉', 'Spinning disc — Capturing Discs, and occasionally an Ultra Capture Disc.'),
       keyline('!', 'Rotating exclamation — a Potion or a Revive.'),
       keyline('🔥', 'Bright flame — a raid boss. Battle it with three creatures.'),
-      keyline('🧍', 'A person in a park — a battle grunt who wants a 3 v 3.'),
+      keyline('🧍', 'A person in a park or garden — a battle grunt who wants a 3 v 3.'),
       keyline('⚑', 'Your breeding centre, once you place it.'),
       keyline('✓', 'A green tick means you have already used that point. It stays until its timer ends.'),
       el('h4', { text: 'Odds per point' }),
       el('ul', {},
         el('li', { html: `<b>${o.creature}%</b> a creature · <b>${o.discs}%</b> discs · <b>${o.items}%</b> a potion or revive · <b>${o.raid}%</b> a raid · <b>${o.nothing}%</b> nothing` }),
-        el('li', { html: `Parks roll separately: <b>${pct(RULES.GRUNT_CHANCE)}</b> chance of a grunt.` }),
+        el('li', { html: `Parks roll separately: <b>${pct(RULES.GRUNT_CHANCE)}</b> chance of a grunt in a <b>leisure=park</b>, and <b>${pct(RULES.GARDEN_GRUNT_CHANCE)}</b> in a quieter <b>leisure=garden</b>.` }),
         el('li', { html: `Nothing appears within <b>${RULES.MIN_SPAWN_SEPARATION_M} m</b> of another point, and grunts stay <b>${RULES.MIN_GRUNT_SEPARATION_M} m</b> apart.` })
       ),
       el('h4', { text: 'Shiny creatures' }),
-      el('p', { html: `Roughly <b>${pct(SHINY_ODDS.normal.spawn)}</b> of wild catches and <b>${pct(SHINY_ODDS.normal.raid)}</b> of raid catches are shiny — a colour variant, marked with a ★ in storage. Odds double during <b>Shiny Bonanza Hour</b> (5:30 PM–6:30 PM every day) and all of <b>Shiny Bonanza Day</b>, the last Saturday of the month.` })
+      el('p', { html: `Roughly <b>${pct(SHINY_ODDS.normal.spawn)}</b> of wild catches and <b>${pct(SHINY_ODDS.normal.raid)}</b> of raid catches are shiny — a colour variant, marked with a ★ in storage. Odds double during <b>Shiny Bonanza Hour</b> (${clockLabel(BONANZA_HOUR_START)}–${clockLabel(BONANZA_HOUR_END)} every day) and all of <b>Shiny Bonanza Day</b>, the last Saturday of the month.` }),
+      el('h4', { text: 'Daily events' }),
+      el('ul', {},
+        el('li', { html: `<b>Shiny Bonanza Hour</b> — ${clockLabel(BONANZA_HOUR_START)} to ${clockLabel(BONANZA_HOUR_END)}. Shiny odds double.` }),
+        el('li', { html: `<b>${RELAX_HOUR_LABEL}</b> — ${clockLabel(RELAX_HOUR_START)} to ${clockLabel(RELAX_HOUR_END)}. Your interaction radius is switched off, so you can tap <b>anything</b> loaded on your map from wherever you are: creatures, discs, items, raids, grunts and your breeding centre. A moonlit chip appears on the map while it is running.` })
+      ),
+      el('h4', { text: 'Steps' }),
+      el('p', { html: `Your walking is tracked while the game is open and shown in your Profile. One step is counted per <b>${RULES.METRES_PER_STEP} m</b> of real movement; jumps over <b>${RULES.MAX_WALK_JUMP_M} m</b> are ignored as GPS noise, and a fake debug location never counts.` })
     );
   }
 

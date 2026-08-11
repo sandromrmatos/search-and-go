@@ -57,12 +57,13 @@ function remember(key, lat, lng, radius, pois) {
 function buildQuery(lat, lng, radius) {
   const la = lat.toFixed(7), ln = lng.toFixed(7);
   // shops/amenities become creature, item, disc and raid points;
-  // parks are where battle grunts hang around.
+  // parks and gardens are where battle grunts hang around.
   return `[out:json][timeout:25];
 (
   nwr["shop"](around:${radius},${la},${ln});
   nwr["amenity"](around:${radius},${la},${ln});
   nwr["leisure"="park"](around:${radius},${la},${ln});
+  nwr["leisure"="garden"](around:${radius},${la},${ln});
 );
 out tags center;`;
 }
@@ -143,7 +144,11 @@ export async function fetchPOIs(lat, lng, radius = 250, { force = false, signal 
 
 function hostOf(u) { try { return new URL(u).host; } catch { return u; } }
 
-const PARK_LEISURE = new Set(['park']);
+/**
+ * Green space that grunts hang around in. Parks are the busy ones, gardens
+ * are much quieter — spawns.js rolls them at different rates.
+ */
+const PARK_LEISURE = new Set(['park', 'garden']);
 
 function normalise(json, origin, radius) {
   const out = [];
@@ -175,6 +180,8 @@ function normalise(json, origin, radius) {
       kind,
       kindValue: tags.shop || tags.amenity || tags.leisure,
       isPark: kind === 'park',
+      // Gardens are green space too, but they roll a much lower grunt chance.
+      isGarden: kind === 'park' && tags.leisure === 'garden',
       distance: d
     });
   }

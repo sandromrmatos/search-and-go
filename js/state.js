@@ -45,7 +45,8 @@ function blankState() {
 
     stats: {
       captures: 0, evolutions: 0, deletes: 0, levelUps: 0, scans: 0,
-      raidsWon: 0, gruntsBeaten: 0, itemsCollected: 0, shinies: 0
+      raidsWon: 0, gruntsBeaten: 0, itemsCollected: 0, shinies: 0,
+      metresWalked: 0, steps: 0
     },
 
     lastScanAt: 0,
@@ -316,6 +317,21 @@ class Store {
   }
 
   addStardust(n) { this.s.stardust = Math.max(0, this.s.stardust + n); }
+
+  /**
+   * Accumulates walked distance and converts it into whole steps.
+   * Returns true when the step total actually changed, so callers can
+   * avoid re-rendering on every tiny GPS wobble.
+   */
+  addWalk(metres) {
+    if (!isFinite(metres) || metres <= 0) return false;
+    const st = this.s.stats;
+    st.metresWalked = (Number(st.metresWalked) || 0) + metres;
+    const steps = Math.floor(st.metresWalked / RULES.METRES_PER_STEP);
+    if (steps === (Number(st.steps) || 0)) return false;
+    st.steps = steps;
+    return true;
+  }
 
   /* ---------------- candy ---------------- */
 
@@ -913,6 +929,14 @@ class Store {
     const bonusDiscs = m.def.discs || 0;
     if (bonusDiscs > 0) this.addItem('capture_disc', bonusDiscs);
 
+    // Any extra named items the mission hands out
+    const bonusItems = {};
+    for (const [itemId, n] of Object.entries(m.def.items || {})) {
+      if (!ITEMS[itemId] || !(n > 0)) continue;
+      this.addItem(itemId, n);
+      bonusItems[itemId] = n;
+    }
+
     if (m.daily) {
       this.s.daily.claimed = this.s.daily.claimed || {};
       this.s.daily.claimed[id] = Date.now();
@@ -920,7 +944,7 @@ class Store {
       this.s.missions[id] = { claimedAt: Date.now() };
     }
     this.touch('mission', { immediate: true });
-    return { ok: true, xp: m.def.xp, dust, levelUp, label: m.def.label, discs: bonusDiscs };
+    return { ok: true, xp: m.def.xp, dust, levelUp, label: m.def.label, discs: bonusDiscs, items: bonusItems };
   }
 
   /* ---------------- debug / ui ---------------- */

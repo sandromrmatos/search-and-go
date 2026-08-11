@@ -222,6 +222,7 @@ function renderPicker() {
       el('span', { class: 'hp-wrap' },
         el('span', { class: `hp-bar${pct <= 25 ? ' critical' : pct <= 60 ? ' low' : ''}` },
           el('i', { style: { width: pct + '%' } }))),
+      el('span', { class: 'sub', text: `${hp} / ${max} HP` }),
       el('span', { class: 'sub', text: `${st.attack}A ${st.defence}D ${st.speed}S` })
     ));
   }

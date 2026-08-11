@@ -59,6 +59,7 @@ export const GameMap = {
   onBreedingClick: null,
   followMe: true,
   _lastPos: null,
+  _rangeHidden: null,   // tracks the last "range checks off" state we painted
 
   init(containerId = 'map') {
     if (typeof L === 'undefined') throw new Error('Leaflet failed to load (vendor/leaflet/leaflet.js)');
@@ -67,15 +68,8 @@ export const GameMap = {
       attributionControl: true,
       tap: true,
       worldCopyJump: true,
-      touchZoom: true,
-      // Allow two-finger rotation via CSS transform
-      rotate: true,
-      rotateControl: false,
-      bearing: 0
+      touchZoom: true
     }).setView([51.5079, -0.1283], 17);
-
-    // Two-finger rotation via touch events on the container
-    this._initRotation(containerId);
 
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
@@ -95,42 +89,6 @@ export const GameMap = {
   },
 
   invalidate() { setTimeout(() => this.map?.invalidateSize(), 60); },
-
-  /** Two-finger rotation using CSS transform on the map container. */
-  _initRotation(containerId) {
-    const el = document.getElementById(containerId);
-    let startAngle = null;
-    let currentRotation = 0;
-    let baseRotation = 0;
-
-    function angleBetweenTouches(t1, t2) {
-      return Math.atan2(t2.clientY - t1.clientY, t2.clientX - t1.clientX) * 180 / Math.PI;
-    }
-
-    el.addEventListener('touchstart', e => {
-      if (e.touches.length === 2) {
-        startAngle = angleBetweenTouches(e.touches[0], e.touches[1]);
-        baseRotation = currentRotation;
-      }
-    }, { passive: true });
-
-    el.addEventListener('touchmove', e => {
-      if (e.touches.length === 2 && startAngle !== null) {
-        const angle = angleBetweenTouches(e.touches[0], e.touches[1]);
-        currentRotation = baseRotation + (angle - startAngle);
-        el.style.transform = `rotate(${currentRotation}deg)`;
-      }
-    }, { passive: true });
-
-    el.addEventListener('touchend', () => { startAngle = null; }, { passive: true });
-
-    this._mapRotation = () => currentRotation;
-    this._resetRotation = () => {
-      currentRotation = 0;
-      baseRotation = 0;
-      el.style.transform = '';
-    };
-  },
 
   /* ---------------- player ---------------- */
 
@@ -230,27 +188,40 @@ export const GameMap = {
     }
   },
 
-  /** Refresh countdowns and in-range styling. Called about once a second. */
-  tick(now, playerPos) {
+  /**
+   * Refresh countdowns and in-range styling. Called about once a second.
+   * `ignoreRange` makes everything read as reachable (debug override and the
+   * nightly Relax and Good Night window).
+   */
+  tick(now, playerPos, { ignoreRange = false } = {}) {
+    // The green ring is meaningless while range checks are off, so hide it.
+    // Only restyle when the flag actually flips — this runs every second.
+    if (this.meAccuracy && this._rangeHidden !== ignoreRange) {
+      this._rangeHidden = ignoreRange;
+      this.meAccuracy.setStyle({
+        opacity: ignoreRange ? 0 : .7,
+        fillOpacity: ignoreRange ? 0 : .12
+      });
+    }
+
     for (const rec of this.markers.values()) {
       const left = rec.point.expiresAt - now;
       rec.timerEl.textContent = timeLeftLabel(left);
       rec.timerEl.classList.toggle('urgent', left <= 60_000);
       rec.el.classList.toggle('collected', !!rec.point.collected);
 
-      if (playerPos) {
-        const d = distance(playerPos, rec.point);
-        const inRange = d <= RULES.CAPTURE_RANGE_M && !rec.point.collected;
+      if (playerPos || ignoreRange) {
+        const near = ignoreRange || distance(playerPos, rec.point) <= RULES.CAPTURE_RANGE_M;
+        const inRange = near && !rec.point.collected;
         rec.el.classList.toggle('in-range', inRange);
         rec.el.classList.toggle('out-range', !inRange);
       }
     }
-    if (this.breedingMarker && playerPos) {
-      const d = distance(playerPos, this.breedingMarker.getLatLng
-        ? { lat: this.breedingMarker.getLatLng().lat, lng: this.breedingMarker.getLatLng().lng }
-        : playerPos);
+    if (this.breedingMarker && (playerPos || ignoreRange)) {
+      const ll = this.breedingMarker.getLatLng();
+      const near = ignoreRange || distance(playerPos, { lat: ll.lat, lng: ll.lng }) <= RULES.CAPTURE_RANGE_M;
       const el = this.breedingMarker.getElement?.()?.querySelector('.breed-flag');
-      if (el) el.classList.toggle('in-range', d <= RULES.CAPTURE_RANGE_M);
+      if (el) el.classList.toggle('in-range', near);
     }
   },
 

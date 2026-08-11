@@ -4,7 +4,7 @@
 
 import {
   loadDatabase, DB, RULES, SETS, RARITY_NAMES, species, familyName,
-  BREEDING_UNLOCK_LEVEL
+  BREEDING_UNLOCK_LEVEL, isRelaxHour
 } from './data.js';
 import { Persist } from './persist.js';
 import { store } from './state.js';
@@ -127,6 +127,30 @@ function escapeHtml(s) {
 /* ===============================================================
    Location
    =============================================================== */
+/** Last position used for the step counter (kept separate from the map's). */
+let stepAnchor = null;
+
+/**
+ * Turns GPS movement into a step count. Small wobbles and huge teleports are
+ * both discarded, so standing still does not rack up steps and a lost-then-
+ * regained fix does not add a kilometre in one go.
+ */
+function trackSteps(pos) {
+  if (Geo.usingFake) { stepAnchor = null; return; }
+  if (!stepAnchor) { stepAnchor = pos; return; }
+
+  const d = distance(stepAnchor, pos);
+  // Below one stride it is almost certainly GPS jitter; above the cap it is a jump.
+  if (d < RULES.METRES_PER_STEP) return;
+  stepAnchor = pos;
+  if (d > RULES.MAX_WALK_JUMP_M) return;
+
+  if (store.addWalk(d)) {
+    store.touch('steps');
+    if (document.querySelector('.view.active')?.id === 'view-profile') renderProfile();
+  }
+}
+
 function onLocation(pos) {
   const badge = $('#geo-status');
   if (!pos) {
@@ -134,6 +158,7 @@ function onLocation(pos) {
     badge.textContent = Geo.error || 'Waiting for location…';
     return;
   }
+  trackSteps(pos);
   GameMap.setPlayer(pos);
   if (Geo.usingFake) {
     badge.className = 'geo-status fake';
@@ -251,7 +276,15 @@ function placeBreedingCentre() {
   refreshAll();
 }
 
-/** Common gate: the point must still be live, uncollected and within 5 m. */
+/**
+ * True when distance checks should be skipped entirely: the debug override,
+ * or the nightly "Relax and Good Night" window.
+ */
+function rangeChecksOff() {
+  return !!store.s.debug.ignoreRange || isRelaxHour(new Date());
+}
+
+/** Common gate: the point must still be live, uncollected and within range. */
 function checkInteractable(point) {
   const live = store.point(point.id);
   if (!live) { toast('That point is gone', 'bad'); syncMap(); return null; }
@@ -267,7 +300,7 @@ function checkInteractable(point) {
   if (!pos) { toast('Waiting for your location…', 'bad'); return null; }
 
   const d = distance(pos, live);
-  if (d > RULES.CAPTURE_RANGE_M && !store.s.debug.ignoreRange) {
+  if (d > RULES.CAPTURE_RANGE_M && !rangeChecksOff()) {
     toast(`Too far away — ${formatDistance(d)}. Get within ${RULES.CAPTURE_RANGE_M} m.`, 'bad');
     return null;
   }
@@ -420,7 +453,7 @@ function startLoop() {
       syncMap();
     }
 
-    GameMap.tick(now, Geo.current);
+    GameMap.tick(now, Geo.current, { ignoreRange: rangeChecksOff() });
 
     // Incense drops a creature at the player's feet every two minutes.
     if (store.clearExpiredEffects(now)) refreshAll();
@@ -482,7 +515,7 @@ function initUI() {
   // Tapping the flag on the map opens the breeding centre, if you are close enough.
   GameMap.onBreedingClick = centre => {
     const pos = Geo.current;
-    const near = pos && (distance(pos, centre) <= RULES.CAPTURE_RANGE_M || store.s.debug.ignoreRange);
+    const near = rangeChecksOff() || (pos && distance(pos, centre) <= RULES.CAPTURE_RANGE_M);
     openBreeding({ inRange: !!near });
     if (!near) {
       toast(`Get within ${RULES.CAPTURE_RANGE_M} m of your breeding centre to use it`, 'bad', 3400);
@@ -679,7 +712,9 @@ function initDebugPanel() {
 
   $('#dbg-ignore-range').addEventListener('change', e => {
     store.setDebug({ ignoreRange: e.target.checked });
-    toast(e.target.checked ? '10 m range check disabled' : '10 m range check enabled');
+    toast(e.target.checked
+      ? `${RULES.CAPTURE_RANGE_M} m range check disabled`
+      : `${RULES.CAPTURE_RANGE_M} m range check enabled`);
   });
 
   $('#dbg-shiny-boost').addEventListener('change', e => {

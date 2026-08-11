@@ -39,6 +39,11 @@ export const RULES = {
 
   // Parks roll separately from shops/amenities
   GRUNT_CHANCE: 0.20,
+  GARDEN_GRUNT_CHANCE: 0.05,    // leisure=garden is a much quieter spot
+
+  // Step counter
+  METRES_PER_STEP: 0.75,        // average stride length
+  MAX_WALK_JUMP_M: 50,          // bigger single jumps are treated as GPS noise
 
   // Incense
   INCENSE_DURATION_MS: 20 * 60_000,
@@ -223,6 +228,14 @@ export const BONANZA_HOUR_START = 17.5;  // 17:30
 export const BONANZA_HOUR_END = 18.5;    // 18:30
 
 /* ---------------------------------------------------------------
+   Relax and Good Night: local 23:30–23:45, range checks are switched off
+   so anything on the map can be interacted with from anywhere.
+   --------------------------------------------------------------- */
+export const RELAX_HOUR_START = 23.5;    // 23:30
+export const RELAX_HOUR_END = 23.75;     // 23:45
+export const RELAX_HOUR_LABEL = 'Relax and Good Night';
+
+/* ---------------------------------------------------------------
    Move unlock luck (rolled once per captured creature, kept by the family)
    NOTE: the brief lists 20 + 20 + 10 + 2 + 38 = 90. The missing 10 points are
    parked on "no change" until confirmed — change NONE_WEIGHT to rebalance.
@@ -266,7 +279,11 @@ export const MISSIONS = [
 export const DAILY_MISSIONS = [
   { id: 'daily5',  kind: 'capturesToday', target: 5,  xp: 5,  dust: 20, discs: 2, label: 'Catch 5 creatures today' },
   { id: 'daily20', kind: 'capturesToday', target: 20, xp: 10, dust: 30, discs: 2, label: 'Catch 20 creatures today' },
-  { id: 'daily50', kind: 'capturesToday', target: 50, xp: 20, dust: 50, discs: 2, label: 'Catch 50 creatures today' }
+  {
+    id: 'daily50', kind: 'capturesToday', target: 50, xp: 20, dust: 50, discs: 2,
+    items: { incense: 1, stardust_magnet: 1 },
+    label: 'Catch 50 creatures today'
+  }
 ];
 
 /* ---------------------------------------------------------------
@@ -766,6 +783,24 @@ export function shinyOdds(source = 'spawn', now = new Date()) {
 }
 
 export const rollShiny = (source = 'spawn', now = new Date()) => chance(shinyOdds(source, now));
+
+/* ===============================================================
+   Relax and Good Night
+   =============================================================== */
+
+/** 23:30–23:45 local: the interaction radius is switched off entirely. */
+export const isRelaxHour = (now = new Date()) => {
+  const t = now.getHours() + now.getMinutes() / 60;
+  return t >= RELAX_HOUR_START && t < RELAX_HOUR_END;
+};
+
+/** Millis until the relax window closes (0 when it is not running). */
+export function relaxHourEndsIn(now = new Date()) {
+  if (!isRelaxHour(now)) return 0;
+  const end = new Date(now);
+  end.setHours(23, 45, 0, 0);
+  return Math.max(0, end - now);
+}
 
 /* ===============================================================
    Raids and grunts

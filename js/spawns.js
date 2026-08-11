@@ -4,7 +4,8 @@
    Rules implemented here (numbers live in RULES / data.js):
      • every shop or amenity within the scan radius rolls one outcome:
          15% creature · 25% discs · 15% items · 5% raid · 40% nothing
-     • parks roll separately for a battle grunt (20%)
+     • leisure=park rolls separately for a battle grunt (20%),
+       leisure=garden rolls the same way but at 5%
      • nothing may appear within 25 m of another map point,
        and grunts also keep 50 m from other grunts
      • one point per POI at a time
@@ -172,7 +173,7 @@ export async function runScan(pos, { force = false, forceKind = null, alwaysGrun
       taken.push({ lat: poi.lat, lng: poi.lng });
     }
 
-    // ---- parks: battle grunts ----
+    // ---- parks and gardens: battle grunts ----
     // Parks can be large polygons. Overpass confirmed they intersect our scan
     // circle, but the centre may be far away. So we place the grunt near the
     // player with a small random offset, making it always reachable.
@@ -186,7 +187,9 @@ export async function runScan(pos, { force = false, forceKind = null, alwaysGrun
 
       if (tooClose(spawnPt, taken, RULES.MIN_SPAWN_SEPARATION_M)) { skipped.tooClose++; continue; }
       if (tooClose(spawnPt, gruntSpots, RULES.MIN_GRUNT_SEPARATION_M)) { skipped.gruntTooClose++; continue; }
-      if (!alwaysGrunt && !chance(RULES.GRUNT_CHANCE)) { skipped.gruntRoll++; continue; }
+      // leisure=garden is a quieter spot than leisure=park, so it rolls lower.
+      const gruntChance = park.isGarden ? RULES.GARDEN_GRUNT_CHANCE : RULES.GRUNT_CHANCE;
+      if (!alwaysGrunt && !chance(gruntChance)) { skipped.gruntRoll++; continue; }
 
       // Override the POI lat/lng so the grunt appears near the player
       const nearPark = { ...park, lat: spawnLat, lng: spawnLng };

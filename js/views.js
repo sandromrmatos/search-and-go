@@ -5,7 +5,8 @@
 import {
   DB, SETS, RARITY_NAMES, MAX_CREATURE_LEVEL, MAX_PLAYER_LEVEL, STAT_KEYS, STAT_LABELS,
   species, familyRoot, familyName, familyRarity, levelUpCost, moveLevelFor, statsFor,
-  breedingSlotsFor, BREEDING_UNLOCK_LEVEL, bonanzaState
+  breedingSlotsFor, BREEDING_UNLOCK_LEVEL, bonanzaState,
+  isRelaxHour, relaxHourEndsIn, RELAX_HOUR_LABEL
 } from './data.js';
 import { store, creatureStats, maxHpOf, hpOf, isFainted, isHurt } from './state.js';
 import { Persist } from './persist.js';
@@ -829,6 +830,20 @@ export function renderProfile() {
   $('#p-captures').textContent = num(store.s.stats.captures);
   $('#p-evolutions').textContent = num(store.s.stats.evolutions);
 
+  const steps = Math.floor(store.s.stats.steps || 0);
+  const metres = Math.round(store.s.stats.metresWalked || 0);
+  const stepsEl = $('#p-steps');
+  if (stepsEl) {
+    stepsEl.textContent = num(steps);
+    stepsEl.title = metres >= 1000
+      ? `${(metres / 1000).toFixed(2)} km walked`
+      : `${num(metres)} m walked`;
+  }
+  const distEl = $('#p-distance');
+  if (distEl) {
+    distEl.textContent = metres >= 1000 ? `${(metres / 1000).toFixed(2)} km` : `${num(metres)} m`;
+  }
+
   // candy per family, highest first
   const host = $('#candy-list');
   host.innerHTML = '';
@@ -894,6 +909,16 @@ export function renderEffectChips(now = Date.now()) {
     host.append(el('div', { class: 'fx-chip magnet' },
       el('span', { text: '✨' }),
       el('span', { text: bonanza.day ? 'Shiny Bonanza Day' : 'Shiny Bonanza Hour' })
+    ));
+  }
+
+  // 23:30–23:45 — the interaction radius is switched off
+  const nowDate = new Date(now);
+  if (isRelaxHour(nowDate)) {
+    host.append(el('div', { class: 'fx-chip relax' },
+      el('span', { text: '🌙' }),
+      el('span', { text: RELAX_HOUR_LABEL }),
+      el('b', { text: timeLeftLabel(relaxHourEndsIn(nowDate)) })
     ));
   }
 }
