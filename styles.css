@@ -132,6 +132,50 @@ a { color: var(--accent); }
 
 /* ============================ MAP ============================ */
 #map { position: absolute; inset: 0; background: #0d1330; }
+
+/* ---- two-finger rotation ----
+   While rotated the container becomes a square as wide as the viewport
+   diagonal, centred on the viewport, so the corners never run out of map.
+   .view-map already clips the overflow. */
+#map.rotated {
+  inset: auto;
+  left: 50%; top: 50%;
+  width: var(--map-size); height: var(--map-size);
+  margin-left: calc(var(--map-size) / -2);
+  margin-top: calc(var(--map-size) / -2);
+  transform: rotate(var(--map-bearing, 0deg));
+}
+
+/* Pins and timers stay upright. The origin is each icon's anchor point, so
+   counter-rotating does not slide the pin off the spot it marks. */
+#map.rotated .spawn-marker {
+  transform: rotate(calc(-1 * var(--map-bearing, 0deg)));
+  transform-origin: 27px 60px;
+}
+#map.rotated .breed-rot {
+  display: block;
+  transform: rotate(calc(-1 * var(--map-bearing, 0deg)));
+  transform-origin: 20px 42px;
+}
+#map.rotated .leaflet-tooltip { transform: rotate(calc(-1 * var(--map-bearing, 0deg))); }
+
+/* compass: the needle always points at true north */
+.round-btn.compass { font-size: 20px; }
+.compass-needle {
+  display: block; line-height: 1;
+  transform: rotate(calc(-1 * var(--map-bearing, 0deg)));
+  transition: transform .08s linear;
+}
+.map-btn-stack { display: flex; align-items: center; gap: 8px; }
+
+/* attribution lives outside the map so it never rotates away */
+.map-attribution {
+  position: absolute; bottom: 0; left: 0; right: 0; z-index: 440;
+  padding: 3px 8px; font-size: 10px; text-align: right;
+  background: rgba(10,14,32,.7); color: #9aa3bd;
+  pointer-events: auto;
+}
+.map-attribution a { color: var(--accent); }
 .leaflet-container { background: #0d1330; font-family: inherit; }
 .leaflet-control-attribution { background: rgba(10,14,32,.7) !important; color: #9aa3bd !important; font-size: 10px !important; }
 .leaflet-control-attribution a { color: var(--accent) !important; }

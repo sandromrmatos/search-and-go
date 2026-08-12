@@ -400,6 +400,7 @@ function renderInfo(tab = 'basics') {
       keyline('🔥', 'Bright flame — a raid boss. Battle it with three creatures.'),
       keyline('🧍', 'A person in a park or garden — a battle grunt who wants a 3 v 3.'),
       keyline('⚑', 'Your breeding centre, once you place it.'),
+      keyline('↑', 'Put two fingers on the map and twist to rotate it. Pins and timers stay upright; street names are printed into the map tiles so those turn with the roads. The compass button appears once you are off north — tap it to straighten up, or let go within a few degrees and it snaps back on its own.'),
       keyline('✓', 'A green tick means you have already used that point. It stays until its timer ends.'),
       el('h4', { text: 'Odds per point' }),
       el('ul', {},

@@ -67,7 +67,17 @@
       </div>
       <div class="map-overlay-bottom">
         <div id="spawn-count" class="spawn-count">0 points active</div>
-        <button id="btn-recenter" class="round-btn" title="Recentre">◎</button>
+        <div class="map-btn-stack">
+          <button id="btn-compass" class="round-btn compass hidden" title="Face north">
+            <span class="compass-needle">↑</span>
+          </button>
+          <button id="btn-zoom-out" class="round-btn" title="Zoom out">−</button>
+          <button id="btn-zoom-in" class="round-btn" title="Zoom in">+</button>
+          <button id="btn-recenter" class="round-btn" title="Recentre">◎</button>
+        </div>
+      </div>
+      <div class="map-attribution">
+        © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors
       </div>
     </section>
 

@@ -6,6 +6,15 @@ import { RULES } from './data.js';
 import { distance } from './geo.js';
 import { timeLeftLabel } from './ui.js';
 
+/** How far you must twist before rotation engages, so pinching stays pinching. */
+const ROTATE_DEADZONE_DEG = 8;
+/** Let go within this of north and it snaps flat. */
+const ROTATE_SNAP_DEG = 5;
+
+const norm360 = d => ((d % 360) + 360) % 360;
+/** Signed difference in (-180, 180], so twisting past 0 does not jump 359°. */
+const shortestAngle = d => { const x = norm360(d); return x > 180 ? x - 360 : x; };
+
 /* Each kind of map point gets its own unmistakable icon. */
 const ICON_HTML = {
   creature: `
@@ -63,20 +72,21 @@ export const GameMap = {
 
   init(containerId = 'map') {
     if (typeof L === 'undefined') throw new Error('Leaflet failed to load (vendor/leaflet/leaflet.js)');
+    this.el = document.getElementById(containerId);
     this.map = L.map(containerId, {
       zoomControl: false,
-      attributionControl: true,
+      // Both the attribution and the zoom buttons live in the overlay instead
+      // of inside the map, so rotation never tips them over or pushes them
+      // outside the visible area.
+      attributionControl: false,
       tap: true,
       worldCopyJump: true,
       touchZoom: true
     }).setView([51.5079, -0.1283], 17);
 
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      maxZoom: 19
     }).addTo(this.map);
-
-    L.control.zoom({ position: 'topright' }).addTo(this.map);
 
     this.poiLayer = L.layerGroup().addTo(this.map);
     this.breedingLayer = L.layerGroup().addTo(this.map);
@@ -85,10 +95,163 @@ export const GameMap = {
     // Any manual pan turns off auto-follow so the map stops fighting the user.
     this.map.on('dragstart', () => { this.followMe = false; });
 
+    this._patchPointerMaths();
+    this._initRotation();
+
     return this;
   },
 
   invalidate() { setTimeout(() => this.map?.invalidateSize(), 60); },
+
+  /* ===============================================================
+     Rotation
+
+     The container is rotated with a CSS transform, which gives real
+     two-finger rotation over raster tiles. Three things have to be handled
+     for that to behave:
+
+       1. A rotated rectangle does not cover the screen, so while rotated the
+          container grows to a square as wide as the viewport diagonal. The
+          parent clips it, so the corners are always full of map.
+       2. Leaflet works in unrotated container coordinates. Every pointer
+          position it reads is put back through the inverse rotation, so taps,
+          pinch-zoom and the wheel all land where you expect.
+       3. Leaflet's own drag moves the map by raw screen deltas, which would
+          send the map off at an angle. While rotated we pan by hand instead.
+
+     Markers counter-rotate in CSS about their anchor point, so pins and
+     timers stay upright and pinned to the same spot.
+     =============================================================== */
+
+  bearing: 0,
+
+  /** Leaflet reads pointer positions through this, so one patch covers it all. */
+  _patchPointerMaths() {
+    const map = this.map;
+    const original = map.mouseEventToContainerPoint.bind(map);
+    map.mouseEventToContainerPoint = e => {
+      if (!this.bearing) return original(e);
+      return this.screenToContainerPoint(e) || original(e);
+    };
+  },
+
+  /** Screen coordinates -> unrotated container coordinates. */
+  screenToContainerPoint(e) {
+    const x = e?.clientX, y = e?.clientY;
+    if (typeof x !== 'number' || typeof y !== 'number') return null;
+    const el = this.el;
+    // For a rotated element this is the axis-aligned bounding box, but its
+    // centre is still the rotation centre, which is all we need.
+    const r = el.getBoundingClientRect();
+    const dx = x - (r.left + r.width / 2);
+    const dy = y - (r.top + r.height / 2);
+    const a = -this.bearing * Math.PI / 180;
+    return L.point(
+      el.offsetWidth / 2 + dx * Math.cos(a) - dy * Math.sin(a),
+      el.offsetHeight / 2 + dx * Math.sin(a) + dy * Math.cos(a)
+    );
+  },
+
+  /** Rotates a screen-space delta into map-space. */
+  _unrotateDelta(dx, dy) {
+    const a = -this.bearing * Math.PI / 180;
+    return [dx * Math.cos(a) - dy * Math.sin(a), dx * Math.sin(a) + dy * Math.cos(a)];
+  },
+
+  setBearing(deg) {
+    const next = norm360(deg);
+    if (next === this.bearing) return;
+    const wasRotated = this.bearing !== 0;
+    this.bearing = next;
+    if ((next !== 0) !== wasRotated) this._setRotatedMode(next !== 0);
+    // One custom property drives the container and every counter-rotation.
+    document.documentElement.style.setProperty('--map-bearing', next + 'deg');
+    this.onBearingChange?.(next);
+  },
+
+  resetNorth() { this.setBearing(0); },
+
+  _setRotatedMode(on) {
+    const el = this.el;
+    if (on) {
+      const w = el.clientWidth, h = el.clientHeight;   // read before resizing
+      el.style.setProperty('--map-size', Math.ceil(Math.sqrt(w * w + h * h)) + 'px');
+      el.classList.add('rotated');
+      this.map.dragging.disable();
+    } else {
+      el.classList.remove('rotated');
+      el.style.removeProperty('--map-size');
+      this.map.dragging.enable();
+    }
+    // pan:false keeps the geographic centre exactly where it is.
+    this.map.invalidateSize({ animate: false, pan: false });
+  },
+
+  _initRotation() {
+    const el = this.el;
+    let startAngle = null, startBearing = 0, rotating = false;
+    let dragFrom = null;
+
+    const twoFingerAngle = (a, b) =>
+      Math.atan2(b.clientY - a.clientY, b.clientX - a.clientX) * 180 / Math.PI;
+
+    const panByScreen = (dx, dy) => {
+      const [rx, ry] = this._unrotateDelta(dx, dy);
+      this.followMe = false;
+      this.map.panBy([-rx, -ry], { animate: false });
+    };
+
+    el.addEventListener('touchstart', e => {
+      if (e.touches.length === 2) {
+        startAngle = twoFingerAngle(e.touches[0], e.touches[1]);
+        startBearing = this.bearing;
+        rotating = false;
+        dragFrom = null;
+      } else if (e.touches.length === 1 && this.bearing) {
+        dragFrom = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      }
+    }, { passive: true });
+
+    el.addEventListener('touchmove', e => {
+      if (e.touches.length === 2 && startAngle !== null) {
+        const delta = shortestAngle(twoFingerAngle(e.touches[0], e.touches[1]) - startAngle);
+        // A deadzone means an ordinary pinch-zoom never rotates by accident.
+        if (!rotating && Math.abs(delta) < ROTATE_DEADZONE_DEG) return;
+        rotating = true;
+        this.setBearing(startBearing + delta);
+        return;
+      }
+      if (e.touches.length === 1 && dragFrom && this.bearing) {
+        const t = e.touches[0];
+        panByScreen(t.clientX - dragFrom.x, t.clientY - dragFrom.y);
+        dragFrom = { x: t.clientX, y: t.clientY };
+        e.preventDefault();
+      }
+    }, { passive: false });
+
+    el.addEventListener('touchend', e => {
+      if (e.touches.length < 2) { startAngle = null; rotating = false; }
+      if (e.touches.length === 0) {
+        dragFrom = null;
+        // Ease back to true north once you are nearly there.
+        const off = Math.min(this.bearing, 360 - this.bearing);
+        if (off > 0 && off <= ROTATE_SNAP_DEG) this.setBearing(0);
+      }
+    }, { passive: true });
+
+    // Desktop: Leaflet's drag is off while rotated, so pan with the mouse here.
+    let mouseFrom = null;
+    el.addEventListener('mousedown', e => {
+      if (!this.bearing || e.button !== 0) return;
+      mouseFrom = { x: e.clientX, y: e.clientY };
+    });
+    window.addEventListener('mousemove', e => {
+      if (!mouseFrom || !this.bearing) return;
+      panByScreen(e.clientX - mouseFrom.x, e.clientY - mouseFrom.y);
+      mouseFrom = { x: e.clientX, y: e.clientY };
+    });
+    window.addEventListener('mouseup', () => { mouseFrom = null; });
+  },
 
   /* ---------------- player ---------------- */
 
@@ -136,7 +299,19 @@ export const GameMap = {
   /** Frames the whole scannable area around the player. */
   fitScanArea() {
     if (!this.map || !this.scanCircle) return;
-    this.map.fitBounds(this.scanCircle.getBounds(), { padding: [24, 24], animate: false });
+    let padding = [24, 24];
+    if (this.bearing) {
+      // While rotated the container is larger than the screen, so fitting to
+      // it would push the circle past the visible edges. Pad by the hidden
+      // margin to keep the fit inside what you can actually see.
+      const view = this.el.parentElement;
+      const size = this.el.offsetWidth;
+      padding = [
+        24 + Math.max(0, (size - view.clientWidth) / 2),
+        24 + Math.max(0, (size - view.clientHeight) / 2)
+      ];
+    }
+    this.map.fitBounds(this.scanCircle.getBounds(), { padding, animate: false });
   },
 
   recenter() {
@@ -244,7 +419,9 @@ export const GameMap = {
     this.breedingMarker = L.marker([centre.lat, centre.lng], {
       icon: L.divIcon({
         className: '',
-        html: '<div class="breed-flag"><span>⚑</span></div>',
+        // The wrapper takes the counter-rotation; the flag itself keeps its
+        // in-range bobbing animation, which also uses transform.
+        html: '<div class="breed-rot"><div class="breed-flag"><span>⚑</span></div></div>',
         iconSize: [40, 46],
         iconAnchor: [20, 42]
       }),

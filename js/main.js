@@ -530,6 +530,19 @@ function initUI() {
     GameMap.recenter();
     if (!Geo.current) toast('No location yet', 'bad');
   });
+  $('#btn-zoom-in').addEventListener('click', () => GameMap.map?.zoomIn());
+  $('#btn-zoom-out').addEventListener('click', () => GameMap.map?.zoomOut());
+
+  // The compass only appears once the map is off north, and puts it back.
+  const compass = $('#btn-compass');
+  compass.addEventListener('click', () => {
+    GameMap.resetNorth();
+    toast('Facing north again');
+  });
+  GameMap.onBearingChange = deg => {
+    compass.classList.toggle('hidden', deg === 0);
+    compass.title = deg === 0 ? 'Face north' : `Rotated ${Math.round(deg)}° · tap to face north`;
+  };
   $('#btn-hide-chip').addEventListener('click', () => {
     const wrap = $('#reset-chip-wrap');
     const hidden = wrap.classList.toggle('chip-hidden');
