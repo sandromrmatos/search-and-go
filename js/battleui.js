@@ -6,8 +6,11 @@
 
 import {
   species, RARITY_NAMES, STAT_LABELS, BATTLE_TEAM_SIZE, familyName,
-  familyRarity, statsFor, raidBossStats, RAID_CAPTURE_LEVEL
+  familyRarity, statsFor, raidBossStats, RAID_CAPTURE_LEVEL, RAID_BOSS_MODIFIERS
 } from './data.js';
+
+/** "+25%" style label straight from the raid modifier table. */
+const bossPct = key => `+${Math.round((RAID_BOSS_MODIFIERS[key] - 1) * 100)}%`;
 import { store, creatureStats, maxHpOf, hpOf, isFainted } from './state.js';
 import { Battle, buildRaidBattle, buildGruntBattle, battlerFromEnemySpec } from './battle.js';
 import { itemImage, itemName } from './items.js';
@@ -38,6 +41,8 @@ export function initBattleUI({ onDone } = {}) {
   $$('#battle [data-bt-close]').forEach(b => b.addEventListener('click', closeBattle));
   $('#bt-start').addEventListener('click', showPicker);
   $('#bt-fight').addEventListener('click', startFight);
+  $('#bt-fight-top').addEventListener('click', startFight);
+  $('#bt-clear').addEventListener('click', () => { ctx.picked = []; renderPicker(); });
   $('#bt-done').addEventListener('click', closeBattle);
   $('#bt-again').addEventListener('click', () => openBattle(ctx.point));
   $('#bt-catch').addEventListener('click', throwUltraDisc);
@@ -60,8 +65,27 @@ export function openBattle(point) {
   $('#battle').classList.remove('hidden');
 }
 
+/**
+ * Leaving mid-fight used to throw the damage away, so creatures came back to
+ * storage untouched. Now it confirms, then writes the current HP out.
+ */
 export function closeBattle() {
   if (busy) return;
+
+  const b = ctx?.battle;
+  const midFight = b && !b.over;
+  if (midFight) {
+    const hurt = b.playerResults().filter(r => {
+      const c = store.creature(r.uid);
+      return c && r.hp < maxHpOf(c);
+    }).length;
+    const warning = hurt
+      ? `Leave the battle?\n\n${hurt} of your creatures will keep the damage they have taken. Fainted ones stay fainted until you use a Revive.`
+      : 'Leave the battle?\n\nAny damage your creatures have taken will be kept.';
+    if (!confirm(warning)) return;
+    store.applyBattleDamage(b.playerResults());
+  }
+
   $('#battle').classList.add('hidden');
   ctx = null;
   onFinished?.();
@@ -102,10 +126,10 @@ function renderPreview() {
           : null
       ),
       el('div', { class: 'det-rows' },
-        statLine('HP', stats.hp, 'tripled for a raid'),
-        statLine('Attack', stats.attack, '+10%'),
-        statLine('Defence', stats.defence, '+10%'),
-        statLine('Speed', stats.speed, '+10%')
+        statLine('HP', stats.hp, `×${RAID_BOSS_MODIFIERS.hp} for a raid`),
+        statLine('Attack', stats.attack, bossPct('attack')),
+        statLine('Defence', stats.defence, bossPct('defence')),
+        statLine('Speed', stats.speed, bossPct('speed'))
       ),
       el('h4', { class: 'sheet-h4', text: 'If you win' }),
       el('div', { class: 'rewards' },
@@ -212,12 +236,17 @@ function renderPicker() {
   pickPage = clampPage(pickPage, all.length);
   const list = pageSlice(all, pickPage);
 
+  const ready = ctx.picked.length === BATTLE_TEAM_SIZE;
   $('#bt-pick-count').textContent = `${ctx.picked.length} of ${BATTLE_TEAM_SIZE} chosen`;
-  $('#bt-fight').disabled = ctx.picked.length !== BATTLE_TEAM_SIZE;
+  $('#bt-fight').disabled = !ready;
+  // The floating bar means you never have to scroll to start.
+  $('#bt-ready').classList.toggle('hidden', !ready);
 
   const empty = $('#bt-pick-empty');
   empty.classList.toggle('hidden', all.length > 0);
-  empty.textContent = 'No creatures are fit to battle. Revive or heal them first.';
+  empty.textContent = 'No creatures are fit to battle. Heal or revive them below, or catch some more.';
+
+  renderPickCare();
 
   grid.innerHTML = '';
   for (const c of list) {
@@ -262,6 +291,59 @@ function renderPicker() {
     onLeft: () => goToPickPage(pickPage + 1, grid),
     onRight: () => goToPickPage(pickPage - 1, grid)
   }, { key: 'pickPage' });
+}
+
+/**
+ * Heal / revive straight from the team picker, so a wiped team can be patched
+ * up without leaving the battle. Newly revived creatures appear in the roster
+ * immediately because renderPicker re-reads store.battleReady().
+ */
+function renderPickCare() {
+  const host = $('#bt-pick-care');
+  if (!host) return;
+  host.innerHTML = '';
+
+  const hurt = store.healable().length;
+  const fainted = store.revivable().length;
+  const potions = store.itemCount('potion');
+  const revives = store.itemCount('revive');
+  if (!hurt && !fainted) return;
+
+  const row = el('div', { class: 'btn-row' });
+
+  if (fainted) {
+    const use = Math.min(revives, fainted);
+    row.append(el('button', {
+      class: 'btn',
+      disabled: use < 1,
+      onclick: () => {
+        const r = store.reviveAll();
+        if (!r.ok) { toast('No revives left', 'bad'); return; }
+        toast(`Revived ${r.revived} creature${r.revived === 1 ? '' : 's'}`, 'good');
+        renderPicker();
+      }
+    }, revives ? `Revive all · ${use}` : `${fainted} fainted, no revives`));
+  }
+
+  if (hurt) {
+    const need = store.potionsNeededForAll();
+    const use = Math.min(potions, need);
+    row.append(el('button', {
+      class: 'btn',
+      disabled: use < 1,
+      onclick: () => {
+        const r = store.healAll();
+        if (!r.ok) { toast('No potions left', 'bad'); return; }
+        toast(`Healed ${r.healed} creature${r.healed === 1 ? '' : 's'} with ${r.used} potion${r.used === 1 ? '' : 's'}`, 'good');
+        renderPicker();
+      }
+    }, potions ? `Heal all · ${use} potion${use === 1 ? '' : 's'}` : `${hurt} hurt, no potions`));
+  }
+
+  host.append(
+    el('p', { class: 'hint', text: `${fainted} fainted · ${hurt} hurt · you hold ${potions} potion${potions === 1 ? '' : 's'} and ${revives} revive${revives === 1 ? '' : 's'}` }),
+    row
+  );
 }
 
 function togglePick(uid) {
@@ -486,7 +568,7 @@ function renderResult() {
       rewards.xp ? { icon: '⭐', label: `+${rewards.xp} XP` } : null,
       { icon: DUST_ICON, label: `+${num(rewards.dust)} stardust${rewards.sunday ? ' (Sunday ×2)' : ''}` },
       rewards.bonus ? { icon: '🎁', label: `Bonus ${itemName(rewards.bonus)}` } : null,
-      // Raid drops, e.g. the Single Use Incubator
+      // Guaranteed drops: raid revives + incubator, grunt potions/revives
       ...Object.entries(rewards.items || {}).map(([id, n]) => ({ img: itemImage(id), label: `+${n} ${itemName(id, n)}` }))
     ].filter(Boolean);
     body.append(el('div', { class: 'rewards' }, ...chips.map(r =>

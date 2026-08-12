@@ -31,6 +31,19 @@ import { $, $$, el, toast, wireSheetClosers, openSheet, closeSheet, num } from '
 const CANDY_ICON = '🍬';
 const DUST_ICON = '✨';
 
+/**
+ * The debug tools are only available to one trainer name. Everything routed
+ * through debugAllowed(): the panel, the restored fake location and the
+ * range override, so an old save cannot keep cheating after a rename.
+ */
+const DEBUG_TRAINER = 'Test123';
+const debugAllowed = () => store.nickname === DEBUG_TRAINER;
+
+/** Shows or hides the 🛠 button to match the current trainer name. */
+function syncDebugButton() {
+  $('#btn-debug')?.classList.toggle('hidden', !debugAllowed());
+}
+
 let capturing = false;
 let lastPOIs = [];
 let scanCooldownUntil = 0; // backs off automatic retries after a failed lookup
@@ -80,7 +93,7 @@ async function boot() {
 
     // Restore a debug location before we ask for GPS.
     const dbg = store.s.debug;
-    if (dbg.enabled && dbg.lat != null && dbg.lng != null) {
+    if (debugAllowed() && dbg.enabled && dbg.lat != null && dbg.lng != null) {
       Geo.setFake({ lat: dbg.lat, lng: dbg.lng });
       dlog(`Debug location restored: ${dbg.lat}, ${dbg.lng}`);
     }
@@ -294,7 +307,7 @@ function placeBreedingCentre() {
  * it to RELAX_RANGE_M, and the debug toggle removes the limit entirely.
  */
 function interactRange(now = new Date()) {
-  if (store.s.debug.ignoreRange) return Infinity;
+  if (debugAllowed() && store.s.debug.ignoreRange) return Infinity;
   return isRelaxHour(now) ? RULES.RELAX_RANGE_M : RULES.CAPTURE_RANGE_M;
 }
 
@@ -656,7 +669,8 @@ function initUI() {
   initDebugPanel();
 
   // repaint the HUD and the missions badge whenever the save changes
-  store.subscribe(() => { renderHUD(); renderMissionBadge(); });
+  store.subscribe(() => { renderHUD(); renderMissionBadge(); syncDebugButton(); });
+  syncDebugButton();
 }
 
 /* ===============================================================
@@ -677,6 +691,10 @@ function initDebugPanel() {
   const dbg = store.s.debug;
 
   $('#btn-debug').addEventListener('click', () => {
+    if (!debugAllowed()) {
+      toast(`The debug tools only work for the trainer "${DEBUG_TRAINER}"`, 'bad', 3600);
+      return;
+    }
     $('#dbg-enable').checked = !!store.s.debug.enabled;
     $('#dbg-ignore-range').checked = !!store.s.debug.ignoreRange;
     $('#dbg-shiny-boost').checked = !!store.s.debug.shinyBoost;

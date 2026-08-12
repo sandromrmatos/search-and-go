@@ -101,6 +101,9 @@ export const ITEM_DROPS = [
    --------------------------------------------------------------- */
 export const RARITY_WEIGHTS = { 1: 60, 2: 28, 3: 8, 4: 3, 5: 1 };
 
+/** Rare Incense tilts the same roll heavily towards the rarer tiers. */
+export const RARE_INCENSE_WEIGHTS = { 1: 32, 2: 30, 3: 25, 4: 10, 5: 3 };
+
 export const RARITY_NAMES = {
   1: 'Common', 2: 'Uncommon', 3: 'Rare', 4: 'Epic', 5: 'Legendary'
 };
@@ -199,7 +202,7 @@ export const SUPER_EFFECTIVE_MULTIPLIER = 1.2;
 export const BATTLE_TEAM_SIZE = 3;
 
 /* Raid bosses are beefed up versions of a normal creature. */
-export const RAID_BOSS_MODIFIERS = { hp: 3, attack: 1.1, defence: 1.1, speed: 1.1 };
+export const RAID_BOSS_MODIFIERS = { hp: 3, attack: 1.25, defence: 1.25, speed: 1.25 };
 
 /** Which rarity a raid is, what level the boss is, and what beating it pays. */
 export const RAID_TIERS = {
@@ -244,7 +247,8 @@ export const GRUNT_LEVEL_BANDS = [
 /** Extra loot for beating a raid boss, on top of the XP and stardust. */
 export const RAID_REWARD = {
   incubatorChance: 0.5,
-  incubatorItem: 'single_use_incubator'
+  incubatorItem: 'single_use_incubator',
+  always: { revive: 2 }        // every raid win, win or catch
 };
 
 export const GRUNT_REWARD = {
@@ -255,6 +259,15 @@ export const GRUNT_REWARD = {
     { weight: 90, item: null }
   ]
 };
+
+/** Grunts always hand over healing supplies. Weights are percentages. */
+export const GRUNT_ITEM_DROPS = [
+  { weight: 40, items: { revive: 1 } },
+  { weight: 30, items: { potion: 1 } },
+  { weight: 30, items: { potion: 1, revive: 1 } }
+];
+
+export const rollGruntItems = () => ({ ...weightedPick(GRUNT_ITEM_DROPS).items });
 
 /* ---------------------------------------------------------------
    Shiny
@@ -372,6 +385,25 @@ export const MISSIONS = [
   { id: 'grunt100', kind: 'gruntsBeaten', target: 100, xp: 100, dust: 500,  items: { incense: 2, stardust_magnet: 2 }, label: 'Successfully defeat 100 grunts' },
   { id: 'grunt200', kind: 'gruntsBeaten', target: 200, xp: 150, dust: 1000, items: { incense: 2, stardust_magnet: 2 }, label: 'Successfully defeat 200 grunts' },
   { id: 'grunt500', kind: 'gruntsBeaten', target: 500, xp: 200, dust: 2000, items: { incense: 3, stardust_magnet: 3 }, label: 'Successfully defeat 500 grunts' }
+];
+
+/* Weekly missions reset every Monday, local time. */
+export const WEEKLY_MISSIONS = [
+  {
+    id: 'week150', kind: 'capturesWeek', target: 150, xp: 40, dust: 200, discs: 3,
+    items: { ultra_disc: 1 },
+    label: 'Catch 150 creatures this week'
+  },
+  {
+    id: 'week300', kind: 'capturesWeek', target: 300, xp: 80, dust: 500, discs: 5,
+    items: { ultra_disc: 1, single_use_incubator: 1 },
+    label: 'Catch 300 creatures this week'
+  },
+  {
+    id: 'weekDaily', kind: 'daysCaughtThisWeek', target: 7, xp: 50, dust: 300, discs: 2,
+    items: { rare_incense: 1 },
+    label: 'Catch a creature every day this week'
+  }
 ];
 
 export const DAILY_MISSIONS = [
@@ -766,10 +798,24 @@ export function rollRarity() {
   return 1;
 }
 
-/** Weighted rarity, then a uniform pick inside that tier. Stage 1 only. */
-export function rollSpawnSpecies() {
+/** Rarity roll against an arbitrary weight table. */
+export function rollRarityWith(weights) {
+  const total = Object.values(weights).reduce((a, b) => a + b, 0);
+  let r = Math.random() * total;
+  for (const tier of [1, 2, 3, 4, 5]) {
+    r -= weights[tier] || 0;
+    if (r < 0) return tier;
+  }
+  return 1;
+}
+
+/**
+ * Weighted rarity, then a uniform pick inside that tier. Stage 1 only.
+ * Pass a weight table to use different odds, as Rare Incense does.
+ */
+export function rollSpawnSpecies(weights = RARITY_WEIGHTS) {
   for (let attempt = 0; attempt < 6; attempt++) {
-    const pool = DB.byRarity[rollRarity()];
+    const pool = DB.byRarity[rollRarityWith(weights)];
     if (pool?.length) return pool[Math.floor(Math.random() * pool.length)];
   }
   return DB.spawnable[Math.floor(Math.random() * DB.spawnable.length)];

@@ -19,7 +19,7 @@
 import {
   RULES, randInt, rollSpawnSpecies, rollPOIOutcome, rollDiscDrop, rollItemDrop,
   rollRaid, rollShiny, species, gruntLevelRange, GRUNT_CHARACTERS, GRUNT_PHRASES,
-  BATTLE_TEAM_SIZE, DB, chance
+  BATTLE_TEAM_SIZE, DB, chance, RARE_INCENSE_WEIGHTS
 } from './data.js';
 import { distance, offsetMeters } from './geo.js';
 import { fetchPOIs, splitPOIs } from './osm.js';
@@ -282,7 +282,8 @@ export function tickIncense(pos, now = Date.now()) {
   if (!fx || !pos) return null;
   if (fx.lastSpawnAt && now - fx.lastSpawnAt < RULES.INCENSE_EVERY_MS) return null;
 
-  const sp = rollSpawnSpecies();
+  // A Rare Incense rolls the same pools against much rarer-leaning weights.
+  const sp = fx.rare ? rollSpawnSpecies(RARE_INCENSE_WEIGHTS) : rollSpawnSpecies();
   const point = {
     id: newId('incense'),
     kind: 'creature',
@@ -290,9 +291,9 @@ export function tickIncense(pos, now = Date.now()) {
     poiId: 'incense/' + now,
     lat: pos.lat,
     lng: pos.lng,
-    poiName: 'Incense',
+    poiName: fx.rare ? 'Rare Incense' : 'Incense',
     poiKind: 'incense',
-    poiKindValue: 'incense',
+    poiKindValue: fx.rare ? 'rare_incense' : 'incense',
     speciesId: sp.id,
     createdAt: now,
     expiresAt: now + lifetimeFor('incense'),

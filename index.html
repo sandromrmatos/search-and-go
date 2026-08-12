@@ -96,6 +96,7 @@
               <option value="rarity">Rarity</option>
               <option value="level">Level</option>
               <option value="shiny">Shiny</option>
+              <option value="favourite">Favourite</option>
               <option value="recent">Most recent</option>
             </select>
           </label>
@@ -179,6 +180,7 @@
       </div>
       <div class="tabs" id="mission-tabs">
         <button class="tab active" data-mtab="lifetime">Lifetime</button>
+        <button class="tab" data-mtab="weekly">Weekly</button>
         <button class="tab" data-mtab="daily">Daily</button>
       </div>
       <div id="missions-list" class="mission-list"></div>
@@ -403,8 +405,14 @@
       <span id="bt-pick-count" class="muted">0 of 3 chosen</span>
     </div>
     <p class="hint" style="padding:0 14px">They battle in the order you tap them. Fainted creatures and any in the breeding centre can't come.</p>
+    <div id="bt-pick-care" class="pick-care"></div>
     <div id="bt-pick-grid" class="grid"></div>
     <p id="bt-pick-empty" class="empty hidden"></p>
+    <!-- appears as soon as three are chosen, so there is no scrolling to start -->
+    <div id="bt-ready" class="bt-ready hidden">
+      <button id="bt-clear" class="btn ghost">Change team</button>
+      <button id="bt-fight-top" class="btn primary">Battle!</button>
+    </div>
     <div class="bt-foot">
       <button id="bt-fight" class="btn primary wide" disabled>Battle!</button>
     </div>
@@ -509,6 +517,7 @@
     <button class="sheet-close" data-close="picker">✕</button>
     <h3 id="picker-title">Choose a creature</h3>
     <p id="picker-hint" class="muted small"></p>
+    <div id="picker-bulk" class="picker-bulk"></div>
     <div id="picker-grid" class="grid"></div>
     <p id="picker-empty" class="empty hidden">No eligible creatures.</p>
   </div>

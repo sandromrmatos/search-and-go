@@ -48,6 +48,7 @@ const SORTERS = {
   rarity: (a, b) => (rar(a) - rar(b)) || order(a) - order(b),
   level:  (a, b) => (a.level - b.level) || order(a) - order(b),
   shiny:  (a, b) => (Number(!!b.shiny) - Number(!!a.shiny)) || order(a) - order(b),
+  favourite: (a, b) => (Number(!!b.favourite) - Number(!!a.favourite)) || order(a) - order(b),
   recent: (a, b) => a.capturedAt - b.capturedAt
 };
 const sp = c => species(c.speciesId);
@@ -255,7 +256,8 @@ export function openItemSheet(itemId) {
     }, itemId === 'potion' ? 'Use on a creature' : 'Revive a creature'));
   }
   if (def.use === 'timed') {
-    const kind = itemId === 'incense' ? 'incense' : 'magnet';
+    // Both incense types share the one incense slot.
+    const kind = (itemId === 'incense' || itemId === 'rare_incense') ? 'incense' : 'magnet';
     const active = store.effect(kind);
     actions.push(el('button', {
       class: 'btn primary',
@@ -298,9 +300,11 @@ function useTimedItem(kind, def) {
   const label = def.name;
   const mins = Math.round(def.durationMs / 60000);
   if (!confirm(`Use one ${label}? It runs for ${mins} minutes and cannot be stopped early.`)) return;
-  const r = store.startEffect(kind);
+  const r = store.startEffect(kind, Date.now(), def.id);
   if (!r.ok) {
-    toast(r.reason === 'active' ? `A ${label} is already running` : `No ${label} left`, 'bad');
+    toast(r.reason === 'active'
+      ? (kind === 'incense' ? 'An incense is already running' : `A ${label} is already running`)
+      : `No ${label} left`, 'bad');
     return;
   }
   closeSheet('sheet');
@@ -322,10 +326,10 @@ export function setViewHooks({ placeBreeding, effectsChanged }) {
    =============================================================== */
 export function openCreaturePicker(itemId) {
   const isPotion = itemId === 'potion';
-  const eligible = store.s.storage.filter(c => {
+  const eligible = sortedForPicker(store.s.storage.filter(c => {
     if (c.breeding != null) return false;
     return isPotion ? (!isFainted(c) && isHurt(c)) : isFainted(c);
-  });
+  }));
 
   $('#picker-title').textContent = isPotion ? 'Heal which creature?' : 'Revive which creature?';
   $('#picker-hint').textContent = isPotion
@@ -335,6 +339,9 @@ export function openCreaturePicker(itemId) {
     ? 'None of your creatures are hurt.'
     : 'None of your creatures have fainted.';
   $('#picker-empty').classList.toggle('hidden', eligible.length > 0);
+
+  // ---- do-everything button ----
+  renderPickerBulkBar(isPotion, eligible.length, () => openCreaturePicker(itemId));
 
   const grid = $('#picker-grid');
   grid.innerHTML = '';
@@ -365,6 +372,50 @@ export function openCreaturePicker(itemId) {
     ));
   }
   openSheet('picker');
+}
+
+/** Applies the Storage sort settings to any creature list. */
+function sortedForPicker(list) {
+  const { storageSort, storageDir } = store.s.ui;
+  const out = [...list].sort(SORTERS[storageSort] || SORTERS.id);
+  if (storageDir < 0) out.reverse();
+  return out;
+}
+
+/**
+ * "Heal all" / "Revive all" above the picker grid. Shows how many items it
+ * would spend so the choice is never a surprise.
+ */
+function renderPickerBulkBar(isPotion, eligibleCount, rerender) {
+  const host = $('#picker-bulk');
+  if (!host) return;
+  host.innerHTML = '';
+  if (!eligibleCount) return;
+
+  const have = store.itemCount(isPotion ? 'potion' : 'revive');
+  const need = isPotion ? store.potionsNeededForAll() : store.revivable().length;
+  const willUse = Math.min(have, need);
+
+  host.append(
+    el('button', {
+      class: 'btn primary wide',
+      disabled: willUse < 1,
+      onclick: () => {
+        const r = isPotion ? store.healAll() : store.reviveAll();
+        if (!r.ok) { toast(isPotion ? 'No potions left' : 'No revives left', 'bad'); return; }
+        toast(isPotion
+          ? `Healed ${r.healed} creature${r.healed === 1 ? '' : 's'} with ${r.used} potion${r.used === 1 ? '' : 's'}`
+          : `Revived ${r.revived} creature${r.revived === 1 ? '' : 's'}`, 'good', 3400);
+        refreshAll();
+        rerender();
+      }
+    }, isPotion ? `Heal all · ${willUse} potion${willUse === 1 ? '' : 's'}` : `Revive all · ${willUse} revive${willUse === 1 ? '' : 's'}`),
+    need > have
+      ? el('p', { class: 'hint', text: isPotion
+          ? `${need} potions would top everyone up, you have ${have}. The rest stay part-healed.`
+          : `${need} creatures have fainted, you have ${have} revive${have === 1 ? '' : 's'}.` })
+      : null
+  );
 }
 
 /* ===============================================================
@@ -962,20 +1013,24 @@ export function renderBuddy() {
 
 /** Tap-to-choose list of everything eligible to be a buddy. */
 function openBuddyPicker() {
-  const eligible = store.s.storage.filter(c => c.breeding == null && !store.isBuddy(c.uid));
+  const eligible = sortedForPicker(
+    store.s.storage.filter(c => c.breeding == null && !store.isBuddy(c.uid)));
 
   $('#picker-title').textContent = 'Walk with which creature?';
-  $('#picker-hint').textContent = 'Your buddy earns candy for its family as you walk. It can still battle, level up and evolve, but it cannot be released.';
+  $('#picker-hint').textContent = 'Your buddy earns candy for its family as you walk. It can still battle, level up and evolve, but it cannot be released. Sorted the same way as your Storage.';
   $('#picker-empty').textContent = 'Nothing available — creatures in the breeding centre cannot be your buddy.';
   $('#picker-empty').classList.toggle('hidden', eligible.length > 0);
+  $('#picker-bulk').innerHTML = '';
 
   const grid = $('#picker-grid');
   grid.innerHTML = '';
   for (const c of eligible) {
     const s = species(c.speciesId);
     const rarity = familyRarity(s.id);
+    const max = maxHpOf(c), hp = hpOf(c);
+    const pct = Math.round((hp / max) * 100);
     grid.append(el('button', {
-      class: 'cell',
+      class: 'cell' + (c.shiny ? ' shiny' : ''),
       onclick: () => {
         const r = store.setBuddy(c.uid);
         if (!r.ok) { toast('Could not pick that creature', 'bad'); return; }
@@ -985,10 +1040,16 @@ function openBuddyPicker() {
       }
     },
       el('span', { class: 'lvl', text: 'Lv' + c.level }),
+      rarity ? el('span', { class: `rar r-${rarity}`, text: rarity }) : null,
       c.shiny ? el('span', { class: 'shiny-star', text: '★' }) : null,
+      c.favourite ? el('span', { class: 'fav-star', text: '♥' }) : null,
       el('img', { src: s.spritePath(c.shiny), alt: s.name, loading: 'lazy' }),
       el('span', { class: 'nm', text: s.name }),
-      el('span', { class: 'sub', text: `${BUDDY_KM_PER_CANDY[rarity]} km per candy` })
+      el('span', { class: 'hp-wrap' },
+        el('span', { class: `hp-bar${pct <= 25 ? ' critical' : pct <= 60 ? ' low' : ''}` },
+          el('i', { style: { width: pct + '%' } }))),
+      el('span', { class: 'sub', text: `${BUDDY_KM_PER_CANDY[rarity]} km per candy` }),
+      isFainted(c) ? el('span', { class: 'fainted-badge', text: 'FAINTED' }) : null
     ));
   }
   openSheet('picker');
@@ -1081,9 +1142,12 @@ export function renderEffectChips(now = Date.now()) {
   for (const b of bits) {
     const fx = store.effect(b.kind, now);
     if (!fx) continue;
+    // The incense chip reflects whichever incense is burning.
+    const id = b.kind === 'incense' && fx.rare ? 'rare_incense' : b.id;
+    const label = b.kind === 'incense' && fx.rare ? 'Rare Incense' : b.label;
     host.append(el('div', { class: `fx-chip ${b.kind}` },
-      el('img', { src: itemImage(b.id), alt: '' }),
-      el('span', { text: b.label }),
+      el('img', { src: itemImage(id), alt: '' }),
+      el('span', { text: label }),
       el('b', { text: timeLeftLabel(fx.endsAt - now) })
     ));
   }

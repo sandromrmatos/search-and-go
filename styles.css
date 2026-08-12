@@ -927,6 +927,23 @@ a { color: var(--accent); }
 }
 .buddy-bar-labels .small:last-child { color: #ffe9a8; }
 
+/* ---- bulk heal / revive ---- */
+.picker-bulk { padding: 0 0 10px; }
+.picker-bulk .hint { margin: 6px 0 0; }
+.pick-care { padding: 4px 14px 0; }
+.pick-care .hint { margin: 0 0 6px; }
+.pick-care .btn-row { margin: 0; }
+
+/* ---- floating "ready to fight" bar in the team picker ---- */
+.bt-ready {
+  position: sticky; bottom: 0; z-index: 5;
+  display: flex; gap: 10px; align-items: center;
+  padding: 10px 14px calc(10px + var(--safe-b));
+  background: linear-gradient(180deg, #0b102400, #0b1024f2 40%);
+}
+.bt-ready .btn { flex: 1; }
+.bt-ready #bt-fight-top { flex: 2; }
+
 /* ============================================================
    PAGER
    ============================================================ */

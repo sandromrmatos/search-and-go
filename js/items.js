@@ -59,6 +59,17 @@ export const ITEMS = {
     durationMs: RULES.INCENSE_DURATION_MS,
     blurb: 'For 20 minutes a creature appears where you are standing every 2 minutes. Each one lasts 1 min 30 s.'
   },
+  rare_incense: {
+    id: 'rare_incense',
+    name: 'Rare Incense',
+    plural: 'Rare Incenses',
+    image: 'rare incense.png',
+    use: 'timed',
+    order: 5.5,
+    durationMs: RULES.INCENSE_DURATION_MS,
+    rareOdds: true,
+    blurb: 'Works like an Incense — 20 minutes, a creature every 2 minutes lasting 1 min 30 s — but the odds lean hard towards rarer creatures.'
+  },
   stardust_magnet: {
     id: 'stardust_magnet',
     name: 'Stardust Magnet',

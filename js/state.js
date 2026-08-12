@@ -9,10 +9,11 @@ import {
   XP_ON_EVOLVE, CANDY_ON_DELETE, levelUpCost, MAX_CREATURE_LEVEL,
   playerProgress, playerLevelFor, statsFor, rollStatModifier, rollMoveUnlock,
   rollShiny, chance, RULES, RAID_CAPTURE_LEVEL, RAID_CAPTURE_BONUS_CANDY,
-  MISSIONS, DAILY_MISSIONS, breedingSlotsFor, breedingIntervalMs,
+  MISSIONS, DAILY_MISSIONS, WEEKLY_MISSIONS, breedingSlotsFor, breedingIntervalMs,
   BREEDING_CANDY_CAP, BREEDING_UNLOCK_LEVEL,
   dustInRange, weightedPick, GRUNT_REWARD, LEVEL_UP_REWARDS,
-  buddyMetresPerCandy, stardustMultiplier, isStardustSunday, RAID_REWARD
+  buddyMetresPerCandy, stardustMultiplier, isStardustSunday, RAID_REWARD,
+  rollGruntItems, RARE_INCENSE_WEIGHTS
 } from './data.js';
 import { ITEMS, item as itemDef } from './items.js';
 
@@ -21,6 +22,20 @@ export const SAVE_VERSION = 3;
 /** Local calendar day key, used for daily missions. */
 export const dayKey = (d = new Date()) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/**
+ * Key for the local week, identified by its Monday. Weekly missions roll over
+ * at midnight between Sunday and Monday.
+ */
+export function weekKey(d = new Date()) {
+  const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  // getDay(): 0 = Sunday, so Sunday belongs to the week that began 6 days ago.
+  const back = (monday.getDay() + 6) % 7;
+  monday.setDate(monday.getDate() - back);
+  return dayKey(monday);
+}
+
+const blankWeekly = () => ({ week: weekKey(), capturesWeek: 0, days: {}, claimed: {} });
 
 function blankState() {
   return {
@@ -44,6 +59,7 @@ function blankState() {
 
     missions: {},       // missionId -> { claimedAt }
     daily: { date: dayKey(), capturesToday: 0, claimed: {} },
+    weekly: blankWeekly(),
 
     stats: {
       captures: 0, evolutions: 0, deletes: 0, levelUps: 0, scans: 0,
@@ -108,6 +124,7 @@ function migrate(raw) {
     effects: { ...base.effects, ...(raw.effects || {}) },
     missions: { ...(raw.missions || {}) },
     daily: { ...base.daily, ...(raw.daily || {}) },
+    weekly: { ...base.weekly, ...(raw.weekly || {}) },
     storage: Array.isArray(raw.storage) ? raw.storage : [],
     // v1 saves called these "spawns" and they were always creatures
     points: Array.isArray(raw.points) ? raw.points
@@ -197,6 +214,12 @@ function migrate(raw) {
 
   // ---- daily reset ----
   if (s.daily.date !== dayKey()) s.daily = { date: dayKey(), capturesToday: 0, claimed: {} };
+
+  // ---- weekly reset (Monday) ----
+  s.weekly.days = { ...(s.weekly.days || {}) };
+  s.weekly.claimed = { ...(s.weekly.claimed || {}) };
+  s.weekly.capturesWeek = Math.max(0, Math.floor(Number(s.weekly.capturesWeek) || 0));
+  if (s.weekly.week !== weekKey()) s.weekly = blankWeekly();
 
   // ---- uid counter ----
   let maxUid = 0;
@@ -557,6 +580,65 @@ class Store {
     return { ok: true, before, after: hpOf(c), max, gained: hpOf(c) - before };
   }
 
+  /** Creatures a potion could help right now: hurt, not fainted, not breeding. */
+  healable() {
+    return this.s.storage.filter(c => c.breeding == null && !isFainted(c) && isHurt(c));
+  }
+
+  /** Creatures a revive could bring back. */
+  revivable() {
+    return this.s.storage.filter(c => c.breeding == null && isFainted(c));
+  }
+
+  /** How many potions it would take to top every hurt creature back to full. */
+  potionsNeededForAll() {
+    const heals = itemDef('potion').heals || 50;
+    return this.healable().reduce(
+      (sum, c) => sum + Math.ceil((maxHpOf(c) - hpOf(c)) / heals), 0);
+  }
+
+  /**
+   * Spends potions across every hurt creature, using as many as each one needs
+   * to reach full HP. Stops when the potions run out, part-healing the last one.
+   */
+  healAll() {
+    const heals = itemDef('potion').heals || 50;
+    let used = 0, fullyHealed = 0;
+    const touched = [];
+
+    for (const c of this.healable()) {
+      if (!this.hasItem('potion')) break;
+      const max = maxHpOf(c);
+      let before = hpOf(c);
+      while (hpOf(c) < max && this.hasItem('potion')) {
+        this.spendItem('potion');
+        used++;
+        const next = Math.min(max, hpOf(c) + heals);
+        c.hp = next >= max ? null : next;
+      }
+      if (hpOf(c) > before) touched.push({ uid: c.uid, speciesId: c.speciesId, before, after: hpOf(c), max });
+      if (hpOf(c) >= max) fullyHealed++;
+    }
+
+    if (used) this.touch('potion', { immediate: true });
+    return { ok: used > 0, used, healed: touched.length, fullyHealed, creatures: touched };
+  }
+
+  /** Revives every fainted creature it has revives for. */
+  reviveAll() {
+    let used = 0;
+    const revived = [];
+    for (const c of this.revivable()) {
+      if (!this.hasItem('revive')) break;
+      this.spendItem('revive');
+      used++;
+      c.hp = null;                       // null means full health
+      revived.push({ uid: c.uid, speciesId: c.speciesId, max: maxHpOf(c) });
+    }
+    if (used) this.touch('revive', { immediate: true });
+    return { ok: used > 0, used, revived: revived.length, creatures: revived };
+  }
+
   canUseRevive(uid) {
     const c = this.creature(uid);
     if (!c) return { ok: false, reason: 'missing' };
@@ -596,9 +678,16 @@ class Store {
   isMagnetActive(now = Date.now()) { return !!this.effect('magnet', now); }
   isIncenseActive(now = Date.now()) { return !!this.effect('incense', now); }
 
-  /** Starts incense or the stardust magnet. One at a time, each. */
-  startEffect(kind, now = Date.now()) {
-    const itemId = kind === 'incense' ? 'incense' : 'stardust_magnet';
+  /** True while the running incense is the Rare variety. */
+  isRareIncense(now = Date.now()) { return !!this.effect('incense', now)?.rare; }
+
+  /**
+   * Starts incense or the stardust magnet. One of each at a time — both
+   * incense types share the slot, so Rare Incense cannot stack with a plain
+   * one. `useItemId` chooses which incense is burned.
+   */
+  startEffect(kind, now = Date.now(), useItemId = null) {
+    const itemId = useItemId || (kind === 'incense' ? 'incense' : 'stardust_magnet');
     if (this.effect(kind, now)) return { ok: false, reason: 'active' };
     if (!this.hasItem(itemId)) return { ok: false, reason: 'noItem' };
 
@@ -607,10 +696,12 @@ class Store {
     this.s.effects[kind] = {
       startedAt: now,
       endsAt: now + duration,
-      lastSpawnAt: kind === 'incense' ? 0 : null
+      lastSpawnAt: kind === 'incense' ? 0 : null,
+      itemId,
+      rare: itemId === 'rare_incense'
     };
     this.touch('effect', { immediate: true });
-    return { ok: true, endsAt: this.s.effects[kind].endsAt };
+    return { ok: true, endsAt: this.s.effects[kind].endsAt, rare: itemId === 'rare_incense' };
   }
 
   clearExpiredEffects(now = Date.now()) {
@@ -688,6 +779,7 @@ class Store {
       this.s.shinyCaught[sp.id] = true;
     }
     this.bumpDaily('capturesToday');
+    this.bumpWeekly();
 
     this.touch('capture', { immediate: true });
     return {
@@ -712,12 +804,16 @@ class Store {
       byRarity[rarity] = (byRarity[rarity] || 0) + 1;
     }
 
-    // Half of all raid wins drop a Single Use Incubator.
+    // Guaranteed loot, plus a coin-flip Single Use Incubator.
     const items = {};
+    for (const [id, n] of Object.entries(RAID_REWARD.always || {})) {
+      this.addItem(id, n);
+      items[id] = (items[id] || 0) + n;
+    }
     if (chance(RAID_REWARD.incubatorChance)) {
       const id = RAID_REWARD.incubatorItem;
       this.addItem(id, 1);
-      items[id] = 1;
+      items[id] = (items[id] || 0) + 1;
     }
 
     this.touch('raid-win', { immediate: true });
@@ -745,9 +841,14 @@ class Store {
     const dust = this.addStardust(dustInRange(GRUNT_REWARD.dust, this.level));
     const bonus = weightedPick(GRUNT_REWARD.bonus).item;
     if (bonus) this.addItem(bonus, 1);
+
+    // Grunts always hand over healing supplies.
+    const items = rollGruntItems();
+    for (const [id, n] of Object.entries(items)) this.addItem(id, n);
+
     this.s.stats.gruntsBeaten++;
     this.touch('grunt-win', { immediate: true });
-    return { dust, bonus, sunday: isStardustSunday() };
+    return { dust, bonus, items, sunday: isStardustSunday() };
   }
 
   /* ---------------- level up ---------------- */
@@ -1016,9 +1117,24 @@ class Store {
     this.s.daily[key] = (this.s.daily[key] || 0) + n;
   }
 
+  /** Counts a capture towards the weekly missions, rolling the week if needed. */
+  bumpWeekly(n = 1) {
+    const wk = weekKey();
+    if (this.s.weekly.week !== wk) this.s.weekly = blankWeekly();
+    this.s.weekly.capturesWeek = (this.s.weekly.capturesWeek || 0) + n;
+    this.s.weekly.days[dayKey()] = true;
+  }
+
+  /** Live weekly figures, treating a stale week as empty. */
+  get weekly() {
+    return this.s.weekly.week === weekKey() ? this.s.weekly : blankWeekly();
+  }
+
   missionProgress(m) {
     switch (m.kind) {
       case 'registered': return this.registeredCount;
+      case 'capturesWeek': return this.weekly.capturesWeek || 0;
+      case 'daysCaughtThisWeek': return Object.keys(this.weekly.days || {}).length;
       case 'captures': return this.s.stats.captures;
       case 'raidsWon': return this.s.stats.raidsWon;
       case 'gruntsBeaten': return this.s.stats.gruntsBeaten;
@@ -1029,13 +1145,15 @@ class Store {
     }
   }
 
-  missionState(m, daily = false) {
+  /** `scope` is 'lifetime', 'daily' or 'weekly'. */
+  missionState(m, scope = 'lifetime') {
     const progress = this.missionProgress(m);
-    const claimed = daily
-      ? !!this.s.daily.claimed?.[m.id]
+    const claimed = scope === 'daily' ? !!this.s.daily.claimed?.[m.id]
+      : scope === 'weekly' ? !!this.weekly.claimed?.[m.id]
       : !!this.s.missions[m.id];
     return {
-      def: m, daily, progress,
+      def: m, scope, daily: scope === 'daily', weekly: scope === 'weekly',
+      progress,
       target: m.target,
       complete: progress >= m.target,
       claimed,
@@ -1045,8 +1163,9 @@ class Store {
 
   allMissions() {
     return [
-      ...MISSIONS.map(m => this.missionState(m, false)),
-      ...DAILY_MISSIONS.map(m => this.missionState(m, true))
+      ...MISSIONS.map(m => this.missionState(m, 'lifetime')),
+      ...WEEKLY_MISSIONS.map(m => this.missionState(m, 'weekly')),
+      ...DAILY_MISSIONS.map(m => this.missionState(m, 'daily'))
     ];
   }
 
@@ -1076,9 +1195,12 @@ class Store {
       bonusItems[itemId] = n;
     }
 
-    if (m.daily) {
+    if (m.scope === 'daily') {
       this.s.daily.claimed = this.s.daily.claimed || {};
       this.s.daily.claimed[id] = Date.now();
+    } else if (m.scope === 'weekly') {
+      if (this.s.weekly.week !== weekKey()) this.s.weekly = blankWeekly();
+      this.s.weekly.claimed[id] = Date.now();
     } else {
       this.s.missions[id] = { claimedAt: Date.now() };
     }

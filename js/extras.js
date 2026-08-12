@@ -9,10 +9,12 @@ import {
   BONANZA_HOUR_START, BONANZA_HOUR_END, STAT_LABELS,
   RELAX_HOUR_START, RELAX_HOUR_END, RELAX_HOUR_LABEL, dustBonusFor,
   BUDDY_KM_PER_CANDY, STARDUST_SUNDAY_LABEL, STARDUST_SUNDAY_MULTIPLIER,
-  RAID_REWARD
+  RAID_REWARD, RARE_INCENSE_WEIGHTS, RARITY_WEIGHTS, GRUNT_ITEM_DROPS,
+  RAID_BOSS_MODIFIERS
 } from './data.js';
 import { store, maxHpOf, hpOf, isFainted } from './state.js';
 import { itemImage, itemName, ITEMS, itemsInOrder } from './items.js';
+const DEBUG_TRAINER_NAME = 'Test123';
 import { $, $$, el, toast, openSheet, closeSheet, num, timeLeftLabel, PAGE_SIZE } from './ui.js';
 
 const DUST_ICON = '✨';
@@ -35,7 +37,8 @@ export function initExtras({ onChange } = {}) {
 
 const MISSION_ICON = {
   registered: '📖', captures: '🎯', capturesToday: '📅',
-  raidsWon: '🔥', raidRarity: '💎', gruntsBeaten: '🧍'
+  raidsWon: '🔥', raidRarity: '💎', gruntsBeaten: '🧍',
+  capturesWeek: '🗓', daysCaughtThisWeek: '✅'
 };
 
 let missionTab = 'lifetime';
@@ -50,7 +53,7 @@ export function renderMissions() {
     b.onclick = () => { missionTab = b.dataset.mtab; renderMissions(); };
   });
 
-  const showing = all.filter(m => missionTab === 'daily' ? m.daily : !m.daily);
+  const showing = all.filter(m => m.scope === missionTab);
 
   // Claimable first, then in progress, then claimed at the bottom.
   const rank = m => (m.claimable ? 0 : m.claimed ? 2 : 1);
@@ -70,21 +73,34 @@ export function renderMissions() {
   host.innerHTML = '';
   for (const m of sorted) host.append(missionRow(m));
 
-  // Daily timer
+  // Reset countdown for the timed tabs
   const timer = $('#daily-timer');
+  const now = new Date();
   if (missionTab === 'daily') {
     timer.classList.remove('hidden');
-    const now = new Date();
     const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0);
-    const ms = tomorrow - now;
-    const h = Math.floor(ms / 3_600_000);
-    const min = Math.floor((ms % 3_600_000) / 60_000);
-    timer.innerHTML = `Daily missions reset in <b>${h}h ${min}m</b>`;
+    timer.innerHTML = `Daily missions reset in <b>${countdownLabel(tomorrow - now)}</b>`;
+  } else if (missionTab === 'weekly') {
+    timer.classList.remove('hidden');
+    // Next Monday 00:00 local
+    const nextMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    nextMonday.setDate(nextMonday.getDate() + ((8 - (now.getDay() || 7)) % 7 || 7));
+    timer.innerHTML = `Weekly missions reset Monday, in <b>${countdownLabel(nextMonday - now)}</b>`;
   } else {
     timer.classList.add('hidden');
   }
 
   renderMissionBadge();
+}
+
+/** "2d 5h" / "5h 12m" / "12m" from a millisecond gap. */
+function countdownLabel(ms) {
+  const total = Math.max(0, ms);
+  const d = Math.floor(total / 86_400_000);
+  const h = Math.floor((total % 86_400_000) / 3_600_000);
+  const min = Math.floor((total % 3_600_000) / 60_000);
+  if (d) return `${d}d ${h}h`;
+  return h ? `${h}h ${min}m` : `${min}m`;
 }
 
 function missionRow(m) {
@@ -255,6 +271,8 @@ function renderBreedingPicker() {
   $('#picker-title').textContent = `Choose 2 ${sp.name} to leave`;
   $('#picker-hint').textContent = `${available.length} available. Tap two to select them.`;
   $('#picker-empty').classList.add('hidden');
+  const bulk = $('#picker-bulk');
+  if (bulk) bulk.innerHTML = '';
 
   const grid = $('#picker-grid');
   grid.innerHTML = '';
@@ -336,6 +354,15 @@ function collect(index) {
 
 const pct = n => `${Math.round(n * 100)}%`;
 
+const weightLine = table => {
+  const total = Object.values(table).reduce((a, b) => a + b, 0);
+  return Object.entries(table)
+    .map(([r, w]) => `<b>${RARITY_NAMES[r]}</b> ${Math.round((w / total) * 100)}%`)
+    .join(' · ');
+};
+const rareIncenseLine = () => weightLine(RARE_INCENSE_WEIGHTS);
+const wildOddsLine = () => weightLine(RARITY_WEIGHTS);
+
 /** "Common 2 km · Uncommon 4 km · …" straight from the buddy table. */
 function buddyRarityLine() {
   return Object.entries(BUDDY_KM_PER_CANDY)
@@ -389,8 +416,15 @@ function renderInfo(tab = 'basics') {
         el('li', { html: `<b>Shiny Bonanza Hour</b> — ${clockLabel(BONANZA_HOUR_START)} to ${clockLabel(BONANZA_HOUR_END)}. Shiny odds double.` }),
         el('li', { html: `<b>${RELAX_HOUR_LABEL}</b> — ${clockLabel(RELAX_HOUR_START)} to ${clockLabel(RELAX_HOUR_END)}. Your reach grows from <b>${RULES.CAPTURE_RANGE_M} m</b> to <b>${RULES.RELAX_RANGE_M} m</b>, so you can tap creatures, discs, items, raids, grunts and your breeding centre from the sofa instead of walking to them. The green circle on the map grows to match, and a moonlit chip shows how long is left.` })
       ),
+      el('h4', { text: 'Sorting and bulk healing' }),
+      el('ul', {},
+        el('li', { html: 'Storage sorts by ID, name, type, rarity, level, shiny, <b>favourite</b> or most recent. The buddy picker follows whatever you last chose.' }),
+        el('li', { html: 'Tapping a <b>Potion</b> offers <b>Heal all</b>, which spends as many potions as each creature needs to reach full HP. A <b>Revive</b> offers <b>Revive all</b>. Both tell you how many they will use first.' })
+      ),
       el('h4', { text: 'Steps' }),
       el('p', { html: `Your walking is tracked while the game is open and shown in your Profile. One step is counted per <b>${RULES.METRES_PER_STEP} m</b> of real movement; jumps over <b>${RULES.MAX_WALK_JUMP_M} m</b> are ignored as GPS noise, and a fake debug location never counts.` }),
+      el('h4', { text: 'Missions' }),
+      el('p', { html: 'Missions sit in three tabs. <b>Lifetime</b> never resets. <b>Weekly</b> resets every <b>Monday</b> at midnight local time. <b>Daily</b> resets at midnight. Each timed tab shows its countdown at the bottom.' }),
       el('h4', { text: 'Pages' }),
       el('p', { html: `Once you hold more than <b>${PAGE_SIZE}</b> creatures, Storage and the battle team picker split into pages of ${PAGE_SIZE}. Swipe the grid left or right, or use the arrows. Sorting always reorders your <b>whole</b> collection first and then re-cuts the pages, so page 1 is always the true top of the order.` }),
       el('h4', { text: 'Buddy' }),
@@ -402,7 +436,9 @@ function renderInfo(tab = 'basics') {
         el('li', { html: buddyRarityLine() }),
         el('li', { html: 'A buddy can still battle, level up and evolve. It <b>cannot be released</b>, on its own or through multi-select, and creatures in the breeding centre cannot be buddies.' }),
         el('li', { html: 'Swapping or removing a buddy loses the part-walked progress towards the current candy.' })
-      )
+      ),
+      el('h4', { text: 'Debug tools' }),
+      el('p', { html: `The 🛠 tools are only available to the trainer named <b>${DEBUG_TRAINER_NAME}</b>. Under any other name the button is hidden and the fake location and range override are ignored.` })
     );
   }
 
@@ -419,7 +455,8 @@ function renderInfo(tab = 'basics') {
       el('ul', {},
         el('li', { html: 'No Capturing Disc means no catching — you will be told when you tap a creature.' }),
         el('li', { html: 'Potions cannot be used during a battle, or on a creature that has fainted.' }),
-        el('li', { html: 'Only one Incense and one Stardust Magnet can run at a time.' }),
+        el('li', { html: 'Only one incense and one Stardust Magnet can run at a time. <b>Rare Incense</b> shares the incense slot, so it cannot stack with a plain one.' }),
+        el('li', { html: `<b>Rare Incense</b> spawns on the same 2-minute rhythm but with far better odds: ${rareIncenseLine()}. Compare that to a wild spawn at ${wildOddsLine()}.` }),
         el('li', { html: `<b>Incubators</b> do nothing yet. You get one <b>Incubator</b> at player level 5, and a <b>Single Use Incubator</b> from about <b>${pct(RAID_REWARD.incubatorChance)}</b> of raid wins, plus several from the raid missions. Hold on to them — what they hatch is coming later.` })
       )
     );
@@ -446,7 +483,8 @@ function renderInfo(tab = 'basics') {
       ),
       el('h4', { text: 'After the battle' }),
       el('ul', {},
-        el('li', { html: 'Damage is kept. A hurt creature needs a <b>Potion</b>, a fainted one needs a <b>Revive</b>.' }),
+        el('li', { html: 'Damage is kept, including if you <b>leave part-way through</b> — you will be asked to confirm first. A hurt creature needs a <b>Potion</b>, a fainted one needs a <b>Revive</b>. You can heal and revive from the team picker without leaving the battle.' }),
+        el('li', { html: `Every raid win always gives <b>${RAID_REWARD.always.revive} Revives</b>. Every grunt always gives healing supplies: ${GRUNT_ITEM_DROPS.map(d => `<b>${d.weight}%</b> ${Object.entries(d.items).map(([id, n]) => `${n} ${itemName(id, n)}`).join(' + ')}`).join(' · ')}.` }),
         el('li', { html: 'Beat a raid boss and you can catch it with an <b>Ultra Capture Disc</b> — it arrives at level 3 with two bonus candy.' }),
         el('li', { html: `Every raid win also has a <b>${pct(RAID_REWARD.incubatorChance)}</b> chance of dropping a <b>Single Use Incubator</b>.` }),
         el('li', { html: 'Lose and you can retry as many times as you like until the timer runs out.' }),
