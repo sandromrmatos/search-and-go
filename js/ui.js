@@ -52,6 +52,94 @@ export function wireSheetClosers() {
 }
 
 /* ---------------------------------------------------------------
+   Paging
+   Long creature lists are cut into pages so the grid stays scrollable on a
+   phone. Sorting always happens across the whole list first, then the result
+   is sliced, so page 1 really does hold the first 30 in that order.
+   --------------------------------------------------------------- */
+export const PAGE_SIZE = 30;
+
+export const pageCount = (total, size = PAGE_SIZE) => Math.max(1, Math.ceil(total / size));
+
+export const clampPage = (page, total, size = PAGE_SIZE) =>
+  Math.min(Math.max(0, Number(page) || 0), pageCount(total, size) - 1);
+
+export function pageSlice(list, page, size = PAGE_SIZE) {
+  const p = clampPage(page, list.length, size);
+  return list.slice(p * size, p * size + size);
+}
+
+/** Which page a given index falls on. */
+export const pageOfIndex = (index, size = PAGE_SIZE) => Math.floor(Math.max(0, index) / size);
+
+/**
+ * "‹  Page 2 of 4  ›" with the item range underneath. Returns null for a
+ * single page so short lists stay uncluttered.
+ */
+export function pagerBar(page, total, onGo, size = PAGE_SIZE) {
+  const pages = pageCount(total, size);
+  if (pages <= 1) return null;
+  const p = clampPage(page, total, size);
+  const from = p * size + 1;
+  const to = Math.min(total, (p + 1) * size);
+  return el('div', { class: 'pager' },
+    el('button', { class: 'arrow-btn', disabled: p === 0, onclick: () => onGo(p - 1) }, '‹'),
+    el('div', { class: 'pager-mid' },
+      el('span', { class: 'pager-page', text: `Page ${p + 1} of ${pages}` }),
+      el('span', { class: 'pager-range muted small', text: `${from}–${to} of ${total}` })
+    ),
+    el('button', { class: 'arrow-btn', disabled: p >= pages - 1, onclick: () => onGo(p + 1) }, '›')
+  );
+}
+
+/**
+ * Horizontal swipe on a container. Vertical drags are ignored so the element
+ * can still be scrolled, and short drags are ignored so taps still work.
+ *
+ * Listeners are attached once per host and read the latest handlers from the
+ * element itself. Re-rendering a grid calls this again, and without that guard
+ * every render would stack another listener.
+ */
+export function wireSwipe(host, handlers, { key = 'swipe', minPx = 45 } = {}) {
+  if (!host) return;
+  host['_swipe_' + key] = handlers;
+  const flag = key + 'Wired';
+  if (host.dataset[flag]) return;
+  host.dataset[flag] = '1';
+
+  let x0 = null, y0 = null, done = false;
+
+  host.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) { x0 = null; return; }
+    x0 = e.touches[0].clientX;
+    y0 = e.touches[0].clientY;
+    done = false;
+  }, { passive: true });
+
+  host.addEventListener('touchmove', e => {
+    if (x0 == null || done || e.touches.length !== 1) return;
+    const dx = e.touches[0].clientX - x0;
+    const dy = e.touches[0].clientY - y0;
+    if (Math.abs(dy) > Math.abs(dx)) { x0 = null; return; }   // scrolling, not swiping
+    if (Math.abs(dx) < minPx) return;
+    done = true;
+    const h = host['_swipe_' + key] || {};
+    (dx > 0 ? h.onRight : h.onLeft)?.();
+  }, { passive: true });
+
+  host.addEventListener('touchend', () => { x0 = null; }, { passive: true });
+}
+
+/** Small nudge when a swipe has nowhere to go. */
+export function bumpEl(host, dir) {
+  if (!host) return;
+  host.classList.remove('bump-left', 'bump-right');
+  void host.offsetWidth;
+  host.classList.add(dir === 'left' ? 'bump-left' : 'bump-right');
+  setTimeout(() => host.classList.remove('bump-left', 'bump-right'), 260);
+}
+
+/* ---------------------------------------------------------------
    Formatting
    --------------------------------------------------------------- */
 export const num = n => Number(n || 0).toLocaleString();

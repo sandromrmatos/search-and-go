@@ -10,9 +10,12 @@ import {
 } from './data.js';
 import { store, creatureStats, maxHpOf, hpOf, isFainted } from './state.js';
 import { Battle, buildRaidBattle, buildGruntBattle, battlerFromEnemySpec } from './battle.js';
-import { itemImage } from './items.js';
+import { itemImage, itemName } from './items.js';
 import { playCapture } from './anim.js';
-import { $, $$, el, toast, num, sleep } from './ui.js';
+import {
+  $, $$, el, toast, num, sleep,
+  clampPage, pageSlice, pagerBar, wireSwipe, bumpEl
+} from './ui.js';
 
 const CANDY_ICON = '🍬';
 const DUST_ICON = '✨';
@@ -185,20 +188,35 @@ const PICK_SORTS = {
 
 function showPicker() {
   ctx.picked = [];
+  pickPage = 0;
   step('pick');
+  renderPicker();
+}
+
+/* Paging for the roster, same 30-per-page rule as Storage. */
+let pickPage = 0;
+
+function goToPickPage(page, grid = null) {
+  const total = store.battleReady().length;
+  const next = clampPage(page, total);
+  if (next === pickPage) { if (grid) bumpEl(grid, page < 0 ? 'right' : 'left'); return; }
+  pickPage = next;
   renderPicker();
 }
 
 function renderPicker() {
   const grid = $('#bt-pick-grid');
   const sort = $('#bt-sort').value || 'level';
-  const list = [...store.battleReady()].sort(PICK_SORTS[sort] || PICK_SORTS.level);
+  // Sort the whole roster, then page it, so page 1 is the real top of the order.
+  const all = [...store.battleReady()].sort(PICK_SORTS[sort] || PICK_SORTS.level);
+  pickPage = clampPage(pickPage, all.length);
+  const list = pageSlice(all, pickPage);
 
   $('#bt-pick-count').textContent = `${ctx.picked.length} of ${BATTLE_TEAM_SIZE} chosen`;
   $('#bt-fight').disabled = ctx.picked.length !== BATTLE_TEAM_SIZE;
 
   const empty = $('#bt-pick-empty');
-  empty.classList.toggle('hidden', list.length > 0);
+  empty.classList.toggle('hidden', all.length > 0);
   empty.textContent = 'No creatures are fit to battle. Revive or heal them first.';
 
   grid.innerHTML = '';
@@ -226,6 +244,24 @@ function renderPicker() {
       el('span', { class: 'sub', text: `${st.attack}A ${st.defence}D ${st.speed}S` })
     ));
   }
+
+  // ---- paging ----
+  let pager = $('#bt-pick-pager');
+  const bar = pagerBar(pickPage, all.length, goToPickPage);
+  if (!bar) {
+    pager?.remove();
+  } else {
+    if (!pager) {
+      pager = el('div', { id: 'bt-pick-pager' });
+      grid.parentElement.insertBefore(pager, grid.nextSibling);
+    }
+    pager.innerHTML = '';
+    pager.append(bar);
+  }
+  wireSwipe(grid, {
+    onLeft: () => goToPickPage(pickPage + 1, grid),
+    onRight: () => goToPickPage(pickPage - 1, grid)
+  }, { key: 'pickPage' });
 }
 
 function togglePick(uid) {
@@ -448,11 +484,17 @@ function renderResult() {
   if (won && rewards) {
     const chips = [
       rewards.xp ? { icon: '⭐', label: `+${rewards.xp} XP` } : null,
-      { icon: DUST_ICON, label: `+${num(rewards.dust)} stardust` },
-      rewards.bonus ? { icon: '🎁', label: `Bonus ${rewards.bonus === 'incense' ? 'Incense' : 'Stardust Magnet'}` } : null
+      { icon: DUST_ICON, label: `+${num(rewards.dust)} stardust${rewards.sunday ? ' (Sunday ×2)' : ''}` },
+      rewards.bonus ? { icon: '🎁', label: `Bonus ${itemName(rewards.bonus)}` } : null,
+      // Raid drops, e.g. the Single Use Incubator
+      ...Object.entries(rewards.items || {}).map(([id, n]) => ({ img: itemImage(id), label: `+${n} ${itemName(id, n)}` }))
     ].filter(Boolean);
     body.append(el('div', { class: 'rewards' }, ...chips.map(r =>
-      el('span', { class: 'reward' }, el('span', { text: r.icon }), el('span', { text: r.label })))));
+      el('span', { class: 'reward' },
+        r.img
+          ? el('img', { src: r.img, alt: '', style: { width: '18px', height: '18px', objectFit: 'contain' } })
+          : el('span', { text: r.icon }),
+        el('span', { text: r.label })))));
   }
 
   // Buttons

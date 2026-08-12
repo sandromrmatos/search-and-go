@@ -152,13 +152,31 @@ export const PLAYER_LEVEL_XP = {
 /** Every player level grants these items. Level 3 also awards a breeding centre. */
 export const LEVEL_UP_REWARDS = {
   every: { capture_disc: 5, incense: 1, stardust_magnet: 1 },
-  special: { 3: { breeding_center: 1 } }
+  special: {
+    3: { breeding_center: 1 },
+    5: { incubator: 1 }
+  }
 };
 
 export const MAX_PLAYER_LEVEL = 15;
 
 /** Every player level past 1 adds this much to any stardust reward. */
 export const DUST_BONUS_PER_PLAYER_LEVEL = 3;
+
+/* ---------------------------------------------------------------
+   Stardust Sunday
+   Every Sunday all stardust is doubled. The multiplier is applied last, on
+   top of the player-level bonus and any Stardust Magnet, so it doubles the
+   final figure rather than the base one.
+   --------------------------------------------------------------- */
+export const STARDUST_SUNDAY_MULTIPLIER = 2;
+export const STARDUST_SUNDAY_LABEL = 'Stardust Sunday';
+
+export const isStardustSunday = (now = new Date()) => now.getDay() === 0;
+
+/** What any stardust gain should be multiplied by right now. */
+export const stardustMultiplier = (now = new Date()) =>
+  isStardustSunday(now) ? STARDUST_SUNDAY_MULTIPLIER : 1;
 
 /* ---------------------------------------------------------------
    Types and battle
@@ -223,6 +241,12 @@ export const GRUNT_LEVEL_BANDS = [
   { maxPlayerLevel: Infinity, levels: [6, 9] }
 ];
 
+/** Extra loot for beating a raid boss, on top of the XP and stardust. */
+export const RAID_REWARD = {
+  incubatorChance: 0.5,
+  incubatorItem: 'single_use_incubator'
+};
+
 export const GRUNT_REWARD = {
   dust: [50, 75],
   bonus: [
@@ -267,6 +291,19 @@ export const MOVE_UNLOCK_ROLL = [
 ];
 
 /* ---------------------------------------------------------------
+   Buddy
+   A creature picked in your Profile walks with you and earns candy for its
+   own family. Rarer families need a longer walk per candy.
+   --------------------------------------------------------------- */
+export const BUDDY_KM_PER_CANDY = { 1: 2, 2: 4, 3: 8, 4: 12, 5: 16 };
+
+/** Metres of walking one candy costs for a buddy of this family rarity. */
+export function buddyMetresPerCandy(rarity) {
+  const km = BUDDY_KM_PER_CANDY[rarity] ?? BUDDY_KM_PER_CANDY[1];
+  return km * 1000;
+}
+
+/* ---------------------------------------------------------------
    Breeding centre
    --------------------------------------------------------------- */
 export const BREEDING_UNLOCK_LEVEL = 3;
@@ -291,7 +328,50 @@ export const MISSIONS = [
   { id: 'cat100',  kind: 'captures',   target: 100,  xp: 10,  dust: 50,  label: 'Catch 100 creatures' },
   { id: 'cat200',  kind: 'captures',   target: 200,  xp: 20,  dust: 100, label: 'Catch 200 creatures' },
   { id: 'cat500',  kind: 'captures',   target: 500,  xp: 50,  dust: 200, label: 'Catch 500 creatures' },
-  { id: 'cat1000', kind: 'captures',   target: 1000, xp: 100, dust: 300, label: 'Catch 1000 creatures' }
+  { id: 'cat1000', kind: 'captures',   target: 1000, xp: 100, dust: 300, label: 'Catch 1000 creatures' },
+  {
+    id: 'cat2000', kind: 'captures', target: 2000, xp: 150, dust: 500,
+    items: { ultra_disc: 1, incense: 1, stardust_magnet: 1 },
+    label: 'Catch 2000 creatures'
+  },
+  {
+    id: 'cat3000', kind: 'captures', target: 3000, xp: 200, dust: 1000,
+    items: { ultra_disc: 1, incense: 1, stardust_magnet: 1 },
+    label: 'Catch 3000 creatures'
+  },
+  {
+    id: 'cat5000', kind: 'captures', target: 5000, xp: 300, dust: 2000,
+    items: { ultra_disc: 2, incense: 2, stardust_magnet: 2 },
+    label: 'Catch 5000 creatures'
+  },
+  {
+    id: 'cat10000', kind: 'captures', target: 10000, xp: 500, dust: 5000,
+    items: { breeding_center: 1, incense: 2, stardust_magnet: 2 },
+    label: 'Catch 10000 creatures'
+  },
+
+  // ---- raids won ----
+  { id: 'raid5',   kind: 'raidsWon', target: 5,   xp: 5,   dust: 20,  items: { single_use_incubator: 1 }, label: 'Successfully defeat 5 raids' },
+  { id: 'raid10',  kind: 'raidsWon', target: 10,  xp: 10,  dust: 50,  items: { single_use_incubator: 1 }, label: 'Successfully defeat 10 raids' },
+  { id: 'raid20',  kind: 'raidsWon', target: 20,  xp: 20,  dust: 100, items: { single_use_incubator: 1 }, label: 'Successfully defeat 20 raids' },
+  { id: 'raid50',  kind: 'raidsWon', target: 50,  xp: 50,  dust: 250, items: { single_use_incubator: 1 }, label: 'Successfully defeat 50 raids' },
+  { id: 'raid100', kind: 'raidsWon', target: 100, xp: 100, dust: 500, items: { single_use_incubator: 2 }, label: 'Successfully defeat 100 raids' },
+
+  // ---- one raid of each rarity ----
+  { id: 'raidR1', kind: 'raidRarity', rarity: 1, target: 1, xp: 5,   dust: 20,  items: { single_use_incubator: 1 }, label: 'Successfully defeat a Rarity 1 raid' },
+  { id: 'raidR2', kind: 'raidRarity', rarity: 2, target: 1, xp: 10,  dust: 50,  items: { single_use_incubator: 1 }, label: 'Successfully defeat a Rarity 2 raid' },
+  { id: 'raidR3', kind: 'raidRarity', rarity: 3, target: 1, xp: 20,  dust: 100, items: { single_use_incubator: 1 }, label: 'Successfully defeat a Rarity 3 raid' },
+  { id: 'raidR4', kind: 'raidRarity', rarity: 4, target: 1, xp: 50,  dust: 250, items: { single_use_incubator: 2 }, label: 'Successfully defeat a Rarity 4 raid' },
+  { id: 'raidR5', kind: 'raidRarity', rarity: 5, target: 1, xp: 100, dust: 500, items: { single_use_incubator: 2 }, label: 'Successfully defeat a Rarity 5 raid' },
+
+  // ---- grunts beaten ----
+  { id: 'grunt5',   kind: 'gruntsBeaten', target: 5,   xp: 5,   dust: 20,   items: { stardust_magnet: 1 }, label: 'Successfully defeat 5 grunts' },
+  { id: 'grunt10',  kind: 'gruntsBeaten', target: 10,  xp: 10,  dust: 50,   items: { incense: 1 }, label: 'Successfully defeat 10 grunts' },
+  { id: 'grunt20',  kind: 'gruntsBeaten', target: 20,  xp: 20,  dust: 100,  items: { stardust_magnet: 2 }, label: 'Successfully defeat 20 grunts' },
+  { id: 'grunt50',  kind: 'gruntsBeaten', target: 50,  xp: 50,  dust: 250,  items: { incense: 2 }, label: 'Successfully defeat 50 grunts' },
+  { id: 'grunt100', kind: 'gruntsBeaten', target: 100, xp: 100, dust: 500,  items: { incense: 2, stardust_magnet: 2 }, label: 'Successfully defeat 100 grunts' },
+  { id: 'grunt200', kind: 'gruntsBeaten', target: 200, xp: 150, dust: 1000, items: { incense: 2, stardust_magnet: 2 }, label: 'Successfully defeat 200 grunts' },
+  { id: 'grunt500', kind: 'gruntsBeaten', target: 500, xp: 200, dust: 2000, items: { incense: 3, stardust_magnet: 3 }, label: 'Successfully defeat 500 grunts' }
 ];
 
 export const DAILY_MISSIONS = [

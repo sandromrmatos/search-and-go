@@ -7,11 +7,13 @@ import {
   BREEDING_UNLOCK_LEVEL, BREEDING_CANDY_CAP, BREEDING_SLOTS_BY_LEVEL,
   MAX_CREATURE_LEVEL, CREATURE_LEVEL_COST, POI_OUTCOMES, SHINY_ODDS,
   BONANZA_HOUR_START, BONANZA_HOUR_END, STAT_LABELS,
-  RELAX_HOUR_START, RELAX_HOUR_END, RELAX_HOUR_LABEL, dustBonusFor
+  RELAX_HOUR_START, RELAX_HOUR_END, RELAX_HOUR_LABEL, dustBonusFor,
+  BUDDY_KM_PER_CANDY, STARDUST_SUNDAY_LABEL, STARDUST_SUNDAY_MULTIPLIER,
+  RAID_REWARD
 } from './data.js';
 import { store, maxHpOf, hpOf, isFainted } from './state.js';
 import { itemImage, itemName, ITEMS, itemsInOrder } from './items.js';
-import { $, $$, el, toast, openSheet, closeSheet, num, timeLeftLabel } from './ui.js';
+import { $, $$, el, toast, openSheet, closeSheet, num, timeLeftLabel, PAGE_SIZE } from './ui.js';
 
 const DUST_ICON = '✨';
 const CANDY_ICON = '🍬';
@@ -31,7 +33,10 @@ export function initExtras({ onChange } = {}) {
    MISSIONS
    =============================================================== */
 
-const MISSION_ICON = { registered: '📖', captures: '🎯', capturesToday: '📅' };
+const MISSION_ICON = {
+  registered: '📖', captures: '🎯', capturesToday: '📅',
+  raidsWon: '🔥', raidRarity: '💎', gruntsBeaten: '🧍'
+};
 
 let missionTab = 'lifetime';
 
@@ -241,8 +246,10 @@ function openBreedingPicker(speciesId) {
 
 function renderBreedingPicker() {
   const sp = species(breedPickSpecies);
+  // A buddy is excluded: breeding would block the levelling and battling that
+  // a buddy is meant to keep doing.
   const available = store.s.storage.filter(c =>
-    c.speciesId === breedPickSpecies && c.breeding == null
+    c.speciesId === breedPickSpecies && c.breeding == null && !store.isBuddy(c.uid)
   );
 
   $('#picker-title').textContent = `Choose 2 ${sp.name} to leave`;
@@ -329,6 +336,13 @@ function collect(index) {
 
 const pct = n => `${Math.round(n * 100)}%`;
 
+/** "Common 2 km · Uncommon 4 km · …" straight from the buddy table. */
+function buddyRarityLine() {
+  return Object.entries(BUDDY_KM_PER_CANDY)
+    .map(([r, kms]) => `<b>${RARITY_NAMES[r]}</b> ${kms} km`)
+    .join(' · ');
+}
+
 /** 17.5 -> "5:30 PM", 23.75 -> "11:45 PM". */
 function clockLabel(hoursFloat) {
   const h24 = Math.floor(hoursFloat);
@@ -371,11 +385,24 @@ function renderInfo(tab = 'basics') {
       el('p', { html: `Roughly <b>${pct(SHINY_ODDS.normal.spawn)}</b> of wild catches and <b>${pct(SHINY_ODDS.normal.raid)}</b> of raid catches are shiny — a colour variant, marked with a ★ in storage. Odds double during <b>Shiny Bonanza Hour</b> (${clockLabel(BONANZA_HOUR_START)}–${clockLabel(BONANZA_HOUR_END)} every day) and all of <b>Shiny Bonanza Day</b>, the last Saturday of the month.` }),
       el('h4', { text: 'Daily events' }),
       el('ul', {},
+        el('li', { html: `<b>${STARDUST_SUNDAY_LABEL}</b> — all day every Sunday. Every bit of stardust you earn is <b>×${STARDUST_SUNDAY_MULTIPLIER}</b>: captures, raids, grunts, missions and range rewards alike. The doubling is applied <b>last</b>, after the player-level bonus and any Stardust Magnet, so it doubles the final figure.` }),
         el('li', { html: `<b>Shiny Bonanza Hour</b> — ${clockLabel(BONANZA_HOUR_START)} to ${clockLabel(BONANZA_HOUR_END)}. Shiny odds double.` }),
         el('li', { html: `<b>${RELAX_HOUR_LABEL}</b> — ${clockLabel(RELAX_HOUR_START)} to ${clockLabel(RELAX_HOUR_END)}. Your reach grows from <b>${RULES.CAPTURE_RANGE_M} m</b> to <b>${RULES.RELAX_RANGE_M} m</b>, so you can tap creatures, discs, items, raids, grunts and your breeding centre from the sofa instead of walking to them. The green circle on the map grows to match, and a moonlit chip shows how long is left.` })
       ),
       el('h4', { text: 'Steps' }),
-      el('p', { html: `Your walking is tracked while the game is open and shown in your Profile. One step is counted per <b>${RULES.METRES_PER_STEP} m</b> of real movement; jumps over <b>${RULES.MAX_WALK_JUMP_M} m</b> are ignored as GPS noise, and a fake debug location never counts.` })
+      el('p', { html: `Your walking is tracked while the game is open and shown in your Profile. One step is counted per <b>${RULES.METRES_PER_STEP} m</b> of real movement; jumps over <b>${RULES.MAX_WALK_JUMP_M} m</b> are ignored as GPS noise, and a fake debug location never counts.` }),
+      el('h4', { text: 'Pages' }),
+      el('p', { html: `Once you hold more than <b>${PAGE_SIZE}</b> creatures, Storage and the battle team picker split into pages of ${PAGE_SIZE}. Swipe the grid left or right, or use the arrows. Sorting always reorders your <b>whole</b> collection first and then re-cuts the pages, so page 1 is always the true top of the order.` }),
+      el('h4', { text: 'Buddy' }),
+      el('p', { html: 'Pick a <b>Buddy</b> from your Profile and one creature walks with you, earning candy for its family as you go. Tap <b>Add buddy</b> and choose anything in your storage.' }),
+      el('ul', {},
+        el('li', { html: 'The Profile card shows its picture, level, how much candy you hold for that family, and a bar counting down the kilometres to the next candy.' }),
+        el('li', { html: 'The candy is added automatically the moment you cross the distance, and the bar starts again. There is no daily limit.' }),
+        el('li', { html: 'How far you walk per candy depends on the family rarity:' }),
+        el('li', { html: buddyRarityLine() }),
+        el('li', { html: 'A buddy can still battle, level up and evolve. It <b>cannot be released</b>, on its own or through multi-select, and creatures in the breeding centre cannot be buddies.' }),
+        el('li', { html: 'Swapping or removing a buddy loses the part-walked progress towards the current candy.' })
+      )
     );
   }
 
@@ -392,7 +419,8 @@ function renderInfo(tab = 'basics') {
       el('ul', {},
         el('li', { html: 'No Capturing Disc means no catching — you will be told when you tap a creature.' }),
         el('li', { html: 'Potions cannot be used during a battle, or on a creature that has fainted.' }),
-        el('li', { html: 'Only one Incense and one Stardust Magnet can run at a time.' })
+        el('li', { html: 'Only one Incense and one Stardust Magnet can run at a time.' }),
+        el('li', { html: `<b>Incubators</b> do nothing yet. You get one <b>Incubator</b> at player level 5, and a <b>Single Use Incubator</b> from about <b>${pct(RAID_REWARD.incubatorChance)}</b> of raid wins, plus several from the raid missions. Hold on to them — what they hatch is coming later.` })
       )
     );
   }
@@ -420,6 +448,7 @@ function renderInfo(tab = 'basics') {
       el('ul', {},
         el('li', { html: 'Damage is kept. A hurt creature needs a <b>Potion</b>, a fainted one needs a <b>Revive</b>.' }),
         el('li', { html: 'Beat a raid boss and you can catch it with an <b>Ultra Capture Disc</b> — it arrives at level 3 with two bonus candy.' }),
+        el('li', { html: `Every raid win also has a <b>${pct(RAID_REWARD.incubatorChance)}</b> chance of dropping a <b>Single Use Incubator</b>.` }),
         el('li', { html: 'Lose and you can retry as many times as you like until the timer runs out.' }),
         el('li', { html: 'Start a battle before the point expires and you can finish it even if the timer runs out mid-fight.' })
       )

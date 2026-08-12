@@ -446,6 +446,11 @@ a { color: var(--accent); }
 .fx-chip b { font-variant-numeric: tabular-nums; }
 .fx-chip.incense { border-color: #ff8ec766; color: #ffd9f0; }
 .fx-chip.magnet { border-color: #ffd16666; color: #fff0c2; }
+.fx-chip.sunday {
+  border-color: #ffd16688; color: #fff3cd;
+  background: linear-gradient(135deg, rgba(90,66,20,.95), rgba(11,16,36,.95));
+  box-shadow: 0 0 12px #ffd16633;
+}
 .fx-chip.relax {
   border-color: #8fb4ff88; color: #dbe7ff;
   background: linear-gradient(135deg, rgba(46,60,120,.95), rgba(11,16,36,.95));
@@ -472,6 +477,7 @@ a { color: var(--accent); }
   font-size: 12px; color: var(--accent2); text-shadow: 0 0 8px #ffd166;
 }
 .cell .breed-badge { position: absolute; bottom: 4px; left: 5px; font-size: 11px; }
+.cell .buddy-badge { position: absolute; bottom: 4px; left: 22px; font-size: 11px; }
 
 /* ---- stat rows ---- */
 .stat-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
@@ -896,6 +902,48 @@ a { color: var(--accent); }
   padding: 1px 6px; border-radius: 99px;
   background: #ffffff14; border: 1px solid var(--line); color: var(--muted);
 }
+
+/* ============================================================
+   BUDDY
+   ============================================================ */
+.buddy-top { display: flex; align-items: center; gap: 12px; }
+.buddy-img {
+  width: 72px; height: 72px; object-fit: contain; flex: 0 0 auto;
+  filter: drop-shadow(0 3px 8px #0006);
+}
+.buddy-meta { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.buddy-meta b { font-size: 16px; }
+.buddy-candy { color: #ffe9a8; }
+.buddy-bar-wrap { margin-top: 12px; }
+.buddy-bar { height: 9px; border-radius: 99px; background: #ffffff1f; overflow: hidden; }
+.buddy-bar i {
+  display: block; height: 100%; border-radius: 99px;
+  background: linear-gradient(90deg, #ffb03c, #ffd166);
+  transition: width .4s ease;
+}
+.buddy-bar-labels {
+  display: flex; justify-content: space-between; gap: 8px; margin-top: 5px;
+  font-variant-numeric: tabular-nums;
+}
+.buddy-bar-labels .small:last-child { color: #ffe9a8; }
+
+/* ============================================================
+   PAGER
+   ============================================================ */
+.pager {
+  display: flex; align-items: center; justify-content: center; gap: 14px;
+  padding: 12px 12px 4px;
+}
+.pager-mid { display: flex; flex-direction: column; align-items: center; line-height: 1.25; }
+.pager-page { font-size: 13px; font-weight: 600; }
+.pager-range { font-variant-numeric: tabular-nums; }
+.arrow-btn:disabled { opacity: .35; }
+
+/* nudge when a swipe hits the end of the list */
+@keyframes bump-l { 50% { transform: translateX(-9px); } }
+@keyframes bump-r { 50% { transform: translateX(9px); } }
+.bump-left { animation: bump-l .24s ease; }
+.bump-right { animation: bump-r .24s ease; }
 
 /* ============================================================
    BREEDING CENTRE

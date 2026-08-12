@@ -7,13 +7,17 @@ import {
   species, familyRoot, familyName, familyRarity, levelUpCost, moveLevelFor, statsFor,
   fullLearnset, finalEvolutionOf,
   breedingSlotsFor, BREEDING_UNLOCK_LEVEL, bonanzaState,
-  isRelaxHour, relaxHourEndsIn, RELAX_HOUR_LABEL, RULES
+  isRelaxHour, relaxHourEndsIn, RELAX_HOUR_LABEL, RULES, BUDDY_KM_PER_CANDY,
+  isStardustSunday, STARDUST_SUNDAY_LABEL, STARDUST_SUNDAY_MULTIPLIER
 } from './data.js';
 import { store, creatureStats, maxHpOf, hpOf, isFainted, isHurt } from './state.js';
 import { Persist } from './persist.js';
 import { playEvolution } from './anim.js';
 import { ITEMS, itemImage, itemName, itemsInOrder } from './items.js';
-import { $, $$, el, toast, openSheet, closeSheet, num, timeLeftLabel } from './ui.js';
+import {
+  $, $$, el, toast, openSheet, closeSheet, num, timeLeftLabel,
+  clampPage, pageSlice, pagerBar, pageOfIndex, wireSwipe, bumpEl
+} from './ui.js';
 
 const CANDY_ICON = '🍬';
 const DUST_ICON = '✨';
@@ -80,11 +84,15 @@ export function renderStorage() {
 
   const grid = $('#storage-grid');
   const { storageSort, storageDir } = store.s.ui;
+  // Sort the whole collection first, then cut it into pages.
   sortedStorage = [...store.s.storage].sort(SORTERS[storageSort] || SORTERS.id);
   if (storageDir < 0) sortedStorage.reverse();
-  const list = sortedStorage;
 
-  $('#storage-empty').classList.toggle('hidden', list.length > 0);
+  const page = clampPage(store.s.ui.storagePage, sortedStorage.length);
+  if (page !== store.s.ui.storagePage) store.s.ui.storagePage = page;
+  const list = pageSlice(sortedStorage, page);
+
+  $('#storage-empty').classList.toggle('hidden', sortedStorage.length > 0);
   $('#storage-sort').value = storageSort;
   $('#storage-dir').textContent = storageDir > 0 ? '↑' : '↓';
 
@@ -98,13 +106,16 @@ export function renderStorage() {
     const hp = hpOf(c);
     const pct = Math.round((hp / max) * 100);
     const selected = multiSelected.has(c.uid);
-    const selectable = multiSelectMode && !c.favourite && c.breeding == null;
+    const isBuddy = store.isBuddy(c.uid);
 
     frag.append(el('button', {
       class: 'cell' + (c.shiny ? ' shiny' : '') + (selected ? ' picked' : ''),
       onclick: () => {
         if (multiSelectMode) {
-          if (c.favourite || c.breeding != null || c.shiny) { toast('Cannot select favourites, shinies or breeding creatures', 'bad'); return; }
+          if (c.favourite || c.breeding != null || c.shiny || isBuddy) {
+            toast('Cannot select favourites, shinies, buddies or breeding creatures', 'bad');
+            return;
+          }
           if (selected) multiSelected.delete(c.uid); else multiSelected.add(c.uid);
           renderStorage();
           return;
@@ -126,10 +137,12 @@ export function renderStorage() {
       el('span', { class: `sub t-${s.type}`, text: s.type }),
       el('span', { class: 'stg', text: 'S' + s.stage }),
       c.breeding != null ? el('span', { class: 'breed-badge', text: '⚑' }) : null,
+      isBuddy ? el('span', { class: 'buddy-badge', text: '🐾' }) : null,
       isFainted(c) ? el('span', { class: 'fainted-badge', text: 'FAINTED' }) : null
     ));
   }
   grid.append(frag);
+  renderStoragePager(grid, page, sortedStorage.length);
 
   // multi-select toolbar
   let bar = document.getElementById('multi-bar');
@@ -148,6 +161,37 @@ export function renderStorage() {
   } else if (bar) {
     bar.remove();
   }
+}
+
+/** Page controls under the storage grid, plus swipe on the grid itself. */
+function renderStoragePager(grid, page, total) {
+  const host = grid.parentElement;
+  let pager = document.getElementById('storage-pager');
+  const bar = pagerBar(page, total, goToStoragePage);
+
+  if (!bar) { pager?.remove(); return; }
+  if (!pager) {
+    pager = el('div', { id: 'storage-pager' });
+    host.insertBefore(pager, grid.nextSibling);
+  }
+  pager.innerHTML = '';
+  pager.append(bar);
+
+  wireSwipe(grid, {
+    onLeft: () => goToStoragePage(store.s.ui.storagePage + 1, grid),
+    onRight: () => goToStoragePage(store.s.ui.storagePage - 1, grid)
+  }, { key: 'storagePage' });
+}
+
+function goToStoragePage(page, grid = null) {
+  const next = clampPage(page, sortedStorage.length);
+  if (next === store.s.ui.storagePage) {
+    if (grid) bumpEl(grid, page < 0 ? 'right' : 'left');
+    return;
+  }
+  store.setUI({ storagePage: next });
+  renderStorage();
+  $('#storage-grid')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
 
 export function enterMultiSelect() {
@@ -190,7 +234,7 @@ export function renderItems() {
       el('span', { class: 'qty', text: String(qty) }),
       el('img', { src: itemImage(def.id), alt: def.name, loading: 'lazy' }),
       el('span', { class: 'nm', text: def.name }),
-      el('span', { class: 'use-hint', text: tappable ? 'Tap to use' : 'Used automatically' })
+      el('span', { class: 'use-hint', text: def.soon ? 'Coming soon' : tappable ? 'Tap to use' : 'Used automatically' })
     ));
   }
 }
@@ -357,9 +401,9 @@ function renderCreatureSheet() {
   body.append(
     // ---- navigation arrows ----
     el('div', { class: 'sheet-nav' },
-      el('button', { class: 'arrow-btn', disabled: !prevUid, onclick: () => { sheetUid = prevUid; renderCreatureSheet(); } }, '‹'),
+      el('button', { class: 'arrow-btn', disabled: !prevUid, onclick: () => goToCreature(prevUid, body, 'right') }, '‹'),
       el('span', { class: 'muted small', text: `${idx + 1} of ${sortedStorage.length}` }),
-      el('button', { class: 'arrow-btn', disabled: !nextUid, onclick: () => { sheetUid = nextUid; renderCreatureSheet(); } }, '›')
+      el('button', { class: 'arrow-btn', disabled: !nextUid, onclick: () => goToCreature(nextUid, body, 'left') }, '›')
     ),
 
     // ---- favourite toggle ----
@@ -465,17 +509,60 @@ function renderCreatureSheet() {
       : null,
     target ? el('p', { class: 'hint', text: 'Level carries over to the evolved form.' }) : null,
 
+    // ---- buddy ----
+    el('div', { class: 'btn-row' },
+      store.isBuddy(c.uid)
+        ? el('button', { class: 'btn ghost', onclick: () => { store.clearBuddy(); renderCreatureSheet(); refreshAll(); toast('Buddy removed'); } },
+            '🐾 Stop walking together')
+        : el('button', {
+            class: 'btn',
+            disabled: c.breeding != null,
+            onclick: () => {
+              const r = store.setBuddy(c.uid);
+              if (!r.ok) { toast('That creature cannot be your buddy right now', 'bad'); return; }
+              renderCreatureSheet();
+              refreshAll();
+              toast(`${nameOf(c)} is your buddy now`, 'good');
+            }
+          }, '🐾 Make this my buddy')
+    ),
+
     // ---- release ----
     el('div', { class: 'btn-row' },
       el('button', {
         class: 'btn danger',
-        disabled: !!c.favourite,
+        disabled: !!c.favourite || store.isBuddy(c.uid),
         onclick: () => doRelease(c.uid)
-      }, c.favourite
-        ? 'Unfavourite to release'
-        : `Release · +${CANDY_ICON} 1 ${familyName(s.id)} candy`)
+      }, store.isBuddy(c.uid)
+        ? 'Buddies cannot be released'
+        : c.favourite
+          ? 'Unfavourite to release'
+          : `Release · +${CANDY_ICON} 1 ${familyName(s.id)} candy`)
     )
   );
+
+  // Swiping the sheet walks the same full sorted list as the arrows.
+  wireSwipe(body, {
+    onLeft: () => goToCreature(nextUid, body, 'left'),
+    onRight: () => goToCreature(prevUid, body, 'right')
+  }, { key: 'sheetNav' });
+}
+
+const nameOf = c => species(c.speciesId).name;
+
+/**
+ * Moves the sheet to another creature. The storage page follows along, so
+ * closing the sheet leaves you looking at the page you ended up on.
+ */
+function goToCreature(uid, host, dir) {
+  if (!uid) { bumpEl(host, dir); return; }
+  sheetUid = uid;
+  const idx = sortedStorage.findIndex(x => x.uid === uid);
+  if (idx >= 0) {
+    const page = pageOfIndex(idx);
+    if (page !== store.s.ui.storagePage) store.s.ui.storagePage = page;
+  }
+  renderCreatureSheet();
 }
 
 /** One row per stat, with a bar and the modifier arrow. */
@@ -617,8 +704,16 @@ function doRelease(uid) {
   const ok = confirm(`Release ${s.name} (Lv ${c.level})?\n\nYou get 1 ${familyName(s.id)} candy. This cannot be undone.`);
   if (!ok) return;
   const r = store.remove(uid);
+  if (!r.ok) {
+    toast(({
+      buddy: 'Your buddy cannot be released — pick a different buddy first',
+      favourite: 'Unfavourite it before releasing',
+      breeding: 'It is in the breeding centre'
+    })[r.reason] || 'Could not release that creature', 'bad', 3600);
+    return;
+  }
   closeSheet('sheet');
-  if (r.ok) toast(`Released ${s.name} · +1 ${familyName(s.id)} candy`, 'good');
+  toast(`Released ${s.name} · +1 ${familyName(s.id)} candy`, 'good');
   refreshAll();
 }
 
@@ -809,9 +904,101 @@ export function openSpeciesSheet(speciesId) {
 }
 
 /* ===============================================================
+   BUDDY
+   =============================================================== */
+const km = m => (m / 1000).toFixed(2);
+
+/** The Buddy card on the Profile: who is walking with you and their progress. */
+export function renderBuddy() {
+  const host = $('#buddy-body');
+  if (!host) return;
+  host.innerHTML = '';
+
+  const prog = store.buddyProgress();
+  if (!prog) {
+    host.append(
+      el('p', { class: 'muted small', text: 'Pick a creature to walk with you. It earns candy for its family the further you walk, and it can still battle, level up and evolve.' }),
+      el('div', { class: 'btn-row' },
+        el('button', { class: 'btn primary', onclick: openBuddyPicker }, '🐾 Add buddy'))
+    );
+    return;
+  }
+
+  const c = prog.creature;
+  const s = species(c.speciesId);
+  const rarity = familyRarity(s.id);
+
+  host.append(
+    el('div', { class: 'buddy-top' },
+      el('img', { class: 'buddy-img', src: s.spritePath(c.shiny), alt: s.name }),
+      el('div', { class: 'buddy-meta' },
+        el('b', { text: s.name + (c.shiny ? ' ★' : '') }),
+        el('div', { class: 'muted small', text: `Level ${c.level} · ${RARITY_NAMES[rarity]}` }),
+        el('div', { class: 'small buddy-candy', text: `${CANDY_ICON} ${num(store.candyFor(s.id))} ${familyName(s.id)} candy` })
+      )
+    ),
+    el('div', { class: 'buddy-bar-wrap' },
+      el('div', { class: 'buddy-bar' }, el('i', { style: { width: prog.pct + '%' } })),
+      el('div', { class: 'buddy-bar-labels' },
+        el('span', { class: 'muted small', text: `${km(prog.metresDone)} / ${km(prog.metresNeeded)} km` }),
+        el('span', { class: 'small', text: `${km(prog.metresLeft)} km to next candy` })
+      )
+    ),
+    el('p', { class: 'hint', text: `A ${RARITY_NAMES[rarity]} buddy earns one candy every ${BUDDY_KM_PER_CANDY[rarity]} km walked. Earned so far: ${num(prog.candyEarned)}.` }),
+    el('div', { class: 'btn-row' },
+      el('button', { class: 'btn ghost', onclick: openBuddyPicker }, 'Swap buddy'),
+      el('button', {
+        class: 'btn ghost',
+        onclick: () => {
+          if (!confirm('Stop walking with your buddy? Progress towards the next candy is lost.')) return;
+          store.clearBuddy();
+          renderProfile();
+          toast('Buddy removed');
+        }
+      }, 'Remove')
+    )
+  );
+}
+
+/** Tap-to-choose list of everything eligible to be a buddy. */
+function openBuddyPicker() {
+  const eligible = store.s.storage.filter(c => c.breeding == null && !store.isBuddy(c.uid));
+
+  $('#picker-title').textContent = 'Walk with which creature?';
+  $('#picker-hint').textContent = 'Your buddy earns candy for its family as you walk. It can still battle, level up and evolve, but it cannot be released.';
+  $('#picker-empty').textContent = 'Nothing available — creatures in the breeding centre cannot be your buddy.';
+  $('#picker-empty').classList.toggle('hidden', eligible.length > 0);
+
+  const grid = $('#picker-grid');
+  grid.innerHTML = '';
+  for (const c of eligible) {
+    const s = species(c.speciesId);
+    const rarity = familyRarity(s.id);
+    grid.append(el('button', {
+      class: 'cell',
+      onclick: () => {
+        const r = store.setBuddy(c.uid);
+        if (!r.ok) { toast('Could not pick that creature', 'bad'); return; }
+        closeSheet('picker');
+        renderProfile();
+        toast(`${s.name} is your buddy now`, 'good');
+      }
+    },
+      el('span', { class: 'lvl', text: 'Lv' + c.level }),
+      c.shiny ? el('span', { class: 'shiny-star', text: '★' }) : null,
+      el('img', { src: s.spritePath(c.shiny), alt: s.name, loading: 'lazy' }),
+      el('span', { class: 'nm', text: s.name }),
+      el('span', { class: 'sub', text: `${BUDDY_KM_PER_CANDY[rarity]} km per candy` })
+    ));
+  }
+  openSheet('picker');
+}
+
+/* ===============================================================
    PROFILE
    =============================================================== */
 export function renderProfile() {
+  renderBuddy();
   const p = store.progress;
   $('#p-nickname').textContent = store.nickname || 'Nameless hunter';
   $('#p-level').textContent = p.level;
@@ -909,8 +1096,17 @@ export function renderEffectChips(now = Date.now()) {
     ));
   }
 
-  // 23:30–23:45 — the interaction radius widens to RULES.RELAX_RANGE_M
   const nowDate = new Date(now);
+
+  // Sundays double every stardust reward
+  if (isStardustSunday(nowDate)) {
+    host.append(el('div', { class: 'fx-chip sunday' },
+      el('span', { text: DUST_ICON }),
+      el('span', { text: `${STARDUST_SUNDAY_LABEL} · ×${STARDUST_SUNDAY_MULTIPLIER} stardust` })
+    ));
+  }
+
+  // 23:30–23:45 — the interaction radius widens to RULES.RELAX_RANGE_M
   if (isRelaxHour(nowDate)) {
     host.append(el('div', { class: 'fx-chip relax' },
       el('span', { text: '🌙' }),

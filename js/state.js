@@ -11,11 +11,12 @@ import {
   rollShiny, chance, RULES, RAID_CAPTURE_LEVEL, RAID_CAPTURE_BONUS_CANDY,
   MISSIONS, DAILY_MISSIONS, breedingSlotsFor, breedingIntervalMs,
   BREEDING_CANDY_CAP, BREEDING_UNLOCK_LEVEL,
-  dustInRange, weightedPick, GRUNT_REWARD, LEVEL_UP_REWARDS
+  dustInRange, weightedPick, GRUNT_REWARD, LEVEL_UP_REWARDS,
+  buddyMetresPerCandy, stardustMultiplier, isStardustSunday, RAID_REWARD
 } from './data.js';
 import { ITEMS, item as itemDef } from './items.js';
 
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 
 /** Local calendar day key, used for daily missions. */
 export const dayKey = (d = new Date()) =>
@@ -39,6 +40,7 @@ function blankState() {
     points: [],         // live map points of every kind
     effects: { incense: null, magnet: null },
     breeding: null,     // { lat, lng, placedAt, slots: [...] }
+    buddy: null,        // { uid, metres, candyEarned, since }
 
     missions: {},       // missionId -> { claimedAt }
     daily: { date: dayKey(), capturesToday: 0, claimed: {} },
@@ -46,14 +48,15 @@ function blankState() {
     stats: {
       captures: 0, evolutions: 0, deletes: 0, levelUps: 0, scans: 0,
       raidsWon: 0, gruntsBeaten: 0, itemsCollected: 0, shinies: 0,
-      metresWalked: 0, steps: 0
+      metresWalked: 0, steps: 0,
+      raidsByRarity: {}   // rarity -> raid bosses beaten, for the per-rarity missions
     },
 
     lastScanAt: 0,
     nextUid: 1,
     debug: { enabled: false, lat: null, lng: null, ignoreRange: false, showPois: false, shinyBoost: false },
     ui: {
-      storageTab: 'creatures', storageSort: 'id', storageDir: 1,
+      storageTab: 'creatures', storageSort: 'id', storageDir: 1, storagePage: 0,
       filterType: '', filterStage: '', filterRarity: '', setIndex: 0
     }
   };
@@ -96,7 +99,10 @@ function migrate(raw) {
     registered: { ...(raw.registered || {}) },
     shinyCaught: { ...(raw.shinyCaught || {}) },
     caughtCount: { ...(raw.caughtCount || {}) },
-    stats: { ...base.stats, ...(raw.stats || {}) },
+    stats: {
+      ...base.stats, ...(raw.stats || {}),
+      raidsByRarity: { ...(raw.stats?.raidsByRarity || {}) }
+    },
     debug: { ...base.debug, ...(raw.debug || {}) },
     ui: { ...base.ui, ...(raw.ui || {}) },
     effects: { ...base.effects, ...(raw.effects || {}) },
@@ -167,6 +173,21 @@ function migrate(raw) {
     if (!fx || !(Number(fx.endsAt) > now)) s.effects[key] = null;
   }
 
+  // ---- buddy: drop it if that creature is no longer in storage ----
+  if (s.buddy && typeof s.buddy === 'object') {
+    const stillThere = s.storage.some(c => c.uid === s.buddy.uid);
+    s.buddy = stillThere
+      ? {
+          uid: s.buddy.uid,
+          metres: Math.max(0, Number(s.buddy.metres) || 0),
+          candyEarned: Math.max(0, Math.floor(Number(s.buddy.candyEarned) || 0)),
+          since: Number(s.buddy.since) || Date.now()
+        }
+      : null;
+  } else {
+    s.buddy = null;
+  }
+
   // ---- breeding ----
   if (s.breeding && (!isFinite(s.breeding.lat) || !isFinite(s.breeding.lng))) s.breeding = null;
   if (s.breeding) {
@@ -190,17 +211,21 @@ function migrate(raw) {
     if (c.shiny && c.speciesId) s.shinyCaught[c.speciesId] = true;
   }
 
-  // ---- backfill caughtCount from storage (for old saves without it) ----
-  // Use current storage count as the minimum — the real total is at least that.
-  for (const c of s.storage) {
-    if (!c.speciesId) continue;
-    if (!s.caughtCount[c.speciesId]) s.caughtCount[c.speciesId] = 0;
-    s.caughtCount[c.speciesId]++;
+  // ---- caughtCount ----
+  // Version 2 backfilled this from storage on *every* load, adding the whole
+  // storage count each time, so the totals ballooned with every refresh.
+  // Rebase once to what is actually in storage; from then on only real
+  // captures move the number.
+  if ((Number(raw.version) || 0) < 3) {
+    s.caughtCount = {};
+    for (const c of s.storage) {
+      if (!c.speciesId) continue;
+      s.caughtCount[c.speciesId] = (s.caughtCount[c.speciesId] || 0) + 1;
+    }
   }
-  // But don't lower an existing count (catches after the update are already tracked)
   for (const [id, n] of Object.entries(s.caughtCount)) {
-    const inStorage = s.storage.filter(c => c.speciesId === id).length;
-    if (n < inStorage) s.caughtCount[id] = inStorage;
+    if (!DB.byId.has(id)) { delete s.caughtCount[id]; continue; }
+    s.caughtCount[id] = Math.max(0, Math.floor(Number(n) || 0));
   }
 
   return s;
@@ -316,21 +341,117 @@ class Store {
     return { levelledUp, from: before, to: after, rewards };
   }
 
-  addStardust(n) { this.s.stardust = Math.max(0, this.s.stardust + n); }
+  /**
+   * Adds stardust and returns the amount actually credited. Gains are doubled
+   * on Stardust Sunday, applied here so it lands on top of every other
+   * adjustment (player-level bonus, Stardust Magnet, rarity ranges).
+   * Callers should report the returned value, not the one they passed in.
+   */
+  addStardust(n) {
+    const raw = Number(n) || 0;
+    const amount = raw > 0 ? Math.round(raw * stardustMultiplier()) : raw;
+    this.s.stardust = Math.max(0, this.s.stardust + amount);
+    return amount;
+  }
 
   /**
-   * Accumulates walked distance and converts it into whole steps.
-   * Returns true when the step total actually changed, so callers can
-   * avoid re-rendering on every tiny GPS wobble.
+   * Accumulates walked distance, converts it into whole steps and feeds the
+   * buddy's candy progress.
+   * @returns {{changed:boolean, buddyCandy:number, buddy:object|null}}
+   *   `changed` is true when something worth re-rendering moved.
    */
   addWalk(metres) {
-    if (!isFinite(metres) || metres <= 0) return false;
+    const none = { changed: false, buddyCandy: 0, buddy: null };
+    if (!isFinite(metres) || metres <= 0) return none;
+
     const st = this.s.stats;
     st.metresWalked = (Number(st.metresWalked) || 0) + metres;
     const steps = Math.floor(st.metresWalked / RULES.METRES_PER_STEP);
-    if (steps === (Number(st.steps) || 0)) return false;
+    const stepsMoved = steps !== (Number(st.steps) || 0);
     st.steps = steps;
+
+    const walked = this.addBuddyWalk(metres);
+    return {
+      changed: stepsMoved || walked.candy > 0 || walked.progressed,
+      buddyCandy: walked.candy,
+      buddy: walked.candy > 0 ? this.buddy : null
+    };
+  }
+
+  /* ---------------- buddy ---------------- */
+
+  /** The creature currently walking with the player, or null. */
+  get buddy() {
+    const b = this.s.buddy;
+    if (!b) return null;
+    const c = this.creature(b.uid);
+    return c ? c : null;
+  }
+
+  isBuddy(uid) { return !!this.s.buddy && this.s.buddy.uid === uid; }
+
+  setBuddy(uid) {
+    const c = this.creature(uid);
+    if (!c) return { ok: false, reason: 'missing' };
+    if (c.breeding != null) return { ok: false, reason: 'breeding' };
+    // Swapping buddies loses the part-walked progress, same as Pokémon Go.
+    this.s.buddy = { uid, metres: 0, candyEarned: 0, since: Date.now() };
+    this.touch('buddy', { immediate: true });
+    return { ok: true, creature: c };
+  }
+
+  clearBuddy() {
+    if (!this.s.buddy) return false;
+    this.s.buddy = null;
+    this.touch('buddy', { immediate: true });
     return true;
+  }
+
+  /** Metres one candy costs for the current buddy, or 0 when there is none. */
+  buddyMetresPerCandy() {
+    const c = this.buddy;
+    if (!c) return 0;
+    return buddyMetresPerCandy(familyRarity(c.speciesId));
+  }
+
+  /**
+   * Buddy walking progress. Awards as many candies as the distance covers,
+   * so a long walk with the app open is never rounded away.
+   */
+  addBuddyWalk(metres) {
+    const c = this.buddy;
+    if (!c) return { candy: 0, progressed: false };
+
+    const per = this.buddyMetresPerCandy();
+    const b = this.s.buddy;
+    b.metres = (Number(b.metres) || 0) + metres;
+
+    let candy = 0;
+    while (per > 0 && b.metres >= per) {
+      b.metres -= per;
+      candy++;
+    }
+    if (candy > 0) {
+      this.addCandy(c.speciesId, candy);
+      b.candyEarned = (Number(b.candyEarned) || 0) + candy;
+    }
+    return { candy, progressed: true };
+  }
+
+  /** How far the buddy still has to walk for its next candy, in metres. */
+  buddyProgress() {
+    const c = this.buddy;
+    if (!c) return null;
+    const per = this.buddyMetresPerCandy();
+    const done = Math.max(0, Math.min(per, Number(this.s.buddy.metres) || 0));
+    return {
+      creature: c,
+      metresDone: done,
+      metresNeeded: per,
+      metresLeft: Math.max(0, per - done),
+      pct: per > 0 ? Math.min(100, (done / per) * 100) : 0,
+      candyEarned: Number(this.s.buddy.candyEarned) || 0
+    };
   }
 
   /* ---------------- candy ---------------- */
@@ -557,7 +678,7 @@ class Store {
 
     const isNew = this.register(sp.id);
     const candyTotal = this.addCandy(sp.id, candy);
-    this.addStardust(dust);
+    const dustGained = this.addStardust(dust);   // may be doubled on a Sunday
     const levelUp = this.addXP(xp);
 
     this.s.stats.captures++;
@@ -570,8 +691,8 @@ class Store {
 
     this.touch('capture', { immediate: true });
     return {
-      creature, sp, isNew, candy, dust, xp, candyTotal, levelUp, rarity,
-      shiny: creature.shiny, magnet, origin
+      creature, sp, isNew, candy, dust: dustGained, xp, candyTotal, levelUp, rarity,
+      shiny: creature.shiny, magnet, origin, sunday: isStardustSunday()
     };
   }
 
@@ -580,12 +701,27 @@ class Store {
   /** XP and stardust for beating a raid boss. Stardust scales with player level. */
   rewardRaidWin(raid) {
     const xp = raid.xp ?? 0;
-    const dust = dustInRange(raid.dustRange || [30, 40], this.level);
-    this.addStardust(dust);
+    const dust = this.addStardust(dustInRange(raid.dustRange || [30, 40], this.level));
     const levelUp = this.addXP(xp);
     this.s.stats.raidsWon++;
+
+    // Track wins per boss rarity so the "defeat a Rarity N raid" missions work.
+    const rarity = Number(raid.rarity) || 0;
+    if (rarity) {
+      const byRarity = this.s.stats.raidsByRarity;
+      byRarity[rarity] = (byRarity[rarity] || 0) + 1;
+    }
+
+    // Half of all raid wins drop a Single Use Incubator.
+    const items = {};
+    if (chance(RAID_REWARD.incubatorChance)) {
+      const id = RAID_REWARD.incubatorItem;
+      this.addItem(id, 1);
+      items[id] = 1;
+    }
+
     this.touch('raid-win', { immediate: true });
-    return { xp, dust, levelUp };
+    return { xp, dust, levelUp, items, sunday: isStardustSunday() };
   }
 
   /**
@@ -606,13 +742,12 @@ class Store {
 
   /** Stardust for beating a grunt, plus a small chance of a bonus item. */
   rewardGruntWin() {
-    const dust = dustInRange(GRUNT_REWARD.dust, this.level);
-    this.addStardust(dust);
+    const dust = this.addStardust(dustInRange(GRUNT_REWARD.dust, this.level));
     const bonus = weightedPick(GRUNT_REWARD.bonus).item;
     if (bonus) this.addItem(bonus, 1);
     this.s.stats.gruntsBeaten++;
     this.touch('grunt-win', { immediate: true });
-    return { dust, bonus };
+    return { dust, bonus, sunday: isStardustSunday() };
   }
 
   /* ---------------- level up ---------------- */
@@ -713,6 +848,7 @@ class Store {
     if (!c) return { ok: false, reason: 'missing' };
     if (c.breeding != null) return { ok: false, reason: 'breeding' };
     if (c.favourite) return { ok: false, reason: 'favourite' };
+    if (this.isBuddy(uid)) return { ok: false, reason: 'buddy' };
 
     const i = this.s.storage.findIndex(x => x.uid === uid);
     this.s.storage.splice(i, 1);
@@ -738,6 +874,7 @@ class Store {
     for (const uid of uids) {
       const c = this.creature(uid);
       if (!c || c.favourite || c.shiny || c.breeding != null) continue;
+      if (this.isBuddy(uid)) continue;   // your buddy is never released in bulk
       const i = this.s.storage.findIndex(x => x.uid === uid);
       if (i === -1) continue;
       this.s.storage.splice(i, 1);
@@ -883,6 +1020,9 @@ class Store {
     switch (m.kind) {
       case 'registered': return this.registeredCount;
       case 'captures': return this.s.stats.captures;
+      case 'raidsWon': return this.s.stats.raidsWon;
+      case 'gruntsBeaten': return this.s.stats.gruntsBeaten;
+      case 'raidRarity': return this.s.stats.raidsByRarity?.[m.rarity] || 0;
       case 'capturesToday':
         return this.s.daily.date === dayKey() ? (this.s.daily.capturesToday || 0) : 0;
       default: return 0;
@@ -921,8 +1061,7 @@ class Store {
     if (!m.complete) return { ok: false, reason: 'incomplete' };
     if (m.claimed) return { ok: false, reason: 'claimed' };
 
-    const dust = m.def.dust + dustBonusFor(this.level);
-    this.addStardust(dust);
+    const dust = this.addStardust(m.def.dust + dustBonusFor(this.level));
     const levelUp = this.addXP(m.def.xp);
 
     // Bonus items (e.g. capture discs on daily missions)

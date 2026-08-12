@@ -145,9 +145,20 @@ function trackSteps(pos) {
   stepAnchor = pos;
   if (d > RULES.MAX_WALK_JUMP_M) return;
 
-  if (store.addWalk(d)) {
-    store.touch('steps');
-    if (document.querySelector('.view.active')?.id === 'view-profile') renderProfile();
+  const walk = store.addWalk(d);
+  if (!walk.changed) return;
+
+  store.touch('steps');
+  if (document.querySelector('.view.active')?.id === 'view-profile') renderProfile();
+
+  // Buddy candy: one toast per candy earned, naming the creature.
+  if (walk.buddyCandy > 0 && walk.buddy) {
+    const name = species(walk.buddy.speciesId).name;
+    for (let i = 0; i < walk.buddyCandy; i++) {
+      toast(`Your buddy ${name} generated an extra candy!`, 'good', 3600);
+    }
+    dlog(`Buddy ${name} earned ${walk.buddyCandy} candy from walking`);
+    refreshAll();
   }
 }
 
@@ -544,11 +555,12 @@ function initUI() {
 
   // ---- storage sorting ----
   $('#storage-sort').addEventListener('change', e => {
-    store.setUI({ storageSort: e.target.value });
+    // A new order means the old page number is meaningless — go back to page 1.
+    store.setUI({ storageSort: e.target.value, storagePage: 0 });
     renderStorage();
   });
   $('#storage-dir').addEventListener('click', () => {
-    store.setUI({ storageDir: store.s.ui.storageDir > 0 ? -1 : 1 });
+    store.setUI({ storageDir: store.s.ui.storageDir > 0 ? -1 : 1, storagePage: 0 });
     renderStorage();
   });
   $('#btn-multi-select').addEventListener('click', () => enterMultiSelect());

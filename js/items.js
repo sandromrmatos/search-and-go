@@ -77,6 +77,26 @@ export const ITEMS = {
     use: 'place',
     order: 7,
     blurb: 'Pin it to the map once. Leave two creatures of the same species inside to generate candy.'
+  },
+  incubator: {
+    id: 'incubator',
+    name: 'Incubator',
+    plural: 'Incubators',
+    image: 'incubator.png',
+    use: 'none',
+    soon: true,
+    order: 8,
+    blurb: 'A reusable incubator, awarded at player level 5. What it hatches is coming in a later update.'
+  },
+  single_use_incubator: {
+    id: 'single_use_incubator',
+    name: 'Single Use Incubator',
+    plural: 'Single Use Incubators',
+    image: 'single use incubator.png',
+    use: 'none',
+    soon: true,
+    order: 9,
+    blurb: 'A one-shot incubator, often dropped by raid bosses. What it hatches is coming in a later update.'
   }
 };
 
