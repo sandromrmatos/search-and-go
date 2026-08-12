@@ -13,7 +13,9 @@ import {
   BREEDING_CANDY_CAP, BREEDING_UNLOCK_LEVEL,
   dustInRange, weightedPick, GRUNT_REWARD, LEVEL_UP_REWARDS,
   buddyMetresPerCandy, stardustMultiplier, isStardustSunday, RAID_REWARD,
-  rollGruntItems, RARE_INCENSE_WEIGHTS
+  rollGruntItems, RARE_INCENSE_WEIGHTS,
+  EGG_TYPES, MAX_EGGS, EGG_DROP_CHANCE, INCUBATOR_ITEMS, REUSABLE_INCUBATOR,
+  eggDef, eggMetres, rollEggType, rollEggSpecies
 } from './data.js';
 import { ITEMS, item as itemDef } from './items.js';
 
@@ -56,6 +58,8 @@ function blankState() {
     effects: { incense: null, magnet: null },
     breeding: null,     // { lat, lng, placedAt, slots: [...] }
     buddy: null,        // { uid, metres, candyEarned, since }
+    eggs: [],           // { id, type, collectedAt, metres, incubator: itemId|null }
+    nextEggId: 1,
 
     missions: {},       // missionId -> { claimedAt }
     daily: { date: dayKey(), capturesToday: 0, claimed: {} },
@@ -65,6 +69,7 @@ function blankState() {
       captures: 0, evolutions: 0, deletes: 0, levelUps: 0, scans: 0,
       raidsWon: 0, gruntsBeaten: 0, itemsCollected: 0, shinies: 0,
       metresWalked: 0, steps: 0,
+      eggsHatched: 0,
       raidsByRarity: {}   // rarity -> raid bosses beaten, for the per-rarity missions
     },
 
@@ -189,6 +194,19 @@ function migrate(raw) {
     const fx = s.effects[key];
     if (!fx || !(Number(fx.endsAt) > now)) s.effects[key] = null;
   }
+
+  // ---- eggs ----
+  s.eggs = (Array.isArray(raw.eggs) ? raw.eggs : [])
+    .filter(e => e && EGG_TYPES[e.type])
+    .slice(0, MAX_EGGS)
+    .map(e => ({
+      id: e.id || `egg${Math.random().toString(36).slice(2, 8)}`,
+      type: e.type,
+      collectedAt: Number(e.collectedAt) || Date.now(),
+      metres: Math.max(0, Number(e.metres) || 0),
+      incubator: INCUBATOR_ITEMS.includes(e.incubator) ? e.incubator : null
+    }));
+  s.nextEggId = Math.max(1, Number(s.nextEggId) || 1);
 
   // ---- buddy: drop it if that creature is no longer in storage ----
   if (s.buddy && typeof s.buddy === 'object') {
@@ -394,10 +412,12 @@ class Store {
     st.steps = steps;
 
     const walked = this.addBuddyWalk(metres);
+    const eggs = this.addEggWalk(metres);
     return {
-      changed: stepsMoved || walked.candy > 0 || walked.progressed,
+      changed: stepsMoved || walked.candy > 0 || walked.progressed || eggs.moved,
       buddyCandy: walked.candy,
-      buddy: walked.candy > 0 ? this.buddy : null
+      buddy: walked.candy > 0 ? this.buddy : null,
+      eggsReady: eggs.ready
     };
   }
 
@@ -475,6 +495,138 @@ class Store {
       pct: per > 0 ? Math.min(100, (done / per) * 100) : 0,
       candyEarned: Number(this.s.buddy.candyEarned) || 0
     };
+  }
+
+  /* ===============================================================
+     Eggs
+     =============================================================== */
+
+  get eggs() { return this.s.eggs; }
+  get eggsFull() { return this.s.eggs.length >= MAX_EGGS; }
+  get eggSpaceLeft() { return Math.max(0, MAX_EGGS - this.s.eggs.length); }
+  egg(id) { return this.s.eggs.find(e => e.id === id) || null; }
+
+  /** Metres this egg still needs, and how far along it is. */
+  eggProgress(egg) {
+    const need = eggMetres(egg.type);
+    const done = Math.max(0, Math.min(need, Number(egg.metres) || 0));
+    return {
+      done, need,
+      left: Math.max(0, need - done),
+      pct: need > 0 ? Math.min(100, (done / need) * 100) : 0,
+      ready: done >= need
+    };
+  }
+
+  isEggReady(egg) { return !!egg && !!egg.incubator && this.eggProgress(egg).ready; }
+  readyEggs() { return this.s.eggs.filter(e => this.isEggReady(e)); }
+
+  addEgg(type) {
+    if (this.eggsFull) return { ok: false, reason: 'full' };
+    const egg = {
+      id: `egg${this.s.nextEggId++}`,
+      type,
+      collectedAt: Date.now(),
+      metres: 0,
+      incubator: null
+    };
+    this.s.eggs.push(egg);
+    this.touch('egg', { immediate: true });
+    return { ok: true, egg };
+  }
+
+  /**
+   * Rolled when a disc or item point is collected. Returns the egg, or null.
+   * A full egg storage simply means no egg — you have to hatch some first.
+   */
+  rollEggDrop() {
+    if (this.eggsFull) return null;
+    if (!chance(EGG_DROP_CHANCE)) return null;
+    const r = this.addEgg(rollEggType());
+    return r.ok ? r.egg : null;
+  }
+
+  /**
+   * How many incubators are free. The reusable one is busy while its egg is
+   * still walking, single-use ones are spent the moment they are used so the
+   * inventory count is the answer.
+   */
+  freeIncubators() {
+    const busy = this.s.eggs.filter(e => e.incubator === REUSABLE_INCUBATOR).length;
+    const out = {};
+    for (const id of INCUBATOR_ITEMS) {
+      out[id] = id === REUSABLE_INCUBATOR
+        ? Math.max(0, this.itemCount(id) - busy)
+        : this.itemCount(id);
+    }
+    return out;
+  }
+
+  hasFreeIncubator() {
+    return Object.values(this.freeIncubators()).some(n => n > 0);
+  }
+
+  incubateEgg(eggId, itemId) {
+    const egg = this.egg(eggId);
+    if (!egg) return { ok: false, reason: 'missing' };
+    if (egg.incubator) return { ok: false, reason: 'already' };
+    if (!INCUBATOR_ITEMS.includes(itemId)) return { ok: false, reason: 'badItem' };
+    if ((this.freeIncubators()[itemId] || 0) < 1) return { ok: false, reason: 'noneFree' };
+
+    // A single use incubator is consumed straight away. The reusable one stays
+    // in the inventory and is simply marked busy by this egg.
+    if (itemId !== REUSABLE_INCUBATOR) this.spendItem(itemId);
+
+    egg.incubator = itemId;
+    this.touch('egg', { immediate: true });
+    return { ok: true, egg };
+  }
+
+  /** Walking only counts for eggs that are actually in an incubator. */
+  addEggWalk(metres) {
+    const ready = [];
+    let moved = false;
+    for (const egg of this.s.eggs) {
+      if (!egg.incubator) continue;
+      const before = this.eggProgress(egg);
+      if (before.ready) continue;
+      egg.metres = (Number(egg.metres) || 0) + metres;
+      moved = true;
+      if (this.eggProgress(egg).ready) ready.push(egg);
+    }
+    return { moved, ready };
+  }
+
+  /**
+   * Hatches a ready egg: rolls the creature from that egg's rarity table,
+   * pays the egg's own stardust and XP, and frees a reusable incubator.
+   */
+  hatchEgg(eggId) {
+    const egg = this.egg(eggId);
+    if (!egg) return { ok: false, reason: 'missing' };
+    if (!egg.incubator) return { ok: false, reason: 'notIncubated' };
+    if (!this.eggProgress(egg).ready) return { ok: false, reason: 'notReady' };
+
+    const def = eggDef(egg.type);
+    const sp = rollEggSpecies(egg.type);
+
+    // Take the egg out of storage first so the hatched creature does not trip
+    // over a full-eggs check, and so a failure cannot hatch it twice.
+    this.s.eggs = this.s.eggs.filter(e => e.id !== egg.id);
+
+    const res = this.capture(sp.id, {
+      origin: 'egg',
+      level: 1,
+      // Eggs use the raid shiny rate.
+      shiny: rollShiny('raid'),
+      dust: def.dust,
+      xp: def.xp,
+      countsAsCapture: false
+    });
+
+    this.s.stats.eggsHatched++;
+    this.touch('hatch', { immediate: true });
+    return { ok: true, ...res, egg, eggType: egg.type, km: def.km };
   }
 
   /* ---------------- candy ---------------- */
@@ -762,24 +914,32 @@ class Store {
     });
     this.s.storage.push(creature);
 
-    const magnet = this.isMagnetActive();
+    // Hatching pays the egg's own stardust and XP instead of the capture
+    // values, and a Stardust Magnet does not apply — nothing was captured.
+    const fromEgg = opts.dust != null || opts.xp != null;
+    const magnet = !fromEgg && this.isMagnetActive();
     const candy = candyForCapture(rarity) + (opts.bonusCandy || 0);
-    const dust = dustForCapture(rarity, this.level) + (magnet ? RULES.MAGNET_BONUS_MULTIPLIER * this.level : 0);
-    const xp = xpForCapture(rarity);
+    const dust = opts.dust != null
+      ? opts.dust + dustBonusFor(this.level)
+      : dustForCapture(rarity, this.level) + (magnet ? RULES.MAGNET_BONUS_MULTIPLIER * this.level : 0);
+    const xp = opts.xp != null ? opts.xp : xpForCapture(rarity);
 
     const isNew = this.register(sp.id);
     const candyTotal = this.addCandy(sp.id, candy);
     const dustGained = this.addStardust(dust);   // may be doubled on a Sunday
     const levelUp = this.addXP(xp);
 
-    this.s.stats.captures++;
     this.s.caughtCount[sp.id] = (this.s.caughtCount[sp.id] || 0) + 1;
     if (creature.shiny) {
       this.s.stats.shinies++;
       this.s.shinyCaught[sp.id] = true;
     }
-    this.bumpDaily('capturesToday');
-    this.bumpWeekly();
+    // A hatch is not a catch, so it stays out of the capture missions.
+    if (opts.countsAsCapture !== false) {
+      this.s.stats.captures++;
+      this.bumpDaily('capturesToday');
+      this.bumpWeekly();
+    }
 
     this.touch('capture', { immediate: true });
     return {
@@ -1138,6 +1298,7 @@ class Store {
       case 'captures': return this.s.stats.captures;
       case 'raidsWon': return this.s.stats.raidsWon;
       case 'gruntsBeaten': return this.s.stats.gruntsBeaten;
+      case 'eggsHatched': return this.s.stats.eggsHatched;
       case 'raidRarity': return this.s.stats.raidsByRarity?.[m.rarity] || 0;
       case 'capturesToday':
         return this.s.daily.date === dayKey() ? (this.s.daily.capturesToday || 0) : 0;

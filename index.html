@@ -93,6 +93,7 @@
       <div class="tabs">
         <button class="tab active" data-tab="creatures">Creatures</button>
         <button class="tab" data-tab="items">Items</button>
+        <button class="tab" data-tab="eggs">Eggs</button>
       </div>
 
       <div id="tab-creatures">
@@ -121,6 +122,13 @@
         <div id="items-grid" class="grid items-grid"></div>
         <p id="items-empty" class="empty">
           No items yet. Spinning discs and rotating <b>!</b> points on the map hand them out.
+        </p>
+      </div>
+      <div id="tab-eggs" class="hidden">
+        <p id="eggs-hint" class="hint"></p>
+        <div id="eggs-grid" class="grid eggs-grid"></div>
+        <p id="eggs-empty" class="empty hidden">
+          No eggs yet. They turn up when you collect discs, potions and revives.
         </p>
       </div>
     </section>
@@ -532,6 +540,22 @@
     <p id="picker-empty" class="empty hidden">No eligible creatures.</p>
   </div>
 </div>
+
+<!-- ============ EGG HATCH PROMPT (map view only) ============ -->
+<div id="hatch" class="modal-wrap hidden">
+  <div class="modal hatch-modal">
+    <img id="hatch-egg" class="hatch-egg" src="" alt="Egg" />
+    <h3 id="hatch-title">Your egg is ready!</h3>
+    <p id="hatch-sub" class="muted small"></p>
+    <div class="btn-row" style="justify-content:center">
+      <button id="hatch-later" class="btn ghost">Later</button>
+      <button id="hatch-go" class="btn primary">Hatch</button>
+    </div>
+  </div>
+</div>
+
+<!-- the egg wobbling, just before the reveal animation takes over -->
+<div id="hatch-shake" class="hatch-shake hidden"></div>
 
 <div id="toasts" class="toasts"></div>
 

@@ -874,8 +874,11 @@ a { color: var(--accent); }
 }
 .bt-move {
   text-align: left; padding: 9px 11px; border-radius: 12px;
-  background: #ffffff12; border: 1px solid var(--line); color: var(--txt);
+  /* Solid and clearly lighter than the battle background, which the old
+     translucent white was not. */
+  background: #2b3563; border: 1px solid #4a5691; color: var(--txt);
 }
+.bt-move:active { background: #35406f; }
 .bt-move b { display: block; font-size: 13px; }
 .bt-move span { font-size: 10.5px; color: var(--muted); }
 .bt-move.buffmove { border-color: #4ade8055; }
@@ -945,6 +948,62 @@ a { color: var(--accent); }
   font-size: 9.5px; font-weight: 800; letter-spacing: .5px; text-transform: uppercase;
   padding: 1px 6px; border-radius: 99px;
   background: #ffffff14; border: 1px solid var(--line); color: var(--muted);
+}
+
+/* ============================================================
+   EGGS
+   ============================================================ */
+.eggs-grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
+.egg-cell { padding: 10px 6px 8px; }
+.egg-img { width: 100%; aspect-ratio: 1; object-fit: contain; }
+.egg-cell .nm { font-size: 13px; font-weight: 700; }
+
+/* the incubator badge, top-left of the tile */
+.egg-incu {
+  position: absolute; top: 4px; left: 4px; width: 22px; height: 22px;
+  object-fit: contain; z-index: 2;
+  filter: drop-shadow(0 1px 3px #000a);
+}
+.egg-ready-tag {
+  position: absolute; top: 5px; right: 5px; z-index: 2;
+  font-size: 9px; font-weight: 800; letter-spacing: .5px;
+  padding: 2px 6px; border-radius: 99px;
+  background: #4ade80; color: #06240f;
+}
+.egg-cell.egg-ready { border-color: #4ade8088; box-shadow: 0 0 14px #4ade8033; }
+.egg-cell.egg-ready .egg-img { animation: eggNudge 1.6s ease-in-out infinite; }
+@keyframes eggNudge {
+  0%, 82%, 100% { transform: rotate(0deg); }
+  86% { transform: rotate(-7deg); }
+  92% { transform: rotate(7deg); }
+}
+.egg-bar-wrap { width: 100%; margin-top: 3px; }
+.egg-bar { display: block; height: 6px; border-radius: 99px; background: #ffffff1f; overflow: hidden; }
+.egg-bar i {
+  display: block; height: 100%; border-radius: 99px;
+  background: linear-gradient(90deg, #56d2f0, #a3e9ff); transition: width .3s ease;
+}
+.tab-badge.ready { background: #4ade80; color: #06240f; }
+
+/* hatch prompt */
+.hatch-modal { text-align: center; }
+.hatch-egg { width: 120px; height: 120px; object-fit: contain; animation: eggNudge 1.2s ease-in-out infinite; }
+
+/* the egg wobbling hard, just before the reveal */
+.hatch-shake {
+  position: fixed; inset: 0; z-index: 9200;
+  display: grid; place-items: center;
+  background: radial-gradient(circle at 50% 45%, #1b2550 0%, #05070f 70%);
+}
+.hatch-shaker {
+  width: 46vw; max-width: 260px; object-fit: contain;
+  animation: hatchShake .28s ease-in-out infinite;
+  filter: drop-shadow(0 0 24px #ffe9a8aa);
+}
+@keyframes hatchShake {
+  0%, 100% { transform: translateX(0) rotate(0deg) scale(1); }
+  25% { transform: translateX(-7px) rotate(-9deg) scale(1.03); }
+  75% { transform: translateX(7px) rotate(9deg) scale(1.03); }
 }
 
 /* ============================================================

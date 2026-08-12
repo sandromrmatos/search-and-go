@@ -30,6 +30,7 @@ export const RULES = {
 
   CAPTURE_ANIM_MS: 5000,
   EVOLVE_ANIM_MS: 5000,
+  EGG_SHAKE_MS: 1600,           // the egg wobbles this long before the reveal
 
   // Lifetimes, per map-point kind
   LIFETIME_MS: {
@@ -304,6 +305,44 @@ export const MOVE_UNLOCK_ROLL = [
 ];
 
 /* ---------------------------------------------------------------
+   Eggs
+   Dropped by disc and item points, incubated, then hatched by walking.
+   Rarity odds are per egg type, and shinies use the raid rate.
+   --------------------------------------------------------------- */
+export const EGG_DIR = 'eggs';
+export const MAX_EGGS = 6;
+export const EGG_DROP_CHANCE = 0.10;
+
+export const EGG_TYPES = {
+  '5km': {
+    id: '5km', km: 5, dust: 70, xp: 20, image: '5km_egg.png',
+    weights: { 1: 45, 2: 30, 3: 17, 4: 6, 5: 2 }
+  },
+  '10km': {
+    id: '10km', km: 10, dust: 150, xp: 50, image: '10km_egg.png',
+    weights: { 1: 32, 2: 30, 3: 25, 4: 10, 5: 3 }
+  }
+};
+
+/** Which egg you get when one drops. */
+export const EGG_TYPE_ROLL = [
+  { weight: 80, type: '5km' },
+  { weight: 20, type: '10km' }
+];
+
+/** Items that can hold an egg. The reusable one is freed when the egg hatches. */
+export const INCUBATOR_ITEMS = ['incubator', 'single_use_incubator'];
+export const REUSABLE_INCUBATOR = 'incubator';
+
+export const eggDef = type => EGG_TYPES[type] || EGG_TYPES['5km'];
+export const eggImage = type => `${EGG_DIR}/${encodeURIComponent(eggDef(type).image)}`;
+export const eggLabel = type => `${eggDef(type).km} km egg`;
+export const eggMetres = type => eggDef(type).km * 1000;
+export const rollEggType = () => weightedPick(EGG_TYPE_ROLL).type;
+/** Eggs use their own rarity table rather than the wild spawn weights. */
+export const rollEggSpecies = type => rollSpawnSpecies(eggDef(type).weights);
+
+/* ---------------------------------------------------------------
    Buddy
    A creature picked in your Profile walks with you and earns candy for its
    own family. Rarer families need a longer walk per candy.
@@ -384,7 +423,16 @@ export const MISSIONS = [
   { id: 'grunt50',  kind: 'gruntsBeaten', target: 50,  xp: 50,  dust: 250,  items: { incense: 2 }, label: 'Successfully defeat 50 grunts' },
   { id: 'grunt100', kind: 'gruntsBeaten', target: 100, xp: 100, dust: 500,  items: { incense: 2, stardust_magnet: 2 }, label: 'Successfully defeat 100 grunts' },
   { id: 'grunt200', kind: 'gruntsBeaten', target: 200, xp: 150, dust: 1000, items: { incense: 2, stardust_magnet: 2 }, label: 'Successfully defeat 200 grunts' },
-  { id: 'grunt500', kind: 'gruntsBeaten', target: 500, xp: 200, dust: 2000, items: { incense: 3, stardust_magnet: 3 }, label: 'Successfully defeat 500 grunts' }
+  { id: 'grunt500', kind: 'gruntsBeaten', target: 500, xp: 200, dust: 2000, items: { incense: 3, stardust_magnet: 3 }, label: 'Successfully defeat 500 grunts' },
+
+  // ---- eggs hatched ----
+  { id: 'egg5',   kind: 'eggsHatched', target: 5,   xp: 5,   dust: 20,   items: { single_use_incubator: 1 }, label: 'Hatch 5 eggs' },
+  { id: 'egg20',  kind: 'eggsHatched', target: 20,  xp: 10,  dust: 50,   items: { single_use_incubator: 1 }, label: 'Hatch 20 eggs' },
+  { id: 'egg50',  kind: 'eggsHatched', target: 50,  xp: 20,  dust: 100,  items: { single_use_incubator: 1 }, label: 'Hatch 50 eggs' },
+  { id: 'egg100', kind: 'eggsHatched', target: 100, xp: 50,  dust: 250,  items: { single_use_incubator: 1 }, label: 'Hatch 100 eggs' },
+  { id: 'egg200', kind: 'eggsHatched', target: 200, xp: 100, dust: 500,  items: { single_use_incubator: 2 }, label: 'Hatch 200 eggs' },
+  { id: 'egg300', kind: 'eggsHatched', target: 300, xp: 200, dust: 1000, items: { single_use_incubator: 2 }, label: 'Hatch 300 eggs' },
+  { id: 'egg500', kind: 'eggsHatched', target: 500, xp: 250, dust: 1500, items: { single_use_incubator: 3 }, label: 'Hatch 500 eggs' }
 ];
 
 /* Weekly missions reset every Monday, local time. */

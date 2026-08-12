@@ -8,8 +8,10 @@ import {
   fullLearnset, finalEvolutionOf,
   breedingSlotsFor, BREEDING_UNLOCK_LEVEL, bonanzaState,
   isRelaxHour, relaxHourEndsIn, RELAX_HOUR_LABEL, RULES, BUDDY_KM_PER_CANDY,
-  isStardustSunday, STARDUST_SUNDAY_LABEL, STARDUST_SUNDAY_MULTIPLIER
+  isStardustSunday, STARDUST_SUNDAY_LABEL, STARDUST_SUNDAY_MULTIPLIER,
+  MAX_EGGS, INCUBATOR_ITEMS
 } from './data.js';
+import { renderEggs, renderEggTabBadge, openEggPickerFor } from './eggs.js';
 import { store, creatureStats, maxHpOf, hpOf, isFainted, isHurt } from './state.js';
 import { Persist } from './persist.js';
 import { playEvolution } from './anim.js';
@@ -59,10 +61,13 @@ const rar = c => sp(c)?.rarity ?? familyRarity(c.speciesId) ?? 0;
    Tabs
    --------------------------------------------------------------- */
 export function renderStorageTabs() {
-  const tab = store.s.ui.storageTab === 'items' ? 'items' : 'creatures';
+  const want = store.s.ui.storageTab;
+  const tab = (want === 'items' || want === 'eggs') ? want : 'creatures';
   $$('.tabs .tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   $('#tab-creatures').classList.toggle('hidden', tab !== 'creatures');
   $('#tab-items').classList.toggle('hidden', tab !== 'items');
+  $('#tab-eggs').classList.toggle('hidden', tab !== 'eggs');
+  renderEggTabBadge();
 
   const itemTab = $('.tabs .tab[data-tab="items"]');
   const total = store.ownedItems().reduce((a, x) => a + x.qty, 0);
@@ -71,7 +76,9 @@ export function renderStorageTabs() {
 
   $('#storage-count').textContent = tab === 'items'
     ? `${total} item${total === 1 ? '' : 's'}`
-    : `${store.s.storage.length} stored`;
+    : tab === 'eggs'
+      ? `${store.eggs.length} of ${MAX_EGGS} eggs`
+      : `${store.s.storage.length} stored`;
 }
 
 /* The sorted creature list, cached so prev/next arrows can walk it. */
@@ -82,6 +89,7 @@ let multiSelected = new Set();
 export function renderStorage() {
   renderStorageTabs();
   if (store.s.ui.storageTab === 'items') return renderItems();
+  if (store.s.ui.storageTab === 'eggs') return renderEggs();
 
   const grid = $('#storage-grid');
   const { storageSort, storageDir } = store.s.ui;
@@ -266,6 +274,15 @@ export function openItemSheet(itemId) {
     }, active
       ? `Already running · ${timeLeftLabel(active.endsAt - Date.now())}`
       : `Use one now`));
+  }
+  if (INCUBATOR_ITEMS.includes(itemId)) {
+    const free = store.freeIncubators()[itemId] || 0;
+    const idle = store.eggs.filter(e => !e.incubator).length;
+    actions.push(el('button', {
+      class: 'btn primary',
+      disabled: free < 1 || idle < 1,
+      onclick: () => { closeSheet('sheet'); openEggPickerFor(itemId); }
+    }, free < 1 ? 'Busy with an egg' : idle < 1 ? 'No egg waiting' : 'Incubate an egg'));
   }
   if (def.use === 'place') {
     const placed = !!store.s.breeding;

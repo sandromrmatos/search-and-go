@@ -10,7 +10,7 @@ import {
   RELAX_HOUR_START, RELAX_HOUR_END, RELAX_HOUR_LABEL, dustBonusFor,
   BUDDY_KM_PER_CANDY, STARDUST_SUNDAY_LABEL, STARDUST_SUNDAY_MULTIPLIER,
   RAID_REWARD, RARE_INCENSE_WEIGHTS, RARITY_WEIGHTS, GRUNT_ITEM_DROPS,
-  RAID_BOSS_MODIFIERS
+  RAID_BOSS_MODIFIERS, EGG_TYPES, EGG_DROP_CHANCE, MAX_EGGS
 } from './data.js';
 import { store, maxHpOf, hpOf, isFainted } from './state.js';
 import { itemImage, itemName, ITEMS, itemsInOrder } from './items.js';
@@ -38,7 +38,7 @@ export function initExtras({ onChange } = {}) {
 const MISSION_ICON = {
   registered: '📖', captures: '🎯', capturesToday: '📅',
   raidsWon: '🔥', raidRarity: '💎', gruntsBeaten: '🧍',
-  capturesWeek: '🗓', daysCaughtThisWeek: '✅'
+  capturesWeek: '🗓', daysCaughtThisWeek: '✅', eggsHatched: '🥚'
 };
 
 let missionTab = 'lifetime';
@@ -361,6 +361,7 @@ const weightLine = table => {
     .join(' · ');
 };
 const rareIncenseLine = () => weightLine(RARE_INCENSE_WEIGHTS);
+const MISSION_ICON_EGG = '🥚';
 const wildOddsLine = () => weightLine(RARITY_WEIGHTS);
 
 /** "Common 2 km · Uncommon 4 km · …" straight from the buddy table. */
@@ -428,6 +429,19 @@ function renderInfo(tab = 'basics') {
       el('p', { html: 'Missions sit in three tabs. <b>Lifetime</b> never resets. <b>Weekly</b> resets every <b>Monday</b> at midnight local time. <b>Daily</b> resets at midnight. Each timed tab shows its countdown at the bottom.' }),
       el('h4', { text: 'Pages' }),
       el('p', { html: `Once you hold more than <b>${PAGE_SIZE}</b> creatures, Storage and the battle team picker split into pages of ${PAGE_SIZE}. Swipe the grid left or right, or use the arrows. Sorting always reorders your <b>whole</b> collection first and then re-cuts the pages, so page 1 is always the true top of the order.` }),
+      el('h4', { text: 'Eggs' }),
+      el('p', { html: `Collecting a disc or item point has a <b>${pct(EGG_DROP_CHANCE)}</b> chance of also giving you an egg — <b>80%</b> a 5 km egg, <b>20%</b> a 10 km egg. They live in the <b>Eggs</b> tab of your Storage.` }),
+      el('ul', {},
+        el('li', { html: `You can hold <b>${MAX_EGGS}</b> eggs at once. While you are full no more will drop, so hatch some to make room.` }),
+        el('li', { html: 'An egg does nothing until it is in an <b>incubator</b>. Tap the egg to pick one, or tap an incubator in your Items and pick an egg.' }),
+        el('li', { html: 'A <b>Single Use Incubator</b> is used up the moment you start. The plain <b>Incubator</b> is reusable, but it is tied up until its egg hatches.' }),
+        el('li', { html: 'Then walk. The tile shows the kilometres done and the incubator it is in, top-left.' }),
+        el('li', { html: 'When one is ready you get a prompt <b>on the map</b> — it will not interrupt a battle or your storage. Tap Hatch and see what turns up.' }),
+        el('li', { html: `A <b>5 km</b> egg pays <b>${EGG_TYPES['5km'].dust} stardust</b> and <b>${EGG_TYPES['5km'].xp} XP</b>: ${weightLine(EGG_TYPES['5km'].weights)}.` }),
+        el('li', { html: `A <b>10 km</b> egg pays <b>${EGG_TYPES['10km'].dust} stardust</b> and <b>${EGG_TYPES['10km'].xp} XP</b>: ${weightLine(EGG_TYPES['10km'].weights)}.` }),
+        el('li', { html: `Stardust from an egg grows with your player level like every other reward, and shinies hatch at the <b>raid</b> rate of ${pct(SHINY_ODDS.normal.raid)} — doubled during a Bonanza.` }),
+        el('li', { html: 'Hatching is not catching, so it does not count towards the "catch" missions. There are separate <b>Hatch</b> missions for that.' })
+      ),
       el('h4', { text: 'Buddy' }),
       el('p', { html: 'Pick a <b>Buddy</b> from your Profile and one creature walks with you, earning candy for its family as you go. Tap <b>Add buddy</b> and choose anything in your storage.' }),
       el('ul', {},

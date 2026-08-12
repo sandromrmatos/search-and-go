@@ -26,6 +26,7 @@ import {
   initExtras, renderMissions, renderMissionBadge, openBreeding
 } from './extras.js';
 import { setMissionsRenderer } from './views.js';
+import { initEggs, maybePromptHatch, showEggDropPopup } from './eggs.js';
 import { $, $$, el, toast, wireSheetClosers, openSheet, closeSheet, num } from './ui.js';
 
 const CANDY_ICON = '🍬';
@@ -356,6 +357,11 @@ async function collectItems(live) {
   const label = describeDrop(live.drop);
   dlog(`Collected ${label} at "${live.poiName}"`);
 
+  // Points can also hand over an egg. Rolled here so it shows up after the
+  // normal item popup rather than competing with it.
+  const egg = store.rollEggDrop();
+  if (egg) dlog(`Found a ${egg.type} egg (${store.eggs.length}/6 held)`);
+
   // Show a popup with what the player just got
   const entries = Object.entries(live.drop || {});
   const body = $('#sheet-body');
@@ -369,7 +375,11 @@ async function collectItems(live) {
                     text: `${qty > 1 ? qty + '× ' : ''}${itemName(id, qty)}` })
         )
       ),
-      el('button', { class: 'btn primary wide', onclick: () => closeSheet('sheet') }, 'Nice!')
+      el('button', {
+        class: 'btn primary wide',
+        // If an egg came too, its popup replaces this one on the way out.
+        onclick: () => { closeSheet('sheet'); if (egg) showEggDropPopup(egg); }
+      }, egg ? 'And…?' : 'Nice!')
     )
   );
   openSheet('sheet');
@@ -495,6 +505,7 @@ function startLoop() {
 
     updateResetChip(now);
     renderEffectChips(now);
+    maybePromptHatch();
 
     const until = msUntilNextScan(now);
     if (until <= 0 && !isScanning() && Geo.current && !capturing && now >= scanCooldownUntil) {
@@ -552,6 +563,20 @@ function initUI() {
 
   initBattleUI({ onDone: () => { syncMap(); refreshAll(); } });
   initExtras({ onChange: () => { refreshAll(); renderMissionBadge(); } });
+
+  initEggs({
+    refresh: () => { refreshAll(); renderMissionBadge(); },
+    reveal: opts => playCapture(opts),
+    // Only interrupt on the map, with nothing else on screen.
+    canPrompt: () => (
+      document.querySelector('.view.active')?.id === 'view-map' &&
+      !isBattleOpen() &&
+      !document.querySelector('.sheet-wrap:not(.hidden)') &&
+      !document.querySelector('.modal-wrap:not(.hidden)') &&
+      !capturing
+    ),
+    onHatched: res => { if (res.levelUp?.levelledUp) showLevelUpPopup(res.levelUp); }
+  });
 
   // Tapping the flag on the map opens the breeding centre, if you are close enough.
   GameMap.onBreedingClick = centre => {
