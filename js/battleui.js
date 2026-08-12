@@ -9,7 +9,7 @@ import {
   familyRarity, statsFor, raidBossStats, RAID_CAPTURE_LEVEL, RAID_BOSS_MODIFIERS
 } from './data.js';
 
-/** "+25%" style label straight from the raid modifier table. */
+/** "+50%" style label straight from the raid modifier table. */
 const bossPct = key => `+${Math.round((RAID_BOSS_MODIFIERS[key] - 1) * 100)}%`;
 import { store, creatureStats, maxHpOf, hpOf, isFainted } from './state.js';
 import { Battle, buildRaidBattle, buildGruntBattle, battlerFromEnemySpec } from './battle.js';

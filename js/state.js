@@ -621,6 +621,7 @@ class Store {
       shiny: rollShiny('raid'),
       dust: def.dust,
       xp: def.xp,
+      bonusCandy: def.bonusCandy || 0,
       countsAsCapture: false
     });
 

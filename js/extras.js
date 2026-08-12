@@ -437,8 +437,8 @@ function renderInfo(tab = 'basics') {
         el('li', { html: 'A <b>Single Use Incubator</b> is used up the moment you start. The plain <b>Incubator</b> is reusable, but it is tied up until its egg hatches.' }),
         el('li', { html: 'Then walk. The tile shows the kilometres done and the incubator it is in, top-left.' }),
         el('li', { html: 'When one is ready you get a prompt <b>on the map</b> — it will not interrupt a battle or your storage. Tap Hatch and see what turns up.' }),
-        el('li', { html: `A <b>5 km</b> egg pays <b>${EGG_TYPES['5km'].dust} stardust</b> and <b>${EGG_TYPES['5km'].xp} XP</b>: ${weightLine(EGG_TYPES['5km'].weights)}.` }),
-        el('li', { html: `A <b>10 km</b> egg pays <b>${EGG_TYPES['10km'].dust} stardust</b> and <b>${EGG_TYPES['10km'].xp} XP</b>: ${weightLine(EGG_TYPES['10km'].weights)}.` }),
+        el('li', { html: `A <b>5 km</b> egg pays <b>${EGG_TYPES['5km'].dust} stardust</b>, <b>${EGG_TYPES['5km'].xp} XP</b> and <b>+${EGG_TYPES['5km'].bonusCandy} candy</b> on top of the usual catch candy: ${weightLine(EGG_TYPES['5km'].weights)}.` }),
+        el('li', { html: `A <b>10 km</b> egg pays <b>${EGG_TYPES['10km'].dust} stardust</b>, <b>${EGG_TYPES['10km'].xp} XP</b> and <b>+${EGG_TYPES['10km'].bonusCandy} candy</b> on top of the usual catch candy: ${weightLine(EGG_TYPES['10km'].weights)}.` }),
         el('li', { html: `Stardust from an egg grows with your player level like every other reward, and shinies hatch at the <b>raid</b> rate of ${pct(SHINY_ODDS.normal.raid)} — doubled during a Bonanza.` }),
         el('li', { html: 'Hatching is not catching, so it does not count towards the "catch" missions. There are separate <b>Hatch</b> missions for that.' })
       ),
@@ -501,6 +501,7 @@ function renderInfo(tab = 'basics') {
         el('li', { html: 'Damage is kept, including if you <b>leave part-way through</b> — you will be asked to confirm first. A hurt creature needs a <b>Potion</b>, a fainted one needs a <b>Revive</b>. You can heal and revive from the team picker without leaving the battle.' }),
         el('li', { html: `Every raid win always gives <b>${RAID_REWARD.always.revive} Revives</b>. Every grunt always gives healing supplies: ${GRUNT_ITEM_DROPS.map(d => `<b>${d.weight}%</b> ${Object.entries(d.items).map(([id, n]) => `${n} ${itemName(id, n)}`).join(' + ')}`).join(' · ')}.` }),
         el('li', { html: 'Beat a raid boss and you can catch it with an <b>Ultra Capture Disc</b> — it arrives at level 3 with two bonus candy.' }),
+        el('li', { html: `A raid boss is no ordinary creature: <b>×${RAID_BOSS_MODIFIERS.hp} HP</b>, and <b>+${Math.round((RAID_BOSS_MODIFIERS.attack - 1) * 100)}%</b> Attack, Defence and Speed.` }),
         el('li', { html: `Every raid win also has a <b>${pct(RAID_REWARD.incubatorChance)}</b> chance of dropping a <b>Single Use Incubator</b>.` }),
         el('li', { html: 'Lose and you can retry as many times as you like until the timer runs out.' }),
         el('li', { html: 'Start a battle before the point expires and you can finish it even if the timer runs out mid-fight.' })
@@ -519,7 +520,7 @@ function renderInfo(tab = 'basics') {
       el('h4', { text: 'Candy and evolving' }),
       el('p', { html: `Candy belongs to a <b>family</b>, not a single creature, so catching the Stage 1 form feeds every evolution. Releasing a creature returns 1 candy to its family. Evolving keeps the level, the shiny status and the early-move luck.` }),
       el('h4', { text: 'Stardust' }),
-      el('p', { html: `Shared across everything. Every player level you gain adds <b>+1</b> to every stardust reward, and a Stardust Magnet adds <b>+${RULES.MAGNET_BONUS_DUST}</b> per catch while it runs.` }),
+      el('p', { html: `Shared across everything. Every player level you gain adds <b>+1</b> to every stardust reward, and a Stardust Magnet adds <b>+${RULES.MAGNET_BONUS_MULTIPLIER} per player level</b> on every catch while it runs.` }),
       el('h4', { text: 'Breeding centre' }),
       el('p', { html: `From player level <b>${BREEDING_UNLOCK_LEVEL}</b> you can pin a breeding centre anywhere — it stays there for good. Leave two creatures of the same species in a slot and they generate that family's candy (every 12 h for common and uncommon, up to 36 h for legendary), stopping at <b>${BREEDING_CANDY_CAP}</b>. They cannot battle until you collect them back from the centre itself.` })
     );

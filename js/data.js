@@ -203,7 +203,7 @@ export const SUPER_EFFECTIVE_MULTIPLIER = 1.2;
 export const BATTLE_TEAM_SIZE = 3;
 
 /* Raid bosses are beefed up versions of a normal creature. */
-export const RAID_BOSS_MODIFIERS = { hp: 3, attack: 1.25, defence: 1.25, speed: 1.25 };
+export const RAID_BOSS_MODIFIERS = { hp: 3, attack: 1.5, defence: 1.5, speed: 1.5 };
 
 /** Which rarity a raid is, what level the boss is, and what beating it pays. */
 export const RAID_TIERS = {
@@ -315,11 +315,11 @@ export const EGG_DROP_CHANCE = 0.10;
 
 export const EGG_TYPES = {
   '5km': {
-    id: '5km', km: 5, dust: 70, xp: 20, image: '5km_egg.png',
+    id: '5km', km: 5, dust: 70, xp: 20, image: '5km_egg.png', bonusCandy: 2,
     weights: { 1: 45, 2: 30, 3: 17, 4: 6, 5: 2 }
   },
   '10km': {
-    id: '10km', km: 10, dust: 150, xp: 50, image: '10km_egg.png',
+    id: '10km', km: 10, dust: 150, xp: 50, image: '10km_egg.png', bonusCandy: 5,
     weights: { 1: 32, 2: 30, 3: 25, 4: 10, 5: 3 }
   }
 };
