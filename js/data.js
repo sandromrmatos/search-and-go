@@ -22,11 +22,11 @@ const SCAN_RADIUS_M = 250;
 
 export const RULES = {
   SCAN_RADIUS_M,                // POI search radius around the player
-  CAPTURE_RANGE_M: 20,         // must be this close to interact with anything
+  CAPTURE_RANGE_M: 25,         // must be this close to interact with anything
   RELAX_RANGE_M: 100,          // widened reach during Relax and Good Night
   MIN_SPAWN_SEPARATION_M: 15,   // no two map points within 15 m
   MIN_GRUNT_SEPARATION_M: 20,   // grunts also keep 20 m from each other
-  SCAN_INTERVAL_MS: 5 * 60_000, // everything re-rolls every 5 minutes
+  SCAN_INTERVAL_MS: 3 * 60_000, // everything re-rolls every 3 minutes
 
   CAPTURE_ANIM_MS: 5000,
   EVOLVE_ANIM_MS: 5000,
@@ -58,6 +58,11 @@ export const RULES = {
   GRUNT_SPAWN_MAX_M: SCAN_RADIUS_M,
   GRUNT_PLACEMENT_TRIES: 24,    // random spots tried before a roll gives up
   MAX_ACTIVE_GRUNTS: 6,         // hard ceiling across every park at once
+
+  /* One trainer walks right up to you once per 8-hour window (00–08, 08–16,
+     16–24 local), the first time the game is open during it. This one ignores
+     GRUNT_SPAWN_MIN_M and does not count against MAX_ACTIVE_GRUNTS. */
+  WINDOW_GRUNT_MS: 30 * 60_000,
 
   // Step counter
   METRES_PER_STEP: 0.75,        // average stride length
@@ -146,8 +151,8 @@ export const CREATURE_LEVEL_COST = {
 };
 export const MAX_CREATURE_LEVEL = 10;
 
-/** Every creature level adds 5% of the base stat (linear, not compounding). */
-export const STAT_GROWTH_PER_LEVEL = 0.05;
+/** Every creature level adds 10% of the base stat (linear, not compounding). */
+export const STAT_GROWTH_PER_LEVEL = 0.10;
 
 export const PLAYER_LEVEL_XP = {
   1: 0, 2: 25, 3: 100, 4: 250, 5: 1000, 6: 2000, 7: 3500, 8: 6000,
@@ -203,15 +208,15 @@ export const SUPER_EFFECTIVE_MULTIPLIER = 1.2;
 export const BATTLE_TEAM_SIZE = 3;
 
 /* Raid bosses are beefed up versions of a normal creature. */
-export const RAID_BOSS_MODIFIERS = { hp: 3, attack: 1.5, defence: 1.5, speed: 1.5 };
+export const RAID_BOSS_MODIFIERS = { hp: 3, attack: 1.25, defence: 1.25, speed: 1.25 };
 
 /** Which rarity a raid is, what level the boss is, and what beating it pays. */
 export const RAID_TIERS = {
-  1: { weight: 30, levels: [3, 4], xp: 10, dust: [30, 40] },
-  2: { weight: 25, levels: [4, 5], xp: 15, dust: [40, 50] },
-  3: { weight: 20, levels: [5, 6], xp: 25, dust: [45, 60] },
-  4: { weight: 15, levels: [6, 7], xp: 50, dust: [55, 75] },
-  5: { weight: 10, levels: [7, 8], xp: 80, dust: [70, 100] }
+  1: { weight: 30, levels: [3, 4], xp: 10, dust: [40, 60] },
+  2: { weight: 25, levels: [4, 5], xp: 15, dust: [60, 100] },
+  3: { weight: 20, levels: [5, 6], xp: 25, dust: [120, 200] },
+  4: { weight: 15, levels: [6, 7], xp: 50, dust: [300, 450] },
+  5: { weight: 10, levels: [7, 8], xp: 80, dust: [500, 750] }
 };
 
 /* ---------------------------------------------------------------
@@ -253,7 +258,7 @@ export const RAID_REWARD = {
 };
 
 export const GRUNT_REWARD = {
-  dust: [50, 75],
+  dust: [70, 95],
   bonus: [
     { weight: 5,  item: 'incense' },
     { weight: 5,  item: 'stardust_magnet' },
@@ -283,12 +288,12 @@ export const BONANZA_HOUR_START = 17.5;  // 17:30
 export const BONANZA_HOUR_END = 18.5;    // 18:30
 
 /* ---------------------------------------------------------------
-   Relax and Good Night: local 23:30–23:45, the interaction range widens
+   Relax and Good Night: local 22:30–22:45, the interaction range widens
    from CAPTURE_RANGE_M to RELAX_RANGE_M so you can reach most of what is
    on screen without walking to it.
    --------------------------------------------------------------- */
-export const RELAX_HOUR_START = 23.5;    // 23:30
-export const RELAX_HOUR_END = 23.75;     // 23:45
+export const RELAX_HOUR_START = 22.5;    // 22:30
+export const RELAX_HOUR_END = 22.75;     // 22:45
 export const RELAX_HOUR_LABEL = 'Relax and Good Night';
 
 /* ---------------------------------------------------------------
@@ -312,6 +317,8 @@ export const MOVE_UNLOCK_ROLL = [
 export const EGG_DIR = 'eggs';
 export const MAX_EGGS = 6;
 export const EGG_DROP_CHANCE = 0.10;
+/** Hatchlings arrive part-grown rather than at level 1. */
+export const EGG_HATCH_LEVEL = 3;
 
 export const EGG_TYPES = {
   '5km': {
@@ -451,6 +458,20 @@ export const WEEKLY_MISSIONS = [
     id: 'weekDaily', kind: 'daysCaughtThisWeek', target: 7, xp: 50, dust: 300, discs: 2,
     items: { rare_incense: 1 },
     label: 'Catch a creature every day this week'
+  },
+
+  // ---- walking ----
+  // Targets are in metres because that is what the step counter measures;
+  // `unit: 'km'` tells the mission row to show kilometres.
+  {
+    id: 'weekWalk25', kind: 'metresWeek', target: 25_000, unit: 'km', xp: 20, dust: 250,
+    items: { incense: 2 },
+    label: 'Walk 25 km this week'
+  },
+  {
+    id: 'weekWalk50', kind: 'metresWeek', target: 50_000, unit: 'km', xp: 50, dust: 500,
+    items: { rare_incense: 1 },
+    label: 'Walk 50 km this week'
   }
 ];
 
@@ -461,6 +482,19 @@ export const DAILY_MISSIONS = [
     id: 'daily50', kind: 'capturesToday', target: 50, xp: 20, dust: 50, discs: 2,
     items: { incense: 1, stardust_magnet: 1 },
     label: 'Catch 50 creatures today'
+  },
+
+  // ---- walking ----
+  { id: 'dailyWalk1', kind: 'metresToday', target: 1_000, unit: 'km', xp: 5, dust: 50, label: 'Walk 1 km' },
+  {
+    id: 'dailyWalk5', kind: 'metresToday', target: 5_000, unit: 'km', xp: 10, dust: 75,
+    items: { ultra_disc: 1, stardust_magnet: 1 },
+    label: 'Walk 5 km'
+  },
+  {
+    id: 'dailyWalk10', kind: 'metresToday', target: 10_000, unit: 'km', xp: 15, dust: 150,
+    items: { ultra_disc: 2, incense: 1 },
+    label: 'Walk 10 km'
   }
 ];
 
@@ -1012,7 +1046,7 @@ export const rollShiny = (source = 'spawn', now = new Date()) => chance(shinyOdd
    Relax and Good Night
    =============================================================== */
 
-/** 23:30–23:45 local: the interaction radius is switched off entirely. */
+/** During this window the interaction radius widens to RELAX_RANGE_M. */
 export const isRelaxHour = (now = new Date()) => {
   const t = now.getHours() + now.getMinutes() / 60;
   return t >= RELAX_HOUR_START && t < RELAX_HOUR_END;
@@ -1021,8 +1055,9 @@ export const isRelaxHour = (now = new Date()) => {
 /** Millis until the relax window closes (0 when it is not running). */
 export function relaxHourEndsIn(now = new Date()) {
   if (!isRelaxHour(now)) return 0;
+  // Derived from RELAX_HOUR_END so retuning the window only means one edit.
   const end = new Date(now);
-  end.setHours(23, 45, 0, 0);
+  end.setHours(Math.floor(RELAX_HOUR_END), Math.round((RELAX_HOUR_END % 1) * 60), 0, 0);
   return Math.max(0, end - now);
 }
 

@@ -12,7 +12,7 @@ import { Geo, distance, parseCoords, formatDistance, offsetMeters } from './geo.
 import { fetchPOIs, clearPOICache } from './osm.js';
 import { describeDrop, itemImage, itemName } from './items.js';
 import {
-  runScan, debugPointAt, tickIncense, msUntilNextScan, formatCountdown, isScanning
+  runScan, debugPointAt, tickIncense, spawnWindowGrunt, msUntilNextScan, formatCountdown, isScanning
 } from './spawns.js';
 import { GameMap } from './map.js';
 import { playCapture } from './anim.js';
@@ -164,6 +164,13 @@ function trackSteps(pos) {
 
   store.touch('steps');
   if (document.querySelector('.view.active')?.id === 'view-profile') renderProfile();
+
+  // A walk mission can finish mid-stride, so light the badge immediately.
+  if (walk.walkMissionDone) {
+    renderMissionBadge();
+    renderMissions();
+    toast('You finished a walking mission — go and claim it', 'good', 3600);
+  }
 
   // Buddy candy: one toast per candy earned, naming the creature.
   if (walk.buddyCandy > 0 && walk.buddy) {
@@ -492,6 +499,18 @@ function startLoop() {
     }
 
     GameMap.tick(now, Geo.current, { range: interactRange() });
+
+    // One trainer walks up to you per 8-hour window. Checked on the loop
+    // rather than only at boot, so a window that rolls over while the game is
+    // open still gets its grunt.
+    if (Geo.current) {
+      const trainer = spawnWindowGrunt(Geo.current, now);
+      if (trainer) {
+        dlog(`A trainer found you (${Math.round(RULES.WINDOW_GRUNT_MS / 60_000)} min)`);
+        syncMap();
+        toast('A trainer has walked up to you and wants to battle!', '', 4200);
+      }
+    }
 
     // Incense drops a creature at the player's feet every two minutes.
     if (store.clearExpiredEffects(now)) refreshAll();

@@ -645,6 +645,7 @@ a { color: var(--accent); }
 .progress-mini { height: 6px; border-radius: 99px; background: #ffffff1f; overflow: hidden; flex: 1; margin: 0 4px; }
 .progress-mini i { display: block; height: 100%; background: linear-gradient(90deg, var(--good), #a3f7bf); }
 .hint { font-size: 11.5px; color: var(--muted); margin: 8px 0 0; }
+.hint.bad { color: #ff9b9b; font-weight: 600; }
 
 /* ============================ DEBUG ============================ */
 .dbg-block { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
@@ -1051,10 +1052,12 @@ a { color: var(--accent); }
    PAGER
    ============================================================ */
 .pager {
-  display: flex; align-items: center; justify-content: center; gap: 14px;
+  /* Four buttons (first/prev/next/last) plus the label, so the gap is tight
+     enough to still fit across a narrow phone. */
+  display: flex; align-items: center; justify-content: center; gap: 8px;
   padding: 12px 12px 4px;
 }
-.pager-mid { display: flex; flex-direction: column; align-items: center; line-height: 1.25; }
+.pager-mid { display: flex; flex-direction: column; align-items: center; line-height: 1.25; min-width: 0; }
 .pager-page { font-size: 13px; font-weight: 600; }
 .pager-range { font-variant-numeric: tabular-nums; }
 .arrow-btn:disabled { opacity: .35; }

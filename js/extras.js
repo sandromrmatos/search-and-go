@@ -10,12 +10,17 @@ import {
   RELAX_HOUR_START, RELAX_HOUR_END, RELAX_HOUR_LABEL, dustBonusFor,
   BUDDY_KM_PER_CANDY, STARDUST_SUNDAY_LABEL, STARDUST_SUNDAY_MULTIPLIER,
   RAID_REWARD, RARE_INCENSE_WEIGHTS, RARITY_WEIGHTS, GRUNT_ITEM_DROPS,
-  RAID_BOSS_MODIFIERS, EGG_TYPES, EGG_DROP_CHANCE, MAX_EGGS
+  RAID_BOSS_MODIFIERS, EGG_TYPES, EGG_DROP_CHANCE, MAX_EGGS, EGG_HATCH_LEVEL,
+  STAT_GROWTH_PER_LEVEL, RAID_TIERS, GRUNT_REWARD, RAID_CAPTURE_LEVEL
 } from './data.js';
 import { store, maxHpOf, hpOf, isFainted } from './state.js';
 import { itemImage, itemName, ITEMS, itemsInOrder } from './items.js';
+import { sortedForPicker } from './views.js';
 const DEBUG_TRAINER_NAME = 'Test123';
-import { $, $$, el, toast, openSheet, closeSheet, num, timeLeftLabel, PAGE_SIZE } from './ui.js';
+import {
+  $, $$, el, toast, openSheet, closeSheet, num, timeLeftLabel,
+  PAGE_SIZE, clampPage, pageSlice, pagerBar, wireSwipe, bumpEl
+} from './ui.js';
 
 const DUST_ICON = '✨';
 const CANDY_ICON = '🍬';
@@ -29,6 +34,25 @@ export function initExtras({ onChange } = {}) {
     $$('#info-tabs .tab').forEach(x => x.classList.toggle('active', x === b));
     renderInfo(b.dataset.info);
   }));
+
+  // ---- breeding pair picker ----
+  // Sorting is shared with Storage, so changing it here changes it there too,
+  // which is what "sorted the same way as your Storage" has to mean.
+  $('#breed-sort').addEventListener('change', e => {
+    store.setUI({ storageSort: e.target.value });
+    breedPage = 0;
+    renderBreedPicker();
+  });
+  $('#breed-dir').addEventListener('click', () => {
+    store.setUI({ storageDir: store.s.ui.storageDir > 0 ? -1 : 1 });
+    breedPage = 0;
+    renderBreedPicker();
+  });
+  $('#breed-clear').addEventListener('click', () => {
+    breedPicked = [];
+    renderBreedPicker();
+  });
+  $('#breed-confirm').addEventListener('click', confirmBreedPair);
 }
 
 /* ===============================================================
@@ -38,8 +62,22 @@ export function initExtras({ onChange } = {}) {
 const MISSION_ICON = {
   registered: '📖', captures: '🎯', capturesToday: '📅',
   raidsWon: '🔥', raidRarity: '💎', gruntsBeaten: '🧍',
-  capturesWeek: '🗓', daysCaughtThisWeek: '✅', eggsHatched: '🥚'
+  capturesWeek: '🗓', daysCaughtThisWeek: '✅', eggsHatched: '🥚',
+  metresToday: '👣', metresWeek: '👣'
 };
+
+/**
+ * "3.24 / 5 km" for a distance mission, "12 / 50" for a counting one.
+ * Walk missions are stored in metres, which would read as a meaningless
+ * "3,240 / 5,000" without this.
+ */
+function missionProgressLabel(m) {
+  const done = Math.min(m.progress, m.target);
+  if (m.def.unit === 'km') {
+    return `${(done / 1000).toFixed(2)} / ${num(m.target / 1000)} km`;
+  }
+  return `${num(done)} / ${num(m.target)}`;
+}
 
 let missionTab = 'lifetime';
 
@@ -123,7 +161,7 @@ function missionRow(m) {
       el('b', { text: m.def.label }),
       el('div', { class: 'mission-bar' }, el('i', { style: { width: pct + '%' } })),
       el('div', { class: 'mission-meta' },
-        el('span', { text: `${num(Math.min(m.progress, m.target))} / ${num(m.target)}` }),
+        el('span', { text: missionProgressLabel(m) }),
         el('span', { class: 'r', text: `⭐ ${m.def.xp} XP` }),
         el('span', { class: 'r', text: `${DUST_ICON} ${num(dust)}` }),
         m.def.discs ? el('span', { class: 'r', text: `◉ ${m.def.discs} disc${m.def.discs > 1 ? 's' : ''}` }) : null,
@@ -231,88 +269,187 @@ function filledSlot(slot, index, inRange) {
 
 function emptySlot(index, inRange) {
   const pairs = eligiblePairs();
+  const ready = pairs.length > 0;
   return el('div', { class: 'breed-slot' },
     el('div', { class: 'breed-slot-top' },
       el('span', { class: 'mission-ico', text: '➕' }),
       el('b', { text: `Slot ${index + 1} · empty` })
     ),
-    el('div', { class: 'breed-next', text: pairs.length
-      ? 'Pick a species, then choose which two to leave.'
-      : 'You need two of the same species (not fainted, not already inside).' }),
-    pairs.length
-      ? el('div', { class: 'btn-row wrap' }, ...pairs.slice(0, 8).map(pr =>
-          el('button', {
-            class: 'btn ghost', disabled: !inRange,
-            onclick: () => openBreedingPicker(pr.speciesId)
-          }, `${species(pr.speciesId).name} ×${pr.count}`)))
-      : null
+    el('div', { class: 'breed-next', text: ready
+      ? 'Tap the slot to browse your storage and choose two of the same creature.'
+      : 'You need two of the same creature that are not already breeding.' }),
+    el('div', { class: 'btn-row' },
+      el('button', {
+        class: 'btn primary', disabled: !inRange || !ready,
+        onclick: () => openBreedPicker(index)
+      }, ready ? 'Choose creatures' : 'No pairs available')
+    )
   );
 }
 
-/** Opens a picker to choose exactly 2 creatures of the given species. */
-let breedPickSpecies = null;
-let breedPicked = [];
+/* ---------------------------------------------------------------
+   Pair picker
 
-function openBreedingPicker(speciesId) {
-  breedPickSpecies = speciesId;
+   Browsing works like Storage: the same sort options, the same paging, the
+   same tiles. Every creature is tappable, so picking two different ones is
+   possible — that gets explained rather than prevented, which is what the old
+   species-locked list did by never offering the choice.
+   --------------------------------------------------------------- */
+
+let breedSlotIndex = 0;   // the slot the picker was opened from
+let breedPicked = [];     // uids, in tap order
+let breedPage = 0;
+
+function openBreedPicker(index) {
+  breedSlotIndex = index;
   breedPicked = [];
-  renderBreedingPicker();
-  openSheet('picker');
+  breedPage = 0;
+  renderBreedPicker();
+  openSheet('breed-picker');
 }
 
-function renderBreedingPicker() {
-  const sp = species(breedPickSpecies);
-  // A buddy is excluded: breeding would block the levelling and battling that
-  // a buddy is meant to keep doing.
-  const available = store.s.storage.filter(c =>
-    c.speciesId === breedPickSpecies && c.breeding == null && !store.isBuddy(c.uid)
-  );
+/**
+ * Everything allowed into the breeding centre right now, in the player's
+ * chosen Storage order. A buddy is excluded: breeding would block the
+ * levelling and battling a buddy is meant to keep doing.
+ */
+function breedCandidates() {
+  return sortedForPicker(store.s.storage.filter(c =>
+    c.breeding == null && !store.isBuddy(c.uid)));
+}
 
-  $('#picker-title').textContent = `Choose 2 ${sp.name} to leave`;
-  $('#picker-hint').textContent = `${available.length} available. Tap two to select them.`;
-  $('#picker-empty').classList.add('hidden');
-  const bulk = $('#picker-bulk');
-  if (bulk) bulk.innerHTML = '';
+/** The two chosen creatures, or null while fewer than two are selected. */
+function breedPickedPair() {
+  if (breedPicked.length !== 2) return null;
+  const a = store.creature(breedPicked[0]);
+  const b = store.creature(breedPicked[1]);
+  return a && b ? { a, b } : null;
+}
 
-  const grid = $('#picker-grid');
+function renderBreedPicker() {
+  const all = breedCandidates();
+  breedPage = clampPage(breedPage, all.length);
+  const list = pageSlice(all, breedPage);
+
+  const pair = breedPickedPair();
+  const mismatch = !!pair && pair.a.speciesId !== pair.b.speciesId;
+
+  $('#breed-picker-title').textContent = `Slot ${breedSlotIndex + 1} · choose 2 of the same creature`;
+  $('#breed-picker-hint').textContent =
+    `Two of the same creature generate that family's candy. ` +
+    `${all.length} available, sorted the same way as your Storage.`;
+  $('#breed-pick-count').textContent = `${breedPicked.length} of 2 selected`;
+  $('#breed-picker-empty').classList.toggle('hidden', all.length > 0);
+  $('#breed-sort').value = store.s.ui.storageSort;
+  $('#breed-dir').textContent = store.s.ui.storageDir > 0 ? '↑' : '↓';
+
+  const warn = $('#breed-picker-warn');
+  warn.classList.toggle('hidden', !mismatch);
+  if (mismatch) {
+    warn.textContent =
+      `${species(pair.a.speciesId).name} and ${species(pair.b.speciesId).name} are not the same creature — ` +
+      'you need to select 2 of the same creature.';
+  }
+  $('#breed-confirm').disabled = !pair || mismatch;
+
+  const grid = $('#breed-picker-grid');
   grid.innerHTML = '';
-  for (const c of available) {
-    const s = sp;
-    const picked = breedPicked.includes(c.uid);
-    grid.append(el('button', {
-      class: 'cell' + (picked ? ' picked' : ''),
-      onclick: () => {
-        if (picked) {
-          breedPicked = breedPicked.filter(u => u !== c.uid);
-        } else if (breedPicked.length < 2) {
-          breedPicked.push(c.uid);
-        }
-        if (breedPicked.length === 2) {
-          closeSheet('picker');
-          addPair(breedPicked[0], breedPicked[1]);
-          breedPicked = [];
-        } else {
-          renderBreedingPicker();
-        }
-      }
+  const frag = document.createDocumentFragment();
+  for (const c of list) {
+    const s = species(c.speciesId);
+    if (!s) continue;
+    const rarity = s.rarity || familyRarity(s.id);
+    const max = maxHpOf(c), hp = hpOf(c);
+    const pct = Math.round((hp / max) * 100);
+    const idx = breedPicked.indexOf(c.uid);
+
+    frag.append(el('button', {
+      class: 'cell' + (c.shiny ? ' shiny' : '') + (idx >= 0 ? ' picked' : ''),
+      onclick: () => toggleBreedPick(c.uid)
     },
-      picked ? el('span', { class: 'pick-order', text: String(breedPicked.indexOf(c.uid) + 1) }) : null,
+      idx >= 0 ? el('span', { class: 'pick-order', text: String(idx + 1) }) : null,
       el('span', { class: 'lvl', text: 'Lv' + c.level }),
+      rarity ? el('span', { class: `rar r-${rarity}`, text: rarity }) : null,
       c.shiny ? el('span', { class: 'shiny-star', text: '★' }) : null,
+      c.favourite ? el('span', { class: 'fav-star', text: '♥' }) : null,
       el('img', { src: s.spritePath(c.shiny), alt: s.name, loading: 'lazy' }),
       el('span', { class: 'nm', text: s.name }),
-      el('span', { class: 'sub', text: `Lv ${c.level}` })
+      el('span', { class: 'hp-wrap' },
+        el('span', { class: `hp-bar${pct <= 25 ? ' critical' : pct <= 60 ? ' low' : ''}` },
+          el('i', { style: { width: pct + '%' } }))),
+      el('span', { class: `sub t-${s.type}`, text: s.type }),
+      el('span', { class: 'stg', text: 'S' + s.stage }),
+      isFainted(c) ? el('span', { class: 'fainted-badge', text: 'FAINTED' }) : null
     ));
   }
-  // update hint with pick count
-  $('#picker-hint').textContent = `${breedPicked.length} of 2 selected · ${available.length} available`;
+  grid.append(frag);
+
+  // ---- paging ----
+  let pager = $('#breed-picker-pager');
+  const bar = pagerBar(breedPage, all.length, goToBreedPage);
+  if (!bar) {
+    pager?.remove();
+  } else {
+    if (!pager) {
+      pager = el('div', { id: 'breed-picker-pager' });
+      grid.parentElement.insertBefore(pager, grid.nextSibling);
+    }
+    pager.innerHTML = '';
+    pager.append(bar);
+  }
+  wireSwipe(grid, {
+    onLeft: () => goToBreedPage(breedPage + 1, grid),
+    onRight: () => goToBreedPage(breedPage - 1, grid)
+  }, { key: 'breedPage' });
 }
 
-/** Species the player owns two or more free copies of. */
+function goToBreedPage(page, grid = null) {
+  const next = clampPage(page, breedCandidates().length);
+  if (next === breedPage) {
+    if (grid) bumpEl(grid, page < 0 ? 'right' : 'left');
+    return;
+  }
+  breedPage = next;
+  renderBreedPicker();
+}
+
+function toggleBreedPick(uid) {
+  const i = breedPicked.indexOf(uid);
+  if (i >= 0) breedPicked.splice(i, 1);
+  else if (breedPicked.length < 2) breedPicked.push(uid);
+  // Already holding two: drop the first so tapping around keeps working
+  // instead of silently doing nothing.
+  else breedPicked = [breedPicked[1], uid];
+
+  renderBreedPicker();
+
+  // Say it as soon as the mismatch happens, not only on Confirm.
+  const pair = breedPickedPair();
+  if (pair && pair.a.speciesId !== pair.b.speciesId) {
+    toast('You need to select 2 of the same creature', 'bad', 3200);
+  }
+}
+
+function confirmBreedPair() {
+  const pair = breedPickedPair();
+  if (!pair) { toast('Select two creatures first', 'bad'); return; }
+  if (pair.a.speciesId !== pair.b.speciesId) {
+    toast('You need to select 2 of the same creature', 'bad', 3200);
+    return;
+  }
+  closeSheet('breed-picker');
+  addPair(pair.a.uid, pair.b.uid);
+  breedPicked = [];
+}
+
+/**
+ * Species the player owns two or more usable copies of. Built from the same
+ * candidate list the picker shows, so the slot button can never say a pair is
+ * available when the picker cannot offer one (or the other way round).
+ */
 function eligiblePairs() {
   const bySpecies = new Map();
-  for (const c of store.s.storage) {
-    if (c.breeding != null) continue;
+  for (const c of breedCandidates()) {
     if (!bySpecies.has(c.speciesId)) bySpecies.set(c.speciesId, []);
     bySpecies.get(c.speciesId).push(c.uid);
   }
@@ -408,6 +545,7 @@ function renderInfo(tab = 'basics') {
         el('li', { html: `<b>${o.creature}%</b> a creature · <b>${o.discs}%</b> discs · <b>${o.items}%</b> a potion or revive · <b>${o.raid}%</b> a raid · <b>${o.nothing}%</b> nothing` }),
         el('li', { html: `Parks roll separately: <b>${pct(RULES.GRUNT_CHANCE)}</b> chance of a grunt in a <b>leisure=park</b>, and <b>${pct(RULES.GARDEN_GRUNT_CHANCE)}</b> in a quieter <b>leisure=garden</b>.` }),
         el('li', { html: `Each park rolls <b>${RULES.GRUNT_ROLLS_PER_PARK}</b> times, so a big park can hold several grunts. They do not stand at the middle of the park — they appear <b>${RULES.GRUNT_SPAWN_MIN_M}–${RULES.GRUNT_SPAWN_MAX_M} m</b> from you in any direction, up to <b>${RULES.MAX_ACTIVE_GRUNTS}</b> at a time.` }),
+        el('li', { html: `On top of those, one trainer walks <b>right up to you</b> once in each 8-hour stretch of the day — <b>midnight–8am</b>, <b>8am–4pm</b> and <b>4pm–midnight</b>. It appears on your own position the first time you have the game open during that stretch, waits <b>${Math.round(RULES.WINDOW_GRUNT_MS / 60_000)} minutes</b>, and does not use up one of the ${RULES.MAX_ACTIVE_GRUNTS} park slots. One per stretch, so three a day at most.` }),
         el('li', { html: `Nothing appears within <b>${RULES.MIN_SPAWN_SEPARATION_M} m</b> of another point, and grunts stay <b>${RULES.MIN_GRUNT_SEPARATION_M} m</b> apart.` })
       ),
       el('h4', { text: 'Shiny creatures' }),
@@ -424,11 +562,15 @@ function renderInfo(tab = 'basics') {
         el('li', { html: 'Tapping a <b>Potion</b> offers <b>Heal all</b>, which spends as many potions as each creature needs to reach full HP. A <b>Revive</b> offers <b>Revive all</b>. Both tell you how many they will use first.' })
       ),
       el('h4', { text: 'Steps' }),
-      el('p', { html: `Your walking is tracked while the game is open and shown in your Profile. One step is counted per <b>${RULES.METRES_PER_STEP} m</b> of real movement; jumps over <b>${RULES.MAX_WALK_JUMP_M} m</b> are ignored as GPS noise, and a fake debug location never counts.` }),
+      el('p', { html: `Your walking is tracked while the game is open and shown in your Profile. One step is counted per <b>${RULES.METRES_PER_STEP} m</b> of real movement; jumps over <b>${RULES.MAX_WALK_JUMP_M} m</b> are ignored as GPS noise, and a fake debug location never counts. The same distance feeds your <b>eggs</b>, your <b>buddy</b> and the <b>walking missions</b> together — you never have to choose.` }),
       el('h4', { text: 'Missions' }),
       el('p', { html: 'Missions sit in three tabs. <b>Lifetime</b> never resets. <b>Weekly</b> resets every <b>Monday</b> at midnight local time. <b>Daily</b> resets at midnight. Each timed tab shows its countdown at the bottom.' }),
+      el('ul', {},
+        el('li', { html: 'Some missions are for <b>walking</b> rather than catching: 1, 5 and 10 km each day, and 25 and 50 km across the week. They read the same step counter as your Profile, so the same walk feeds your eggs, your buddy and these all at once.' }),
+        el('li', { html: 'A walking mission can finish mid-stride — you get a nudge as soon as it does, and the Missions tab lights up.' })
+      ),
       el('h4', { text: 'Pages' }),
-      el('p', { html: `Once you hold more than <b>${PAGE_SIZE}</b> creatures, Storage and the battle team picker split into pages of ${PAGE_SIZE}. Swipe the grid left or right, or use the arrows. Sorting always reorders your <b>whole</b> collection first and then re-cuts the pages, so page 1 is always the true top of the order.` }),
+      el('p', { html: `Once you hold more than <b>${PAGE_SIZE}</b> creatures, Storage, the battle team picker and the breeding picker all split into pages of ${PAGE_SIZE}. Swipe the grid left or right, or use the arrows: <b>‹</b> and <b>›</b> step one page, <b>«</b> and <b>»</b> jump straight to the first and last page. Sorting always reorders your <b>whole</b> collection first and then re-cuts the pages, so page 1 is always the true top of the order.` }),
       el('h4', { text: 'Eggs' }),
       el('p', { html: `Collecting a disc or item point has a <b>${pct(EGG_DROP_CHANCE)}</b> chance of also giving you an egg — <b>80%</b> a 5 km egg, <b>20%</b> a 10 km egg. They live in the <b>Eggs</b> tab of your Storage.` }),
       el('ul', {},
@@ -439,6 +581,7 @@ function renderInfo(tab = 'basics') {
         el('li', { html: 'When one is ready you get a prompt <b>on the map</b> — it will not interrupt a battle or your storage. Tap Hatch and see what turns up.' }),
         el('li', { html: `A <b>5 km</b> egg pays <b>${EGG_TYPES['5km'].dust} stardust</b>, <b>${EGG_TYPES['5km'].xp} XP</b> and <b>+${EGG_TYPES['5km'].bonusCandy} candy</b> on top of the usual catch candy: ${weightLine(EGG_TYPES['5km'].weights)}.` }),
         el('li', { html: `A <b>10 km</b> egg pays <b>${EGG_TYPES['10km'].dust} stardust</b>, <b>${EGG_TYPES['10km'].xp} XP</b> and <b>+${EGG_TYPES['10km'].bonusCandy} candy</b> on top of the usual catch candy: ${weightLine(EGG_TYPES['10km'].weights)}.` }),
+        el('li', { html: `Hatchlings arrive at <b>level ${EGG_HATCH_LEVEL}</b>, not level 1, so they are worth battling with straight away.` }),
         el('li', { html: `Stardust from an egg grows with your player level like every other reward, and shinies hatch at the <b>raid</b> rate of ${pct(SHINY_ODDS.normal.raid)} — doubled during a Bonanza.` }),
         el('li', { html: 'Hatching is not catching, so it does not count towards the "catch" missions. There are separate <b>Hatch</b> missions for that.' })
       ),
@@ -500,9 +643,11 @@ function renderInfo(tab = 'basics') {
       el('ul', {},
         el('li', { html: 'Damage is kept, including if you <b>leave part-way through</b> — you will be asked to confirm first. A hurt creature needs a <b>Potion</b>, a fainted one needs a <b>Revive</b>. You can heal and revive from the team picker without leaving the battle.' }),
         el('li', { html: `Every raid win always gives <b>${RAID_REWARD.always.revive} Revives</b>. Every grunt always gives healing supplies: ${GRUNT_ITEM_DROPS.map(d => `<b>${d.weight}%</b> ${Object.entries(d.items).map(([id, n]) => `${n} ${itemName(id, n)}`).join(' + ')}`).join(' · ')}.` }),
-        el('li', { html: 'Beat a raid boss and you can catch it with an <b>Ultra Capture Disc</b> — it arrives at level 3 with two bonus candy.' }),
+        el('li', { html: `Beat a raid boss and you can catch it with an <b>Ultra Capture Disc</b> — it arrives at level ${RAID_CAPTURE_LEVEL} with two bonus candy.` }),
         el('li', { html: `A raid boss is no ordinary creature: <b>×${RAID_BOSS_MODIFIERS.hp} HP</b>, and <b>+${Math.round((RAID_BOSS_MODIFIERS.attack - 1) * 100)}%</b> Attack, Defence and Speed.` }),
         el('li', { html: `Every raid win also has a <b>${pct(RAID_REWARD.incubatorChance)}</b> chance of dropping a <b>Single Use Incubator</b>.` }),
+        el('li', { html: `Stardust from a raid scales hard with the boss rarity: ${Object.entries(RAID_TIERS).map(([r, t]) => `<b>${RARITY_NAMES[r]}</b> ${num(t.dust[0])}–${num(t.dust[1])}`).join(' · ')}. Your player level is added on top, and it doubles on ${STARDUST_SUNDAY_LABEL}.` }),
+        el('li', { html: `A grunt pays <b>${num(GRUNT_REWARD.dust[0])}–${num(GRUNT_REWARD.dust[1])}</b> stardust, again plus your player level.` }),
         el('li', { html: 'Lose and you can retry as many times as you like until the timer runs out.' }),
         el('li', { html: 'Start a battle before the point expires and you can finish it even if the timer runs out mid-fight.' })
       )
@@ -512,7 +657,7 @@ function renderInfo(tab = 'basics') {
   if (tab === 'growing') {
     out.push(
       el('h4', { text: 'Stats' }),
-      el('p', { html: `Every creature has HP, Attack, Defence and Speed. Each level adds <b>5% of the base stat</b>. Every creature you catch also gets a <b>stat modifier</b>: one stat is 10% higher (▲) and another 10% lower (▼).` }),
+      el('p', { html: `Every creature has HP, Attack, Defence and Speed. Each level adds <b>${Math.round(STAT_GROWTH_PER_LEVEL * 100)}% of the base stat</b>, counted from the base rather than compounding, so a level 10 creature is nearly twice as strong as a level 1. Every creature you catch also gets a <b>stat modifier</b>: one stat is 10% higher (▲) and another 10% lower (▼).` }),
       el('h4', { text: 'Levelling up' }),
       el('p', { html: `Costs stardust <i>and</i> candy of that creature's family — from ${CANDY_ICON} ${CREATURE_LEVEL_COST[2].candy} + ${DUST_ICON} ${num(CREATURE_LEVEL_COST[2].stardust)} for level 2 up to ${CANDY_ICON} ${CREATURE_LEVEL_COST[MAX_CREATURE_LEVEL].candy} + ${DUST_ICON} ${num(CREATURE_LEVEL_COST[MAX_CREATURE_LEVEL].stardust)} for level ${MAX_CREATURE_LEVEL}.` }),
       el('h4', { text: 'Moves' }),
@@ -522,7 +667,28 @@ function renderInfo(tab = 'basics') {
       el('h4', { text: 'Stardust' }),
       el('p', { html: `Shared across everything. Every player level you gain adds <b>+1</b> to every stardust reward, and a Stardust Magnet adds <b>+${RULES.MAGNET_BONUS_MULTIPLIER} per player level</b> on every catch while it runs.` }),
       el('h4', { text: 'Breeding centre' }),
-      el('p', { html: `From player level <b>${BREEDING_UNLOCK_LEVEL}</b> you can pin a breeding centre anywhere — it stays there for good. Leave two creatures of the same species in a slot and they generate that family's candy (every 12 h for common and uncommon, up to 36 h for legendary), stopping at <b>${BREEDING_CANDY_CAP}</b>. They cannot battle until you collect them back from the centre itself.` })
+      el('p', { html: `From player level <b>${BREEDING_UNLOCK_LEVEL}</b> you can pin a breeding centre anywhere — it stays there for good. Leave two creatures of the same species in a slot and they generate that family's candy (every 12 h for common and uncommon, up to 36 h for legendary), stopping at <b>${BREEDING_CANDY_CAP}</b>. They cannot battle until you collect them back from the centre itself.` }),
+      el('ul', {},
+        el('li', { html: 'Tap an empty slot and your whole storage opens, with the <b>same sorting and pages</b> you use in Storage. Pick any two creatures, then <b>Confirm pair</b>.' }),
+        el('li', { html: 'They have to be <b>two of the same creature</b>. Pick a mismatched pair and it tells you so and holds the Confirm button until you fix it.' }),
+        el('li', { html: 'Your <b>buddy</b> is left out of the list, because breeding would stop it doing the walking, levelling and battling a buddy is for.' })
+      )
+    );
+  }
+
+  if (tab === 'soon') {
+    out.push(
+      el('p', { html: 'A lot of exciting new features are coming soon to the game!' }),
+      el('h4', { text: 'A new creature set' }),
+      el('p', { html: 'A brand-new creature set is releasing very soon. Make sure to collect as many Elemental Awakening creatures as you can — you’ll soon have <b>77 new ones</b> to discover!' }),
+      el('h4', { text: 'Raid-exclusive creatures' }),
+      el('p', { html: 'We’re also introducing some very special new creatures that will be <b>raid-exclusive</b>. You’ll only be able to encounter them in raids, so invest in a strong team and level up your creatures to be ready to battle them when they arrive. These raids won’t just be the way you can catch these creatures — they’ll also reward <b>unique new items</b>.' }),
+      el('h4', { text: 'Shiny Incense' }),
+      el('p', { html: 'One of those items is a completely new consumable: <b>Shiny Incense</b>! It works similarly to a regular incense, but increases the shiny probability of the encounters you get while it’s active.' }),
+      el('h4', { text: 'Stat Boosters and the Research Lab' }),
+      el('p', { html: 'Another new item coming soon is the <b>Stat Booster</b>! If you’ve been collecting candy from creatures you don’t plan to level up, and aren’t sure what to do with the extras, the new <b>Research Lab</b> building will let you convert that spare candy into Stat Boosters. More details on how these work will be revealed soon…' }),
+      el('h4', { text: 'More candy' }),
+      el('p', { html: 'Struggling to find enough candy to level up your strongest Epic and Legendary creatures? <b>New ways to obtain candy are on the way!</b> Hope you’ve got good precision…' })
     );
   }
 

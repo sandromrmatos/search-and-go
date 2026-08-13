@@ -55,9 +55,9 @@ export function wireSheetClosers() {
    Paging
    Long creature lists are cut into pages so the grid stays scrollable on a
    phone. Sorting always happens across the whole list first, then the result
-   is sliced, so page 1 really does hold the first 30 in that order.
+   is sliced, so page 1 really does hold the first PAGE_SIZE in that order.
    --------------------------------------------------------------- */
-export const PAGE_SIZE = 30;
+export const PAGE_SIZE = 90;
 
 export const pageCount = (total, size = PAGE_SIZE) => Math.max(1, Math.ceil(total / size));
 
@@ -73,8 +73,10 @@ export function pageSlice(list, page, size = PAGE_SIZE) {
 export const pageOfIndex = (index, size = PAGE_SIZE) => Math.floor(Math.max(0, index) / size);
 
 /**
- * "‹  Page 2 of 4  ›" with the item range underneath. Returns null for a
- * single page so short lists stay uncluttered.
+ * "«  ‹  Page 2 of 4  ›  »" with the item range underneath. The outer buttons
+ * jump straight to the first and last page, which matters once a big
+ * collection runs to many pages. Returns null for a single page so short
+ * lists stay uncluttered.
  */
 export function pagerBar(page, total, onGo, size = PAGE_SIZE) {
   const pages = pageCount(total, size);
@@ -83,12 +85,26 @@ export function pagerBar(page, total, onGo, size = PAGE_SIZE) {
   const from = p * size + 1;
   const to = Math.min(total, (p + 1) * size);
   return el('div', { class: 'pager' },
-    el('button', { class: 'arrow-btn', disabled: p === 0, onclick: () => onGo(p - 1) }, '‹'),
+    el('button', {
+      class: 'arrow-btn', disabled: p === 0, title: 'First page',
+      'aria-label': 'First page', onclick: () => onGo(0)
+    }, '«'),
+    el('button', {
+      class: 'arrow-btn', disabled: p === 0, title: 'Previous page',
+      'aria-label': 'Previous page', onclick: () => onGo(p - 1)
+    }, '‹'),
     el('div', { class: 'pager-mid' },
       el('span', { class: 'pager-page', text: `Page ${p + 1} of ${pages}` }),
       el('span', { class: 'pager-range muted small', text: `${from}–${to} of ${total}` })
     ),
-    el('button', { class: 'arrow-btn', disabled: p >= pages - 1, onclick: () => onGo(p + 1) }, '›')
+    el('button', {
+      class: 'arrow-btn', disabled: p >= pages - 1, title: 'Next page',
+      'aria-label': 'Next page', onclick: () => onGo(p + 1)
+    }, '›'),
+    el('button', {
+      class: 'arrow-btn', disabled: p >= pages - 1, title: 'Last page',
+      'aria-label': 'Last page', onclick: () => onGo(pages - 1)
+    }, '»')
   );
 }
 

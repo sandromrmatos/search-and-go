@@ -23,7 +23,7 @@ import {
 } from './data.js';
 import { distance, offsetMeters } from './geo.js';
 import { fetchPOIs, splitPOIs } from './osm.js';
-import { store } from './state.js';
+import { store, gruntWindowKey } from './state.js';
 
 let scanning = false;
 export const isScanning = () => scanning;
@@ -192,7 +192,12 @@ export async function runScan(pos, { force = false, forceKind = null, alwaysGrun
     const active = store.activePoints(now);
     const occupiedPOIs = new Set(active.map(p => p.poiId));
     const taken = active.map(p => ({ lat: p.lat, lng: p.lng }));
-    const gruntSpots = active.filter(p => p.kind === 'grunt').map(p => ({ lat: p.lat, lng: p.lng }));
+    // The once-per-window trainer who walks up to you is deliberately left out
+    // of the park bookkeeping: it is an extra, so it must not use up one of
+    // the MAX_ACTIVE_GRUNTS slots or push a park grunt out of the way. It is
+    // still in `taken`, so nothing else spawns on top of it.
+    const parkGrunts = active.filter(p => p.kind === 'grunt' && p.source !== 'window');
+    const gruntSpots = parkGrunts.map(p => ({ lat: p.lat, lng: p.lng }));
 
     const created = [];
     const counts = { creature: 0, discs: 0, items: 0, raid: 0, grunt: 0 };
@@ -228,8 +233,7 @@ export async function runScan(pos, { force = false, forceKind = null, alwaysGrun
     const maxGrunts = rule('MAX_ACTIVE_GRUNTS', 6);
     // How many live grunts each park is already responsible for.
     const gruntsPerPOI = new Map();
-    for (const p of active) {
-      if (p.kind !== 'grunt') continue;
+    for (const p of parkGrunts) {
       gruntsPerPOI.set(p.poiId, (gruntsPerPOI.get(p.poiId) || 0) + 1);
     }
 
@@ -301,6 +305,45 @@ export function tickIncense(pos, now = Date.now()) {
   };
   fx.lastSpawnAt = now;
   store.addPoints([point]);
+  return point;
+}
+
+/* ---------------------------------------------------------------
+   The trainer who finds you
+   --------------------------------------------------------------- */
+
+/**
+ * One grunt trainer turns up standing on the player's own position per 8-hour
+ * window (00:00–08:00, 08:00–16:00, 16:00–24:00 local), the first time the
+ * game is open during that window. It lives for WINDOW_GRUNT_MS.
+ *
+ * Unlike a park grunt this ignores GRUNT_SPAWN_MIN_M (the whole point is that
+ * it is right on top of you) and is not counted against MAX_ACTIVE_GRUNTS.
+ *
+ * @returns the new point, or null when this window already had one.
+ */
+export function spawnWindowGrunt(pos, now = Date.now()) {
+  if (!pos) return null;
+  const when = new Date(now);
+  if (!store.canSpawnWindowGrunt(when)) return null;
+
+  const key = gruntWindowKey(when);
+  const point = {
+    ...makeGruntPoint({
+      id: 'window-grunt/' + key,
+      lat: pos.lat,
+      lng: pos.lng,
+      name: 'A trainer found you',
+      kind: 'window',
+      kindValue: 'window_grunt'
+    }, now, store.level),
+    source: 'window',
+    // A flat half hour rather than the randomised park-grunt lifetime.
+    expiresAt: now + RULES.WINDOW_GRUNT_MS
+  };
+
+  store.addPoints([point]);
+  store.markWindowGruntSpawned(when);
   return point;
 }
 

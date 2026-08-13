@@ -14,7 +14,7 @@ import {
   dustInRange, weightedPick, GRUNT_REWARD, LEVEL_UP_REWARDS,
   buddyMetresPerCandy, stardustMultiplier, isStardustSunday, RAID_REWARD,
   rollGruntItems, RARE_INCENSE_WEIGHTS,
-  EGG_TYPES, MAX_EGGS, EGG_DROP_CHANCE, INCUBATOR_ITEMS, REUSABLE_INCUBATOR,
+  EGG_TYPES, MAX_EGGS, EGG_DROP_CHANCE, EGG_HATCH_LEVEL, INCUBATOR_ITEMS, REUSABLE_INCUBATOR,
   eggDef, eggMetres, rollEggType, rollEggSpecies
 } from './data.js';
 import { ITEMS, item as itemDef } from './items.js';
@@ -37,7 +37,28 @@ export function weekKey(d = new Date()) {
   return dayKey(monday);
 }
 
-const blankWeekly = () => ({ week: weekKey(), capturesWeek: 0, days: {}, claimed: {} });
+/**
+ * The day is split into three 8-hour windows: 0 = 00:00–08:00,
+ * 1 = 08:00–16:00, 2 = 16:00–24:00. One grunt turns up on the player's own
+ * position in each window, so the stamp has to identify the window, not just
+ * the day.
+ */
+export const GRUNT_WINDOW_HOURS = 8;
+export const gruntWindowIndex = (d = new Date()) => Math.floor(d.getHours() / GRUNT_WINDOW_HOURS);
+export const gruntWindowKey = (d = new Date()) => `${dayKey(d)}#${gruntWindowIndex(d)}`;
+
+const blankWeekly = () => ({
+  week: weekKey(), capturesWeek: 0, metresWeek: 0, days: {}, claimed: {}
+});
+
+/**
+ * A fresh daily block. This used to be an inline literal repeated in three
+ * places, which meant any new counter was silently wiped at the next rollover
+ * unless every copy was updated.
+ */
+const blankDaily = () => ({
+  date: dayKey(), capturesToday: 0, metresToday: 0, claimed: {}
+});
 
 function blankState() {
   return {
@@ -62,8 +83,11 @@ function blankState() {
     nextEggId: 1,
 
     missions: {},       // missionId -> { claimedAt }
-    daily: { date: dayKey(), capturesToday: 0, claimed: {} },
+    daily: blankDaily(),
     weekly: blankWeekly(),
+
+    /** Day + 8-hour slot of the last "grunt at your feet" spawn, e.g. "2026-08-13#1". */
+    gruntWindow: null,
 
     stats: {
       captures: 0, evolutions: 0, deletes: 0, levelUps: 0, scans: 0,
@@ -231,13 +255,19 @@ function migrate(raw) {
   }
 
   // ---- daily reset ----
-  if (s.daily.date !== dayKey()) s.daily = { date: dayKey(), capturesToday: 0, claimed: {} };
+  s.daily.capturesToday = Math.max(0, Math.floor(Number(s.daily.capturesToday) || 0));
+  s.daily.metresToday = Math.max(0, Number(s.daily.metresToday) || 0);
+  if (s.daily.date !== dayKey()) s.daily = blankDaily();
 
   // ---- weekly reset (Monday) ----
   s.weekly.days = { ...(s.weekly.days || {}) };
   s.weekly.claimed = { ...(s.weekly.claimed || {}) };
   s.weekly.capturesWeek = Math.max(0, Math.floor(Number(s.weekly.capturesWeek) || 0));
+  s.weekly.metresWeek = Math.max(0, Number(s.weekly.metresWeek) || 0);
   if (s.weekly.week !== weekKey()) s.weekly = blankWeekly();
+
+  // ---- grunt window stamp ----
+  s.gruntWindow = typeof s.gruntWindow === 'string' ? s.gruntWindow : null;
 
   // ---- uid counter ----
   let maxUid = 0;
@@ -411,13 +441,15 @@ class Store {
     const stepsMoved = steps !== (Number(st.steps) || 0);
     st.steps = steps;
 
+    const missionDone = this.addWalkMissionProgress(metres);
     const walked = this.addBuddyWalk(metres);
     const eggs = this.addEggWalk(metres);
     return {
-      changed: stepsMoved || walked.candy > 0 || walked.progressed || eggs.moved,
+      changed: stepsMoved || walked.candy > 0 || walked.progressed || eggs.moved || missionDone,
       buddyCandy: walked.candy,
       buddy: walked.candy > 0 ? this.buddy : null,
-      eggsReady: eggs.ready
+      eggsReady: eggs.ready,
+      walkMissionDone: missionDone
     };
   }
 
@@ -616,7 +648,7 @@ class Store {
 
     const res = this.capture(sp.id, {
       origin: 'egg',
-      level: 1,
+      level: EGG_HATCH_LEVEL,
       // Eggs use the raid shiny rate.
       shiny: rollShiny('raid'),
       dust: def.dust,
@@ -1199,6 +1231,18 @@ class Store {
 
   clearPoints() { this.s.points = []; this.touch('despawn', { immediate: true }); }
 
+  /* ---------------- the grunt who finds you ---------------- */
+
+  /** True when this 8-hour window has not produced its grunt yet. */
+  canSpawnWindowGrunt(now = new Date()) {
+    return this.s.gruntWindow !== gruntWindowKey(now);
+  }
+
+  markWindowGruntSpawned(now = new Date()) {
+    this.s.gruntWindow = gruntWindowKey(now);
+    this.touch('grunt-window', { immediate: true });
+  }
+
   /* ---------------- breeding centre ---------------- */
 
   get breedingUnlocked() { return this.level >= BREEDING_UNLOCK_LEVEL; }
@@ -1272,10 +1316,32 @@ class Store {
   /* ---------------- missions ---------------- */
 
   bumpDaily(key, n = 1) {
-    if (this.s.daily.date !== dayKey()) {
-      this.s.daily = { date: dayKey(), capturesToday: 0, claimed: {} };
-    }
+    if (this.s.daily.date !== dayKey()) this.s.daily = blankDaily();
     this.s.daily[key] = (this.s.daily[key] || 0) + n;
+  }
+
+  /**
+   * Feeds walked metres into the daily and weekly walk missions. Kept apart
+   * from bumpWeekly because that one also stamps "caught something today",
+   * and walking is not catching.
+   */
+  addWalkMissionProgress(metres) {
+    if (!isFinite(metres) || metres <= 0) return false;
+
+    if (this.s.daily.date !== dayKey()) this.s.daily = blankDaily();
+    if (this.s.weekly.week !== weekKey()) this.s.weekly = blankWeekly();
+
+    const dayBefore = Number(this.s.daily.metresToday) || 0;
+    const weekBefore = Number(this.s.weekly.metresWeek) || 0;
+    this.s.daily.metresToday = dayBefore + metres;
+    this.s.weekly.metresWeek = weekBefore + metres;
+
+    // Did this step finish a walk mission? Reported so the caller can light up
+    // the Missions badge straight away rather than at the next full refresh.
+    const crossed = (before, after, kind, table) => table.some(m =>
+      m.kind === kind && before < m.target && after >= m.target);
+    return crossed(dayBefore, this.s.daily.metresToday, 'metresToday', DAILY_MISSIONS)
+      || crossed(weekBefore, this.s.weekly.metresWeek, 'metresWeek', WEEKLY_MISSIONS);
   }
 
   /** Counts a capture towards the weekly missions, rolling the week if needed. */
@@ -1303,6 +1369,10 @@ class Store {
       case 'raidRarity': return this.s.stats.raidsByRarity?.[m.rarity] || 0;
       case 'capturesToday':
         return this.s.daily.date === dayKey() ? (this.s.daily.capturesToday || 0) : 0;
+      // Walk missions are held in metres and shown in km by the UI.
+      case 'metresToday':
+        return this.s.daily.date === dayKey() ? (this.s.daily.metresToday || 0) : 0;
+      case 'metresWeek': return this.weekly.metresWeek || 0;
       default: return 0;
     }
   }

@@ -391,8 +391,12 @@ export function openCreaturePicker(itemId) {
   openSheet('picker');
 }
 
-/** Applies the Storage sort settings to any creature list. */
-function sortedForPicker(list) {
+/**
+ * Applies the Storage sort settings to any creature list, so every picker in
+ * the game orders things the same way the player last chose in Storage.
+ * Exported for the breeding centre picker in extras.js.
+ */
+export function sortedForPicker(list) {
   const { storageSort, storageDir } = store.s.ui;
   const out = [...list].sort(SORTERS[storageSort] || SORTERS.id);
   if (storageDir < 0) out.reverse();

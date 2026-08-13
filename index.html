@@ -512,6 +512,45 @@
   </div>
 </div>
 
+<!-- ============ BREEDING PAIR PICKER ============
+     Its own sheet rather than the shared #picker, because it needs a sort
+     control and a pager that the potion/revive/buddy pickers must not see.
+     It sits after #breeding so it stacks on top of it. -->
+<div id="breed-picker" class="sheet-wrap hidden">
+  <div class="sheet-backdrop" data-close="breed-picker"></div>
+  <div class="sheet">
+    <button class="sheet-close" data-close="breed-picker">✕</button>
+    <h3 id="breed-picker-title">Choose 2 of the same creature</h3>
+    <p id="breed-picker-hint" class="muted small"></p>
+    <div class="toolbar">
+      <label class="sel">
+        <span>Sort</span>
+        <select id="breed-sort">
+          <option value="id">Creature ID</option>
+          <option value="name">Name</option>
+          <option value="type">Type</option>
+          <option value="rarity">Rarity</option>
+          <option value="level">Level</option>
+          <option value="shiny">Shiny</option>
+          <option value="favourite">Favourite</option>
+          <option value="recent">Most recent</option>
+        </select>
+      </label>
+      <button id="breed-dir" class="mini-btn" title="Toggle sort direction">↑</button>
+      <span id="breed-pick-count" class="muted">0 of 2 selected</span>
+    </div>
+    <p id="breed-picker-warn" class="hint bad hidden"></p>
+    <div id="breed-picker-grid" class="grid"></div>
+    <p id="breed-picker-empty" class="empty hidden">
+      You need two of the same creature that are not already breeding.
+    </p>
+    <div class="btn-row" style="padding:10px 0 2px">
+      <button id="breed-clear" class="btn ghost">Clear</button>
+      <button id="breed-confirm" class="btn primary" disabled>Confirm pair</button>
+    </div>
+  </div>
+</div>
+
 <!-- ============ INFO / HOW TO PLAY ============ -->
 <div id="info" class="sheet-wrap hidden">
   <div class="sheet-backdrop" data-close="info"></div>
@@ -523,6 +562,7 @@
       <button class="tab" data-info="items">Items</button>
       <button class="tab" data-info="battles">Battles</button>
       <button class="tab" data-info="growing">Growing</button>
+      <button class="tab" data-info="soon">Coming soon!</button>
     </div>
     <div id="info-body" class="info-body"></div>
   </div>
