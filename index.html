@@ -427,12 +427,17 @@
       <label class="sel">
         <span>Sort</span>
         <select id="bt-sort">
-          <option value="level">Level</option>
+          <option value="id">Creature ID</option>
           <option value="name">Name</option>
-          <option value="rarity">Rarity</option>
           <option value="type">Type</option>
+          <option value="rarity">Rarity</option>
+          <option value="level">Level</option>
+          <option value="shiny">Shiny</option>
+          <option value="favourite">Favourite</option>
+          <option value="recent">Most recent</option>
         </select>
       </label>
+      <button id="bt-dir" class="mini-btn" title="Toggle sort direction">↑</button>
       <span id="bt-pick-count" class="muted">0 of 3 chosen</span>
     </div>
     <p class="hint" style="padding:0 14px">They battle in the order you tap them. Fainted creatures and any in the breeding centre can't come.</p>

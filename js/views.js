@@ -381,6 +381,7 @@ export function openCreaturePicker(itemId) {
     },
       el('span', { class: 'lvl', text: 'Lv' + c.level }),
       c.shiny ? el('span', { class: 'shiny-star', text: '★' }) : null,
+      c.favourite ? el('span', { class: 'fav-star', text: '♥' }) : null,
       el('img', { src: s.spritePath(c.shiny), alt: s.name, loading: 'lazy' }),
       el('span', { class: 'nm', text: s.name }),
       el('span', { class: 'sub', text: `${hp} / ${max} HP` }),

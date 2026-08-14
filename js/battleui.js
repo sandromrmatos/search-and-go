@@ -6,12 +6,13 @@
 
 import {
   species, RARITY_NAMES, STAT_LABELS, BATTLE_TEAM_SIZE, familyName,
-  familyRarity, statsFor, raidBossStats, RAID_CAPTURE_LEVEL, RAID_BOSS_MODIFIERS
+  statsFor, raidBossStats, RAID_CAPTURE_LEVEL, RAID_BOSS_MODIFIERS
 } from './data.js';
 
 /** "+50%" style label straight from the raid modifier table. */
 const bossPct = key => `+${Math.round((RAID_BOSS_MODIFIERS[key] - 1) * 100)}%`;
 import { store, creatureStats, maxHpOf, hpOf, isFainted } from './state.js';
+import { sortedForPicker } from './views.js';
 import { Battle, buildRaidBattle, buildGruntBattle, battlerFromEnemySpec } from './battle.js';
 import { itemImage, itemName } from './items.js';
 import { playCapture } from './anim.js';
@@ -46,7 +47,18 @@ export function initBattleUI({ onDone } = {}) {
   $('#bt-done').addEventListener('click', closeBattle);
   $('#bt-again').addEventListener('click', () => openBattle(ctx.point));
   $('#bt-catch').addEventListener('click', throwUltraDisc);
-  $('#bt-sort').addEventListener('change', renderPicker);
+  // Sorting is shared with Storage, so changing it here changes it there too.
+  // A new order makes the old page number meaningless, so go back to page 1.
+  $('#bt-sort').addEventListener('change', e => {
+    store.setUI({ storageSort: e.target.value });
+    pickPage = 0;
+    renderPicker();
+  });
+  $('#bt-dir').addEventListener('click', () => {
+    store.setUI({ storageDir: store.s.ui.storageDir > 0 ? -1 : 1 });
+    pickPage = 0;
+    renderPicker();
+  });
 }
 
 /** Entry point: show the preview for a raid or grunt point. */
@@ -203,13 +215,6 @@ function ultraDiscNotice() {
    Step 2: team picker
    --------------------------------------------------------------- */
 
-const PICK_SORTS = {
-  level: (a, b) => b.level - a.level,
-  name: (a, b) => species(a.speciesId).name.localeCompare(species(b.speciesId).name),
-  rarity: (a, b) => (familyRarity(b.speciesId) - familyRarity(a.speciesId)),
-  type: (a, b) => species(a.speciesId).type.localeCompare(species(b.speciesId).type)
-};
-
 function showPicker() {
   ctx.picked = [];
   pickPage = 0;
@@ -230,11 +235,15 @@ function goToPickPage(page, grid = null) {
 
 function renderPicker() {
   const grid = $('#bt-pick-grid');
-  const sort = $('#bt-sort').value || 'level';
   // Sort the whole roster, then page it, so page 1 is the real top of the order.
-  const all = [...store.battleReady()].sort(PICK_SORTS[sort] || PICK_SORTS.level);
+  // Shares Storage's sorter and its saved choice, so the options, the order and
+  // the direction toggle all behave the way they do in Storage.
+  const all = sortedForPicker(store.battleReady());
   pickPage = clampPage(pickPage, all.length);
   const list = pageSlice(all, pickPage);
+
+  $('#bt-sort').value = store.s.ui.storageSort;
+  $('#bt-dir').textContent = store.s.ui.storageDir > 0 ? '↑' : '↓';
 
   const ready = ctx.picked.length === BATTLE_TEAM_SIZE;
   $('#bt-pick-count').textContent = `${ctx.picked.length} of ${BATTLE_TEAM_SIZE} chosen`;
@@ -263,6 +272,7 @@ function renderPicker() {
       idx >= 0 ? el('span', { class: 'pick-order', text: String(idx + 1) }) : null,
       el('span', { class: 'lvl', text: 'Lv' + c.level }),
       c.shiny ? el('span', { class: 'shiny-star', text: '★' }) : null,
+      c.favourite ? el('span', { class: 'fav-star', text: '♥' }) : null,
       el('img', { src: sp.spritePath(c.shiny), alt: sp.name, loading: 'lazy' }),
       el('span', { class: 'nm', text: sp.name }),
       el('span', { class: `sub t-${sp.type}`, text: sp.type }),
