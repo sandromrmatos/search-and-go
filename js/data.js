@@ -159,13 +159,48 @@ export const PLAYER_LEVEL_XP = {
   1: 0, 2: 25, 3: 100, 4: 250, 5: 1000, 6: 2000, 7: 3500, 8: 6000,
   9: 10000, 10: 15000, 11: 22000, 12: 30000, 13: 42000, 14: 60000, 15: 80000
 };
-/** Every player level grants these items. Level 3 also awards a breeding centre. */
+/**
+ * Player level-up loot, in three layers:
+ *   `every`     — granted on every single level.
+ *   `fromLevel` — granted on every level at or past that threshold.
+ *   `special`   — granted once, on exactly that level.
+ */
 export const LEVEL_UP_REWARDS = {
   every: { capture_disc: 5, incense: 1, stardust_magnet: 1 },
+  fromLevel: {
+    8: { rare_incense: 1 }
+  },
   special: {
     3: { breeding_center: 1 },
     5: { incubator: 1 }
   }
+};
+
+/**
+ * Everything one particular level-up hands over, with the three layers already
+ * merged and stacked. Single source of truth so granting and reporting can
+ * never drift apart.
+ * @returns {Object<string, number>} itemId -> quantity
+ */
+export function levelUpRewardsFor(level) {
+  const out = {};
+  const add = table => {
+    for (const [id, n] of Object.entries(table || {})) out[id] = (out[id] || 0) + n;
+  };
+
+  add(LEVEL_UP_REWARDS.every);
+  for (const [from, table] of Object.entries(LEVEL_UP_REWARDS.fromLevel || {})) {
+    if (level >= Number(from)) add(table);
+  }
+  add(LEVEL_UP_REWARDS.special[level]);
+  return out;
+}
+
+/** The level from which a given item starts arriving every level, or null. */
+export const levelUpRewardFromLevel = itemId => {
+  const hit = Object.entries(LEVEL_UP_REWARDS.fromLevel || {})
+    .find(([, table]) => table[itemId] != null);
+  return hit ? Number(hit[0]) : null;
 };
 
 export const MAX_PLAYER_LEVEL = 15;
@@ -251,12 +286,33 @@ export const GRUNT_LEVEL_BANDS = [
   { maxPlayerLevel: Infinity, levels: [6, 9] }
 ];
 
-/** Extra loot for beating a raid boss, on top of the XP and stardust. */
+/**
+ * Extra loot for beating a raid boss, on top of the XP and stardust.
+ *
+ * Rarity 4 and 5 bosses are the hard ones, so they pay better: the Single Use
+ * Incubator is guaranteed rather than a coin flip, and they can also drop a
+ * Rare Incense. Anything else falls back to `incubatorChance` and no incense.
+ */
 export const RAID_REWARD = {
   incubatorChance: 0.5,
   incubatorItem: 'single_use_incubator',
+  incubatorChanceByRarity: { 4: 1, 5: 1 },
+  rareIncenseItem: 'rare_incense',
+  rareIncenseChanceByRarity: { 4: 0.25, 5: 0.25 },
   always: { revive: 2 }        // every raid win, win or catch
 };
+
+/** Odds of a Single Use Incubator dropping from a boss of this rarity. */
+export const raidIncubatorChance = rarity =>
+  RAID_REWARD.incubatorChanceByRarity[rarity] ?? RAID_REWARD.incubatorChance;
+
+/** Odds of a Rare Incense dropping from a boss of this rarity. 0 for most. */
+export const raidRareIncenseChance = rarity =>
+  RAID_REWARD.rareIncenseChanceByRarity[rarity] ?? 0;
+
+/** The rarities that get the better drop table, for the how-to-play copy. */
+export const RAID_BONUS_RARITIES =
+  Object.keys(RAID_REWARD.incubatorChanceByRarity).map(Number).sort((a, b) => a - b);
 
 export const GRUNT_REWARD = {
   dust: [70, 95],
@@ -440,7 +496,30 @@ export const MISSIONS = [
   { id: 'egg100', kind: 'eggsHatched', target: 100, xp: 50,  dust: 250,  items: { single_use_incubator: 1 }, label: 'Hatch 100 eggs' },
   { id: 'egg200', kind: 'eggsHatched', target: 200, xp: 100, dust: 500,  items: { single_use_incubator: 2 }, label: 'Hatch 200 eggs' },
   { id: 'egg300', kind: 'eggsHatched', target: 300, xp: 200, dust: 1000, items: { single_use_incubator: 2 }, label: 'Hatch 300 eggs' },
-  { id: 'egg500', kind: 'eggsHatched', target: 500, xp: 250, dust: 1500, items: { single_use_incubator: 3 }, label: 'Hatch 500 eggs' }
+  { id: 'egg500', kind: 'eggsHatched', target: 500, xp: 250, dust: 1500, items: { single_use_incubator: 3 }, label: 'Hatch 500 eggs' },
+
+  /* ---- creatures raised to a level ----
+     `kind: 'creaturesAtLevel'` counts creatures in storage sitting at or above
+     `level`, so these tick up and down with the collection rather than reading
+     a stored counter. Levelling one creature to 10 therefore also credits the
+     level 5 and level 7 missions. */
+  { id: 'lv5x5',    kind: 'creaturesAtLevel', level: 5,  target: 5,   xp: 10,  dust: 100,  discs: 5, items: { revive: 2 },        label: 'Level up 5 creatures to level 5' },
+  { id: 'lv5x10',   kind: 'creaturesAtLevel', level: 5,  target: 10,  xp: 25,  dust: 250,  discs: 5, items: { potion: 2 },        label: 'Level up 10 creatures to level 5' },
+  { id: 'lv5x20',   kind: 'creaturesAtLevel', level: 5,  target: 20,  xp: 50,  dust: 500,  discs: 5, items: { ultra_disc: 1 },    label: 'Level up 20 creatures to level 5' },
+  { id: 'lv5x30',   kind: 'creaturesAtLevel', level: 5,  target: 30,  xp: 75,  dust: 1000, discs: 5, items: { ultra_disc: 2 },    label: 'Level up 30 creatures to level 5' },
+  { id: 'lv5x50',   kind: 'creaturesAtLevel', level: 5,  target: 50,  xp: 100, dust: 1500, discs: 5, items: { incense: 1 },       label: 'Level up 50 creatures to level 5' },
+  { id: 'lv5x100',  kind: 'creaturesAtLevel', level: 5,  target: 100, xp: 150, dust: 2500, discs: 5, items: { rare_incense: 1 },  label: 'Level up 100 creatures to level 5' },
+
+  { id: 'lv7x2',    kind: 'creaturesAtLevel', level: 7,  target: 2,   xp: 10,  dust: 100,  discs: 5, items: { revive: 2 },        label: 'Level up 2 creatures to level 7' },
+  { id: 'lv7x5',    kind: 'creaturesAtLevel', level: 7,  target: 5,   xp: 25,  dust: 250,  discs: 5, items: { potion: 2 },        label: 'Level up 5 creatures to level 7' },
+  { id: 'lv7x10',   kind: 'creaturesAtLevel', level: 7,  target: 10,  xp: 50,  dust: 500,  discs: 5, items: { ultra_disc: 1 },    label: 'Level up 10 creatures to level 7' },
+  { id: 'lv7x15',   kind: 'creaturesAtLevel', level: 7,  target: 15,  xp: 75,  dust: 1000, discs: 5, items: { ultra_disc: 2 },    label: 'Level up 15 creatures to level 7' },
+  { id: 'lv7x25',   kind: 'creaturesAtLevel', level: 7,  target: 25,  xp: 100, dust: 1500, discs: 5, items: { incense: 1 },       label: 'Level up 25 creatures to level 7' },
+  { id: 'lv7x50',   kind: 'creaturesAtLevel', level: 7,  target: 50,  xp: 150, dust: 2500, discs: 5, items: { rare_incense: 1 },  label: 'Level up 50 creatures to level 7' },
+
+  { id: 'lv10x1',   kind: 'creaturesAtLevel', level: 10, target: 1,   xp: 75,  dust: 2000, discs: 5, items: { ultra_disc: 2 },    label: 'Level up 1 creature to level 10' },
+  { id: 'lv10x5',   kind: 'creaturesAtLevel', level: 10, target: 5,   xp: 100, dust: 2500, discs: 5, items: { incense: 1 },       label: 'Level up 5 creatures to level 10' },
+  { id: 'lv10x10',  kind: 'creaturesAtLevel', level: 10, target: 10,  xp: 150, dust: 5000, discs: 5, items: { rare_incense: 1 },  label: 'Level up 10 creatures to level 10' }
 ];
 
 /* Weekly missions reset every Monday, local time. */

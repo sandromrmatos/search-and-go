@@ -4,6 +4,7 @@
 
 import {
   DB, SETS, RARITY_NAMES, MAX_CREATURE_LEVEL, MAX_PLAYER_LEVEL, STAT_KEYS, STAT_LABELS,
+  STAT_GROWTH_PER_LEVEL,
   species, familyRoot, familyName, familyRarity, levelUpCost, moveLevelFor, statsFor,
   fullLearnset, finalEvolutionOf,
   breedingSlotsFor, BREEDING_UNLOCK_LEVEL, bonanzaState,
@@ -515,7 +516,7 @@ function renderCreatureSheet() {
     // ---- stats with the +10% / -10% arrows ----
     el('h4', { class: 'sheet-h4', text: 'Stats' }),
     el('div', { class: 'det-rows' }, ...statRows(c)),
-    el('p', { class: 'hint', text: `Stat modifier: ${STAT_LABELS[c.statMod.up]} up 10%, ${STAT_LABELS[c.statMod.down]} down 10%. Each level adds 5% of the base stat.` }),
+    el('p', { class: 'hint', text: `Stat modifier: ${STAT_LABELS[c.statMod.up]} up 10%, ${STAT_LABELS[c.statMod.down]} down 10%. Each level adds ${Math.round(STAT_GROWTH_PER_LEVEL * 100)}% of the base stat.` }),
 
     // ---- moves ----
     el('h4', { class: 'sheet-h4', text: 'Moves' }),
@@ -637,10 +638,14 @@ function goToCreature(uid, host, dir) {
   renderCreatureSheet();
 }
 
-/** One row per stat, with a bar and the modifier arrow. */
+/**
+ * One row per stat, with a bar and the modifier arrow, then a total row.
+ * The total is the plain sum of the four displayed figures, so it always
+ * matches what is on screen above it.
+ */
 function statRows(c) {
   const stats = creatureStats(c);
-  return STAT_KEYS.map(k => {
+  const rows = STAT_KEYS.map(k => {
     const arrow = c.statMod.up === k ? 'up' : c.statMod.down === k ? 'down' : '';
     return el('div', { class: 'stat-row' },
       el('span', { class: 'lbl', text: STAT_LABELS[k] }),
@@ -650,6 +655,15 @@ function statRows(c) {
       el('span', { class: `arrow ${arrow}`, text: arrow === 'up' ? '▲' : arrow === 'down' ? '▼' : '' })
     );
   });
+
+  const total = STAT_KEYS.reduce((sum, k) => sum + stats[k], 0);
+  rows.push(el('div', { class: 'stat-row total' },
+    el('span', { class: 'lbl', text: 'Total' }),
+    el('span', { class: 'bar' }),
+    el('span', { class: 'val', text: num(total) }),
+    el('span', { class: 'arrow' })
+  ));
+  return rows;
 }
 
 /**

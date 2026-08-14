@@ -11,14 +11,16 @@ import {
   BUDDY_KM_PER_CANDY, STARDUST_SUNDAY_LABEL, STARDUST_SUNDAY_MULTIPLIER,
   RAID_REWARD, RARE_INCENSE_WEIGHTS, RARITY_WEIGHTS, GRUNT_ITEM_DROPS,
   RAID_BOSS_MODIFIERS, EGG_TYPES, EGG_DROP_CHANCE, MAX_EGGS, EGG_HATCH_LEVEL,
-  STAT_GROWTH_PER_LEVEL, RAID_TIERS, GRUNT_REWARD, RAID_CAPTURE_LEVEL
+  STAT_GROWTH_PER_LEVEL, RAID_TIERS, GRUNT_REWARD, RAID_CAPTURE_LEVEL,
+  RAID_BONUS_RARITIES, raidRareIncenseChance, LEVEL_UP_REWARDS,
+  levelUpRewardFromLevel, DUST_BONUS_PER_PLAYER_LEVEL, MAX_PLAYER_LEVEL
 } from './data.js';
 import { store, maxHpOf, hpOf, isFainted } from './state.js';
 import { itemImage, itemName, ITEMS, itemsInOrder } from './items.js';
 import { sortedForPicker } from './views.js';
 const DEBUG_TRAINER_NAME = 'Test123';
 import {
-  $, $$, el, toast, openSheet, closeSheet, num, timeLeftLabel,
+  $, $$, el, toast, openSheet, closeSheet, num,
   PAGE_SIZE, clampPage, pageSlice, pagerBar, wireSwipe, bumpEl
 } from './ui.js';
 
@@ -63,7 +65,7 @@ const MISSION_ICON = {
   registered: '📖', captures: '🎯', capturesToday: '📅',
   raidsWon: '🔥', raidRarity: '💎', gruntsBeaten: '🧍',
   capturesWeek: '🗓', daysCaughtThisWeek: '✅', eggsHatched: '🥚',
-  metresToday: '👣', metresWeek: '👣'
+  metresToday: '👣', metresWeek: '👣', creaturesAtLevel: '⬆'
 };
 
 /**
@@ -85,10 +87,33 @@ export function renderMissions() {
   const host = $('#missions-list');
   const all = store.allMissions();
 
+  // How many are waiting in each tab, so the tabs themselves can say where to
+  // look instead of leaving the player to open all three.
+  const readyByScope = {};
+  for (const m of all) {
+    if (m.claimable) readyByScope[m.scope] = (readyByScope[m.scope] || 0) + 1;
+  }
+
   // Wire tabs
   $$('#mission-tabs .tab').forEach(b => {
-    b.classList.toggle('active', b.dataset.mtab === missionTab);
-    b.onclick = () => { missionTab = b.dataset.mtab; renderMissions(); };
+    const scope = b.dataset.mtab;
+    const ready = readyByScope[scope] || 0;
+
+    // The label lives in the HTML, so stash it before we start rebuilding the
+    // button to hang a count off it.
+    b.dataset.label = b.dataset.label || b.textContent.trim();
+
+    b.classList.toggle('active', scope === missionTab);
+    b.classList.toggle('has-ready', ready > 0);
+    b.textContent = b.dataset.label;
+    if (ready > 0) {
+      b.append(el('span', { class: 'tab-badge ready', text: String(ready) }));
+      b.title = `${ready} mission${ready === 1 ? '' : 's'} ready to claim`;
+    } else {
+      b.removeAttribute('title');
+    }
+
+    b.onclick = () => { missionTab = scope; renderMissions(); };
   });
 
   const showing = all.filter(m => m.scope === missionTab);
@@ -129,6 +154,18 @@ export function renderMissions() {
   }
 
   renderMissionBadge();
+}
+
+/**
+ * "11:59" / "00:07" from a millisecond gap — hours and minutes, zero padded.
+ * Breeding waits run 12 to 36 hours, which `timeLeftLabel` would render as a
+ * useless "719:59" because it counts in minutes and seconds.
+ */
+function hoursMinutesLabel(ms) {
+  const mins = Math.max(0, Math.ceil(ms / 60_000));
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
 /** "2d 5h" / "5h 12m" / "12m" from a millisecond gap. */
@@ -257,7 +294,7 @@ function filledSlot(slot, index, inRange) {
     ),
     el('div', { class: 'breed-next', text: full
       ? 'Full — collect them to bank the candy.'
-      : `Next candy in ${timeLeftLabel(p.nextAt - Date.now())} · one every ${p.every / 3_600_000} h (rarity ${p.rarity})` }),
+      : `Next candy in ${hoursMinutesLabel(p.nextAt - Date.now())} · one every ${p.every / 3_600_000} h (rarity ${p.rarity})` }),
     el('div', { class: 'btn-row' },
       el('button', {
         class: 'btn primary', disabled: !inRange,
@@ -498,8 +535,19 @@ const weightLine = table => {
     .join(' · ');
 };
 const rareIncenseLine = () => weightLine(RARE_INCENSE_WEIGHTS);
-const MISSION_ICON_EGG = '🥚';
 const wildOddsLine = () => weightLine(RARITY_WEIGHTS);
+
+/** The player level from which every level-up includes a Rare Incense. */
+const RARE_INCENSE_FROM_LEVEL = levelUpRewardFromLevel('rare_incense');
+
+/** "5 Capturing Discs, 1 Incense and 1 Stardust Magnet" from an item table. */
+function itemListLine(table) {
+  const parts = Object.entries(table || {})
+    .filter(([id, n]) => ITEMS[id] && n > 0)
+    .map(([id, n]) => `<b>${n} ${itemName(id, n)}</b>`);
+  if (parts.length < 2) return parts[0] || '';
+  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+}
 
 /** "Common 2 km · Uncommon 4 km · …" straight from the buddy table. */
 function buddyRarityLine() {
@@ -572,7 +620,10 @@ function renderInfo(tab = 'basics') {
       el('p', { html: 'Missions sit in three tabs. <b>Lifetime</b> never resets. <b>Weekly</b> resets every <b>Monday</b> at midnight local time. <b>Daily</b> resets at midnight. Each timed tab shows its countdown at the bottom.' }),
       el('ul', {},
         el('li', { html: 'Some missions are for <b>walking</b> rather than catching: 1, 5 and 10 km each day, and 25 and 50 km across the week. They read the same step counter as your Profile, so the same walk feeds your eggs, your buddy and these all at once.' }),
-        el('li', { html: 'A walking mission can finish mid-stride — you get a nudge as soon as it does, and the Missions tab lights up.' })
+        el('li', { html: 'A walking mission can finish mid-stride — you get a nudge as soon as it does, and the Missions tab lights up.' }),
+        el('li', { html: 'Lifetime missions also track <b>how many creatures you have raised</b> to level 5, level 7 and level 10. They count everything at or above that level, so taking one creature to 10 credits the level 5 and level 7 missions too.' }),
+        el('li', { html: 'Those level missions are counted from your storage as it stands, so <b>releasing</b> a levelled creature takes it back off the total.' }),
+        el('li', { html: 'Whichever tab has something waiting turns <b>green and carries a count</b>, so you can see where to look without opening all three.' })
       ),
       el('h4', { text: 'Pages' }),
       el('p', { html: `Once you hold more than <b>${PAGE_SIZE}</b> creatures, Storage, the battle team picker and the breeding picker all split into pages of ${PAGE_SIZE}. Swipe the grid left or right, or use the arrows: <b>‹</b> and <b>›</b> step one page, <b>«</b> and <b>»</b> jump straight to the first and last page. Sorting always reorders your <b>whole</b> collection first and then re-cuts the pages, so page 1 is always the true top of the order.` }),
@@ -618,7 +669,8 @@ function renderInfo(tab = 'basics') {
         el('li', { html: 'Potions cannot be used during a battle, or on a creature that has fainted.' }),
         el('li', { html: 'Only one incense and one Stardust Magnet can run at a time. <b>Rare Incense</b> shares the incense slot, so it cannot stack with a plain one.' }),
         el('li', { html: `<b>Rare Incense</b> spawns on the same 2-minute rhythm but with far better odds: ${rareIncenseLine()}. Compare that to a wild spawn at ${wildOddsLine()}.` }),
-        el('li', { html: `<b>Incubators</b> let you hatch eggs by walking. The plain <b>Incubator</b> is reusable — it ties up until the egg hatches, then you can use it again. A <b>Single Use Incubator</b> is consumed the moment you start it. You get a plain incubator at player level 5, and single use incubators from raid wins (about ${pct(RAID_REWARD.incubatorChance)} chance) and several missions.` })
+        el('li', { html: `<b>Incubators</b> let you hatch eggs by walking. The plain <b>Incubator</b> is reusable — it ties up until the egg hatches, then you can use it again. A <b>Single Use Incubator</b> is consumed the moment you start it. You get a plain incubator at player level 5, and single use incubators from raid wins (${pct(RAID_REWARD.incubatorChance)}, or <b>guaranteed</b> from a rarity ${RAID_BONUS_RARITIES.join(' or ')} boss) and several missions.` }),
+        el('li', { html: `<b>Rare Incense</b> is the hardest one to come by: a <b>${pct(raidRareIncenseChance(RAID_BONUS_RARITIES[0]))}</b> drop from rarity ${RAID_BONUS_RARITIES.join(' and ')} raids, a handful of missions, and one <b>every level from player level ${RARE_INCENSE_FROM_LEVEL}</b> onwards.` })
       )
     );
   }
@@ -648,7 +700,8 @@ function renderInfo(tab = 'basics') {
         el('li', { html: `Every raid win always gives <b>${RAID_REWARD.always.revive} Revives</b>. Every grunt always gives healing supplies: ${GRUNT_ITEM_DROPS.map(d => `<b>${d.weight}%</b> ${Object.entries(d.items).map(([id, n]) => `${n} ${itemName(id, n)}`).join(' + ')}`).join(' · ')}.` }),
         el('li', { html: `Beat a raid boss and you can catch it with an <b>Ultra Capture Disc</b> — it arrives at level ${RAID_CAPTURE_LEVEL} with two bonus candy.` }),
         el('li', { html: `A raid boss is no ordinary creature: <b>×${RAID_BOSS_MODIFIERS.hp} HP</b>, and <b>+${Math.round((RAID_BOSS_MODIFIERS.attack - 1) * 100)}%</b> Attack, Defence and Speed.` }),
-        el('li', { html: `Every raid win also has a <b>${pct(RAID_REWARD.incubatorChance)}</b> chance of dropping a <b>Single Use Incubator</b>.` }),
+        el('li', { html: `Most raid wins have a <b>${pct(RAID_REWARD.incubatorChance)}</b> chance of dropping a <b>Single Use Incubator</b>.` }),
+        el('li', { html: `Beat a <b>${RAID_BONUS_RARITIES.map(r => RARITY_NAMES[r]).join('</b> or <b>')}</b> raid (rarity ${RAID_BONUS_RARITIES.join(' and ')}) and that <b>Single Use Incubator is guaranteed</b> — no roll. Those two tiers also carry a <b>${pct(raidRareIncenseChance(RAID_BONUS_RARITIES[0]))}</b> chance of a <b>Rare Incense</b> on top, which no other raid drops.` }),
         el('li', { html: `Stardust from a raid scales hard with the boss rarity: ${Object.entries(RAID_TIERS).map(([r, t]) => `<b>${RARITY_NAMES[r]}</b> ${num(t.dust[0])}–${num(t.dust[1])}`).join(' · ')}. Your player level is added on top, and it doubles on ${STARDUST_SUNDAY_LABEL}.` }),
         el('li', { html: `A grunt pays <b>${num(GRUNT_REWARD.dust[0])}–${num(GRUNT_REWARD.dust[1])}</b> stardust, again plus your player level.` }),
         el('li', { html: 'Lose and you can retry as many times as you like until the timer runs out.' }),
@@ -668,7 +721,17 @@ function renderInfo(tab = 'basics') {
       el('h4', { text: 'Candy and evolving' }),
       el('p', { html: `Candy belongs to a <b>family</b>, not a single creature, so catching the Stage 1 form feeds every evolution. Releasing a creature returns 1 candy to its family. Evolving keeps the level, the shiny status and the early-move luck.` }),
       el('h4', { text: 'Stardust' }),
-      el('p', { html: `Shared across everything. Every player level you gain adds <b>+1</b> to every stardust reward, and a Stardust Magnet adds <b>+${RULES.MAGNET_BONUS_MULTIPLIER} per player level</b> on every catch while it runs.` }),
+      el('p', { html: `Shared across everything. Every player level you gain adds <b>+${DUST_BONUS_PER_PLAYER_LEVEL}</b> to every stardust reward, and a Stardust Magnet adds <b>+${RULES.MAGNET_BONUS_MULTIPLIER} per player level</b> on every catch while it runs.` }),
+      el('h4', { text: 'Your own level' }),
+      el('p', { html: `XP comes from catching, hatching, evolving, raids, grunts and missions, up to player level <b>${MAX_PLAYER_LEVEL}</b>. Every level pays out, and the rewards grow as you climb.` }),
+      el('ul', {},
+        el('li', { html: `<b>Every level:</b> ${itemListLine(LEVEL_UP_REWARDS.every)}.` }),
+        RARE_INCENSE_FROM_LEVEL ? el('li', { html: `<b>From level ${RARE_INCENSE_FROM_LEVEL} onwards:</b> a <b>Rare Incense</b> as well, on top of the usual haul — every level, not just the once.` }) : null,
+        ...Object.entries(LEVEL_UP_REWARDS.special)
+          .sort((a, b) => Number(a[0]) - Number(b[0]))
+          .map(([lvl, table]) => el('li', { html: `<b>Level ${lvl}:</b> ${itemListLine(table)}.` })),
+        el('li', { html: 'Jump two levels at once and you are paid for both.' })
+      ),
       el('h4', { text: 'Breeding centre' }),
       el('p', { html: `From player level <b>${BREEDING_UNLOCK_LEVEL}</b> you can pin a breeding centre anywhere — it stays there for good. Leave two creatures of the same species in a slot and they generate that family's candy (every 12 h for common and uncommon, up to 36 h for legendary), stopping at <b>${BREEDING_CANDY_CAP}</b>. They cannot battle until you collect them back from the centre itself.` }),
       el('ul', {},

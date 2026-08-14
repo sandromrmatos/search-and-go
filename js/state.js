@@ -11,8 +11,9 @@ import {
   rollShiny, chance, RULES, RAID_CAPTURE_LEVEL, RAID_CAPTURE_BONUS_CANDY,
   MISSIONS, DAILY_MISSIONS, WEEKLY_MISSIONS, breedingSlotsFor, breedingIntervalMs,
   BREEDING_CANDY_CAP, BREEDING_UNLOCK_LEVEL,
-  dustInRange, weightedPick, GRUNT_REWARD, LEVEL_UP_REWARDS,
+  dustInRange, weightedPick, GRUNT_REWARD, levelUpRewardsFor,
   buddyMetresPerCandy, stardustMultiplier, isStardustSunday, RAID_REWARD,
+  raidIncubatorChance, raidRareIncenseChance,
   rollGruntItems, RARE_INCENSE_WEIGHTS,
   EGG_TYPES, MAX_EGGS, EGG_DROP_CHANCE, EGG_HATCH_LEVEL, INCUBATOR_ITEMS, REUSABLE_INCUBATOR,
   eggDef, eggMetres, rollEggType, rollEggSpecies
@@ -397,17 +398,17 @@ class Store {
     const levelledUp = after > before;
     const rewards = [];
     if (levelledUp) {
-      // Grant rewards for every level gained (handles multi-level jumps)
+      // Grant every level gained, so a multi-level jump pays for each step.
+      // Totals are accumulated as we go and reported from the same numbers we
+      // credited, which keeps the toast honest.
+      const totals = {};
       for (let l = before + 1; l <= after; l++) {
-        for (const [id, n] of Object.entries(LEVEL_UP_REWARDS.every)) this.addItem(id, n);
-        const special = LEVEL_UP_REWARDS.special[l];
-        if (special) for (const [id, n] of Object.entries(special)) this.addItem(id, n);
+        for (const [id, n] of Object.entries(levelUpRewardsFor(l))) {
+          this.addItem(id, n);
+          totals[id] = (totals[id] || 0) + n;
+        }
       }
-      rewards.push(...Object.entries(LEVEL_UP_REWARDS.every).map(([id, n]) => ({ id, n: n * (after - before) })));
-      for (let l = before + 1; l <= after; l++) {
-        const special = LEVEL_UP_REWARDS.special[l];
-        if (special) rewards.push(...Object.entries(special).map(([id, n]) => ({ id, n })));
-      }
+      rewards.push(...Object.entries(totals).map(([id, n]) => ({ id, n })));
     }
     return { levelledUp, from: before, to: after, rewards };
   }
@@ -997,17 +998,17 @@ class Store {
       byRarity[rarity] = (byRarity[rarity] || 0) + 1;
     }
 
-    // Guaranteed loot, plus a coin-flip Single Use Incubator.
+    // Guaranteed loot, then the rarity-dependent drops. Rarity 4 and 5 bosses
+    // always hand over the incubator and can also drop a Rare Incense.
     const items = {};
-    for (const [id, n] of Object.entries(RAID_REWARD.always || {})) {
+    const drop = (id, n = 1) => {
       this.addItem(id, n);
       items[id] = (items[id] || 0) + n;
-    }
-    if (chance(RAID_REWARD.incubatorChance)) {
-      const id = RAID_REWARD.incubatorItem;
-      this.addItem(id, 1);
-      items[id] = (items[id] || 0) + 1;
-    }
+    };
+
+    for (const [id, n] of Object.entries(RAID_REWARD.always || {})) drop(id, n);
+    if (chance(raidIncubatorChance(rarity))) drop(RAID_REWARD.incubatorItem);
+    if (chance(raidRareIncenseChance(rarity))) drop(RAID_REWARD.rareIncenseItem);
 
     this.touch('raid-win', { immediate: true });
     return { xp, dust, levelUp, items, sunday: isStardustSunday() };
@@ -1367,6 +1368,10 @@ class Store {
       case 'gruntsBeaten': return this.s.stats.gruntsBeaten;
       case 'eggsHatched': return this.s.stats.eggsHatched;
       case 'raidRarity': return this.s.stats.raidsByRarity?.[m.rarity] || 0;
+      // Counted live off storage rather than a stored tally, so releasing a
+      // creature takes its contribution back with it.
+      case 'creaturesAtLevel':
+        return this.s.storage.filter(c => (Number(c.level) || 1) >= m.level).length;
       case 'capturesToday':
         return this.s.daily.date === dayKey() ? (this.s.daily.capturesToday || 0) : 0;
       // Walk missions are held in metres and shown in km by the UI.
