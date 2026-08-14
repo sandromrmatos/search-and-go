@@ -612,7 +612,8 @@ function renderInfo(tab = 'basics') {
       ),
       el('h4', { text: 'Sorting and bulk healing' }),
       el('ul', {},
-        el('li', { html: 'Storage sorts by ID, name, type, rarity, level, shiny, <b>favourite</b> or most recent. The buddy picker follows whatever you last chose.' }),
+        el('li', { html: 'Storage sorts by ID, name, type, rarity, level, <b>total stats</b>, shiny, <b>favourite</b> or most recent. Every picker — battle team, breeding, buddy — offers the same list and follows whatever you last chose.' }),
+        el('li', { html: '<b>Total stats</b> adds up HP, Attack, Defence and Speed, the same figure shown as "Total" on a creature. Tap <b>↓</b> to put your strongest first when picking a battle team.' }),
         el('li', { html: 'Tapping a <b>Potion</b> offers <b>Heal all</b>, which spends as many potions as each creature needs to reach full HP. A <b>Revive</b> offers <b>Revive all</b>. Both tell you how many they will use first.' })
       ),
       el('h4', { text: 'Steps' }),

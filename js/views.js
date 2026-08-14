@@ -50,6 +50,7 @@ const SORTERS = {
   type:   (a, b) => sp(a).type.localeCompare(sp(b).type) || order(a) - order(b),
   rarity: (a, b) => (rar(a) - rar(b)) || order(a) - order(b),
   level:  (a, b) => (a.level - b.level) || order(a) - order(b),
+  total:  (a, b) => (statTotal(a) - statTotal(b)) || order(a) - order(b),
   shiny:  (a, b) => (Number(!!b.shiny) - Number(!!a.shiny)) || order(a) - order(b),
   favourite: (a, b) => (Number(!!b.favourite) - Number(!!a.favourite)) || order(a) - order(b),
   recent: (a, b) => a.capturedAt - b.capturedAt
@@ -57,6 +58,25 @@ const SORTERS = {
 const sp = c => species(c.speciesId);
 const order = c => sp(c)?.order ?? 0;
 const rar = c => sp(c)?.rarity ?? familyRarity(c.speciesId) ?? 0;
+
+/**
+ * HP + Attack + Defence + Speed for a stored creature — the same figure the
+ * creature sheet shows as "Total".
+ *
+ * Memoised because a sort calls its comparator O(n log n) times and each call
+ * would otherwise recompute stats for two creatures. Keyed on level and species
+ * so levelling up and evolving both invalidate it; the stat modifier is rolled
+ * once at capture and never changes.
+ */
+const statTotalCache = new Map();
+export function statTotal(c) {
+  const hit = statTotalCache.get(c.uid);
+  if (hit && hit.level === c.level && hit.speciesId === c.speciesId) return hit.total;
+  const stats = creatureStats(c);
+  const total = STAT_KEYS.reduce((sum, k) => sum + stats[k], 0);
+  statTotalCache.set(c.uid, { level: c.level, speciesId: c.speciesId, total });
+  return total;
+}
 
 /* ---------------------------------------------------------------
    Tabs
