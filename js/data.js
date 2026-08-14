@@ -239,7 +239,23 @@ export const TYPE_ADVANTAGE = {
   Mechanic: 'Neutral',
   Neutral: null
 };
-export const SUPER_EFFECTIVE_MULTIPLIER = 1.2;
+export const SUPER_EFFECTIVE_MULTIPLIER = 1.4;
+
+/**
+ * attacker type -> the types that shrug its hits off.
+ *
+ * Deliberately its own table rather than the mirror of TYPE_ADVANTAGE: the two
+ * charts are unrelated. Mechanic hits Neutral hard but is resisted by the other
+ * three, and Neutral is resisted by nobody despite having no advantage itself.
+ */
+export const TYPE_RESISTANCE = {
+  Mechanic: ['Wind', 'Mystic', 'Celestial'],
+  Wind: ['Mechanic'],
+  Mystic: ['Neutral'],
+  Celestial: ['Neutral'],
+  Neutral: []
+};
+export const NOT_VERY_EFFECTIVE_MULTIPLIER = 0.7;
 
 export const BATTLE_TEAM_SIZE = 3;
 
@@ -1081,16 +1097,37 @@ export function raidBossStats(sp, level) {
   return out;
 }
 
-/** power x attack / defence, x1.2 when super effective, rounded, min 1. */
+export const isSuperEffective = (attackerType, defenderType) =>
+  TYPE_ADVANTAGE[attackerType] === defenderType;
+
+export const isNotVeryEffective = (attackerType, defenderType) =>
+  (TYPE_RESISTANCE[attackerType] || []).includes(defenderType);
+
+/**
+ * The type multiplier for one matchup, and the label for it.
+ * No pair is both strong and resisted, but advantage wins if that ever changes.
+ * @returns {{mult:number, superEffective:boolean, notVeryEffective:boolean}}
+ */
+export function effectivenessOf(attackerType, defenderType) {
+  if (isSuperEffective(attackerType, defenderType)) {
+    return { mult: SUPER_EFFECTIVE_MULTIPLIER, superEffective: true, notVeryEffective: false };
+  }
+  if (isNotVeryEffective(attackerType, defenderType)) {
+    return { mult: NOT_VERY_EFFECTIVE_MULTIPLIER, superEffective: false, notVeryEffective: true };
+  }
+  return { mult: 1, superEffective: false, notVeryEffective: false };
+}
+
+/**
+ * power x attack / defence, then the type multiplier. Rounded, min 1 — so a
+ * resisted hit still always takes at least 1 HP off.
+ */
 export function damageOf(move, attackerType, attackerAttack, defenderType, defenderDefence) {
   if (!move || move.power <= 0) return 0;
-  const mult = TYPE_ADVANTAGE[attackerType] === defenderType ? SUPER_EFFECTIVE_MULTIPLIER : 1;
+  const { mult } = effectivenessOf(attackerType, defenderType);
   const raw = (move.power * attackerAttack / Math.max(1, defenderDefence)) * mult;
   return Math.max(1, Math.round(raw));
 }
-
-export const isSuperEffective = (attackerType, defenderType) =>
-  TYPE_ADVANTAGE[attackerType] === defenderType;
 
 /* ===============================================================
    Shiny

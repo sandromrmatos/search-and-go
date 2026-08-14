@@ -477,12 +477,19 @@ function updateResetChip(now = Date.now()) {
 
   const until = msUntilNextScan(now);
   value.textContent = formatCountdown(until);
-  chip.className = 'reset-chip' + (until <= 60_000 ? ' soon' : '');
+  // "ending", not "soon": `.soon` is the full-page Coming Soon placeholder
+  // (display:grid, min-height:60vh), and stamping it on the chip stretched it
+  // to 60% of the viewport for the last minute.
+  chip.className = 'reset-chip' + (until <= 60_000 ? ' ending' : '');
 }
 
 function syncMap() {
   const active = store.activePoints();
-  GameMap.syncPoints(active);
+  // Used-up points can be hidden from the map. They stay in `active`, so they
+  // still hold their spot against new spawns — the map is just not told to
+  // draw them, and syncPoints removes any marker it no longer hears about.
+  const shown = store.s.ui.hideCollectedPoints ? active.filter(p => !p.collected) : active;
+  GameMap.syncPoints(shown);
   GameMap.syncBreeding(store.s.breeding);
   const open = active.filter(p => !p.collected).length;
   $('#spawn-count').textContent = open === 1 ? '1 point active' : `${open} points active`;
@@ -579,6 +586,14 @@ function initUI() {
     $('#btn-hide-chip').textContent = hidden ? '⟳' : '✕';
   });
   // There is deliberately no manual refresh — spawns only re-roll on the timer.
+
+  $('#opt-hide-collected').addEventListener('change', e => {
+    store.setUI({ hideCollectedPoints: e.target.checked });
+    syncMap();
+    toast(e.target.checked
+      ? 'Used points hidden — they still hold their spot'
+      : 'Used points shown again');
+  });
 
   initBattleUI({ onDone: () => { syncMap(); refreshAll(); } });
   initExtras({ onChange: () => { refreshAll(); renderMissionBadge(); } });

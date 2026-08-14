@@ -5,8 +5,8 @@
      • each turn both sides choose a move; the higher current Speed goes
        first, ties are broken at random
      • if the first attack knocks the target out, the target does not attack
-     • damage = round(power x attack / defence), x1.2 when super effective,
-       never less than 1
+     • damage = round(power x attack / defence), x1.4 when super effective and
+       x0.7 when not very effective, never less than 1
      • buff moves raise the user's own stat immediately and compound if used
        again, and the raised value is what the opponent's damage is measured against
      • when a creature faints the next one in the chosen order comes in
@@ -14,7 +14,7 @@
    ============================================================ */
 
 import {
-  damageOf, isSuperEffective, statsFor, raidBossStats, species,
+  damageOf, effectivenessOf, statsFor, raidBossStats, species,
   STAT_KEYS, STAT_LABELS, BATTLE_TEAM_SIZE, moveLevelFor
 } from './data.js';
 import { creatureStats, maxHpOf, hpOf } from './state.js';
@@ -277,7 +277,7 @@ export class Battle {
       return events;
     }
 
-    const superEff = isSuperEffective(actor.type, target.type);
+    const eff = effectivenessOf(actor.type, target.type);
     const dmg = damageOf(move, actor.type, actor.stats.attack, target.type, target.stats.defence);
     const hpBefore = target.hp;
     target.takeDamage(dmg);
@@ -285,7 +285,9 @@ export class Battle {
     events.push({
       type: 'damage', side, actor: actor.key, target: target.key,
       targetLabel: target.label,
-      amount: dmg, superEffective: superEff,
+      amount: dmg,
+      superEffective: eff.superEffective,
+      notVeryEffective: eff.notVeryEffective,
       hpBefore, hpAfter: target.hp, maxHp: target.maxHp
     });
 

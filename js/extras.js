@@ -13,7 +13,8 @@ import {
   RAID_BOSS_MODIFIERS, EGG_TYPES, EGG_DROP_CHANCE, MAX_EGGS, EGG_HATCH_LEVEL,
   STAT_GROWTH_PER_LEVEL, RAID_TIERS, GRUNT_REWARD, RAID_CAPTURE_LEVEL,
   RAID_BONUS_RARITIES, raidRareIncenseChance, LEVEL_UP_REWARDS,
-  levelUpRewardFromLevel, DUST_BONUS_PER_PLAYER_LEVEL, MAX_PLAYER_LEVEL
+  levelUpRewardFromLevel, DUST_BONUS_PER_PLAYER_LEVEL, MAX_PLAYER_LEVEL,
+  SUPER_EFFECTIVE_MULTIPLIER, NOT_VERY_EFFECTIVE_MULTIPLIER, TYPE_RESISTANCE
 } from './data.js';
 import { store, maxHpOf, hpOf, isFainted } from './state.js';
 import { itemImage, itemName, ITEMS, itemsInOrder } from './items.js';
@@ -592,7 +593,7 @@ function renderInfo(tab = 'basics') {
       keyline('🧍', 'A person in a park or garden — a battle grunt who wants a 3 v 3.'),
       keyline('⚑', 'Your breeding centre, once you place it.'),
       keyline('↑', 'Put two fingers on the map and twist to rotate it. Pins and timers stay upright; street names are printed into the map tiles so those turn with the roads. The compass button appears once you are off north — tap it to straighten up, or let go within a few degrees and it snaps back on its own.'),
-      keyline('✓', 'A green tick means you have already used that point. It stays until its timer ends.'),
+      keyline('✓', 'A green tick means you have already used that point. It stays until its timer ends. If the ticked-off pins clutter things up, <b>Profile → Map display</b> can hide them — they still hold their spot, so nothing new appears there until the timer runs out either way.'),
       el('h4', { text: 'Odds per point' }),
       el('ul', {},
         el('li', { html: `<b>${o.creature}%</b> a creature · <b>${o.discs}%</b> discs · <b>${o.items}%</b> a potion or revive · <b>${o.raid}%</b> a raid · <b>${o.nothing}%</b> nothing` }),
@@ -686,7 +687,7 @@ function renderInfo(tab = 'basics') {
         el('li', { html: 'Buff moves raise one of your own stats immediately, and stack if you use them again.' }),
         el('li', { html: 'When a creature faints the next one you chose comes in. Run out and you lose.' })
       ),
-      el('h4', { text: 'Type advantage (+20% damage)' }),
+      el('h4', { text: `Super effective (+${Math.round((SUPER_EFFECTIVE_MULTIPLIER - 1) * 100)}% damage)` }),
       el('ul', {},
         el('li', { html: '<b>Mystic</b> beats Wind' }),
         el('li', { html: '<b>Wind</b> beats Celestial' }),
@@ -694,6 +695,17 @@ function renderInfo(tab = 'basics') {
         el('li', { html: '<b>Mechanic</b> beats Neutral' }),
         el('li', { html: '<b>Neutral</b> has no advantage' })
       ),
+      el('h4', { text: `Not very effective (${Math.round(NOT_VERY_EFFECTIVE_MULTIPLIER * 100)}% of the damage)` }),
+      el('p', { html: 'Some types are shrugged off. A resisted hit still lands, it just does far less.' }),
+      el('ul', {},
+        ...Object.entries(TYPE_RESISTANCE)
+          .filter(([, against]) => against.length > 0)
+          .map(([type, against]) => el('li', {
+            html: `<b>${type}</b> is resisted by ${against.map(t => `<b>${t}</b>`).join(', ')}`
+          })),
+        el('li', { html: '<b>Neutral</b> is not resisted by anything.' })
+      ),
+      el('p', { html: 'The two charts are separate — being strong against something does not mean it is weak back. <b>Mechanic</b> hits Neutral hardest but is resisted by the other three, so it is the biggest gamble in the game.' }),
       el('h4', { text: 'After the battle' }),
       el('ul', {},
         el('li', { html: 'Damage is kept, including if you <b>leave part-way through</b> — you will be asked to confirm first. A hurt creature needs a <b>Potion</b>, a fainted one needs a <b>Revive</b>. You can heal and revive from the team picker without leaving the battle.' }),

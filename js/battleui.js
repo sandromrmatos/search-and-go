@@ -474,9 +474,11 @@ async function playTurn(moveIndex) {
       // `side` is the attacker, so the target belongs to the other side. Spell it
       // out, because both sides can be the same species.
       const who = e.side === 'player' ? 'The opposing' : 'Your';
-      logLine(e.superEffective
-        ? `<span class="crit">Super effective!</span> ${who} <b>${e.targetLabel}</b> took <b>${e.amount}</b> damage.`
-        : `${who} <b>${e.targetLabel}</b> took <b>${e.amount}</b> damage.`);
+      const hit = `${who} <b>${e.targetLabel}</b> took <b>${e.amount}</b> damage.`;
+      logLine(
+        e.superEffective ? `<span class="crit">Super effective!</span> ${hit}`
+        : e.notVeryEffective ? `<span class="resist">Not very effective…</span> ${hit}`
+        : hit);
       refreshHpOnly();
       await sleep(420);
     } else if (e.type === 'buff') {

@@ -953,15 +953,23 @@ export function openSpeciesSheet(speciesId) {
 
     // ---- base stats at level 1 ----
     el('h4', { class: 'sheet-h4', text: 'Base stats (level 1)' }),
-    el('div', { class: 'det-rows' }, ...STAT_KEYS.map(k =>
-      el('div', { class: 'stat-row' },
-        el('span', { class: 'lbl', text: STAT_LABELS[k] }),
-        el('span', { class: 'bar' },
-          el('i', { style: { width: Math.min(100, (s.baseStats[k] / STAT_BAR_MAX) * 100) + '%' } })),
-        el('span', { class: 'val', text: num(s.baseStats[k]) }),
-        el('span', { class: 'arrow', text: '' })
-      ))),
-    el('p', { class: 'hint', text: 'Each level adds 5% of the base stat. Every creature you catch also gets one stat 10% higher and another 10% lower.' }),
+    el('div', { class: 'det-rows' },
+      ...STAT_KEYS.map(k =>
+        el('div', { class: 'stat-row' },
+          el('span', { class: 'lbl', text: STAT_LABELS[k] }),
+          el('span', { class: 'bar' },
+            el('i', { style: { width: Math.min(100, (s.baseStats[k] / STAT_BAR_MAX) * 100) + '%' } })),
+          el('span', { class: 'val', text: num(s.baseStats[k]) }),
+          el('span', { class: 'arrow', text: '' })
+        )),
+      el('div', { class: 'stat-row total' },
+        el('span', { class: 'lbl', text: 'Total' }),
+        el('span', { class: 'bar' }),
+        el('span', { class: 'val', text: num(STAT_KEYS.reduce((sum, k) => sum + s.baseStats[k], 0)) }),
+        el('span', { class: 'arrow' })
+      )
+    ),
+    el('p', { class: 'hint', text: `Each level adds ${Math.round(STAT_GROWTH_PER_LEVEL * 100)}% of the base stat. Every creature you catch also gets one stat 10% higher and another 10% lower.` }),
 
     // ---- everything the line can learn, across the whole family ----
     el('h4', { class: 'sheet-h4', text: `Moves (${lineMoves.length})` }),
@@ -1123,6 +1131,9 @@ export function renderProfile() {
   if (distEl) {
     distEl.textContent = metres >= 1000 ? `${(metres / 1000).toFixed(2)} km` : `${num(metres)} m`;
   }
+
+  const hideUsed = $('#opt-hide-collected');
+  if (hideUsed) hideUsed.checked = !!store.s.ui.hideCollectedPoints;
 
   // candy per family, highest first
   const host = $('#candy-list');
