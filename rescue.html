@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Save Rescue — Search and Go</title>
+<style>
+  :root { --bg:#0b1024; --panel:#151d3f; --line:#ffffff1f; --txt:#eef1ff; --muted:#9aa3bd;
+          --good:#4ade80; --bad:#ff6b6b; --accent:#7b8cff; --warn:#ffd166; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:16px; background:var(--bg); color:var(--txt);
+         font:15px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  h1 { font-size:19px; margin:0 0 4px; }
+  h2 { font-size:15px; margin:18px 0 8px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:14px; margin:12px 0; }
+  .banner { border-color:#ffd16688; background:#ffd1661a; }
+  .banner.bad { border-color:#ff6b6b88; background:#ff6b6b1a; }
+  .banner.good { border-color:#4ade8088; background:#4ade801a; }
+  button { font:inherit; font-weight:600; padding:12px 16px; margin:6px 6px 0 0;
+           border-radius:12px; border:1px solid var(--line); background:#ffffff14; color:var(--txt); }
+  button.primary { background:linear-gradient(135deg,#7b8cff,#9a6bff); border-color:#7b8cff; color:#0b1024; }
+  button:disabled { opacity:.45; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  td { padding:5px 0; border-bottom:1px solid var(--line); vertical-align:top; }
+  td:first-child { color:var(--muted); width:45%; }
+  td:last-child { text-align:right; font-weight:600; font-variant-numeric:tabular-nums; }
+  pre { max-height:220px; overflow:auto; background:#05070f; border:1px solid var(--line);
+        border-radius:10px; padding:10px; font-size:11px; white-space:pre-wrap; word-break:break-all; }
+  .muted { color:var(--muted); }
+  .small { font-size:13px; }
+  code { background:#05070f; padding:1px 5px; border-radius:5px; font-size:13px; }
+</style>
+</head>
+<body>
+
+<h1>Save Rescue</h1>
+<p class="muted small">
+  Read-only. This page never writes to your save, never opens a file for writing,
+  and does not load any game code.
+</p>
+
+<div class="card banner">
+  <b>Keep the game closed</b> until you have downloaded a copy from here.
+  Opening the game starts a scan, and a scan writes to the same database this page is reading.
+</div>
+
+<div id="origin" class="card small"></div>
+
+<h2>Browser database</h2>
+<div id="idb" class="card">Checking…</div>
+
+<h2>Linked save file</h2>
+<div id="handle" class="card">Checking…</div>
+
+<h2>All keys found</h2>
+<div id="keys" class="card small muted">Checking…</div>
+
+<script>
+/* ============================================================
+   Standalone, read-only. Mirrors persist.js constants only.
+   ============================================================ */
+const DB_NAME    = 'search-and-go';
+const KV_STORE   = 'kv';
+const KEY_SAVE   = 'save';
+const KEY_HANDLE = 'saveFileHandle';
+
+const PLAYER_LEVEL_XP = {
+  1:0, 2:25, 3:100, 4:250, 5:1000, 6:2000, 7:3500, 8:6000,
+  9:10000, 10:15000, 11:22000, 12:30000, 13:42000, 14:60000, 15:80000
+};
+const levelFor = xp => {
+  let lvl = 1;
+  for (let l = 2; l <= 15; l++) { if (xp >= PLAYER_LEVEL_XP[l]) lvl = l; else break; }
+  return lvl;
+};
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c]));
+const when = ms => (Number(ms) > 0 ? new Date(Number(ms)).toLocaleString() : 'no timestamp');
+const n = v => Number(v || 0).toLocaleString();
+
+/** Read-only open. No version argument, so it can never trigger an upgrade. */
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+    req.onblocked = () => reject(new Error('The database is blocked by another open tab. Close the game everywhere and reload.'));
+  });
+}
+
+function getAll(db) {
+  return new Promise((resolve, reject) => {
+    if (!db.objectStoreNames.contains(KV_STORE)) return resolve(null);
+    const tx = db.transaction(KV_STORE, 'readonly');   // readonly, always
+    const store = tx.objectStore(KV_STORE);
+    const out = {};
+    const kq = store.getAllKeys();
+    kq.onsuccess = () => {
+      const keys = kq.result || [];
+      let left = keys.length;
+      if (!left) return resolve({ keys: [], values: {} });
+      for (const k of keys) {
+        const r = store.get(k);
+        r.onsuccess = () => { out[k] = r.result; if (--left === 0) resolve({ keys, values: out }); };
+        r.onerror = () => { if (--left === 0) resolve({ keys, values: out }); };
+      }
+    };
+    kq.onerror = () => reject(kq.error);
+  });
+}
+
+function summaryTable(save) {
+  const xp = Number(save.xp) || 0;
+  const rows = [
+    ['Saved at', when(save.savedAt)],
+    ['Nickname', save.nickname || '(none set)'],
+    ['Player level', levelFor(xp)],
+    ['XP', n(xp)],
+    ['Stardust', n(save.stardust)],
+    ['Creatures stored', n((save.storage || []).length)],
+    ['Species registered', n(Object.keys(save.registered || {}).length)],
+    ['Total captures', n(save.stats?.captures)],
+    ['Raids won', n(save.stats?.raidsWon)],
+    ['Grunts beaten', n(save.stats?.gruntsBeaten)],
+    ['Eggs hatched', n(save.stats?.eggsHatched)],
+    ['Steps', n(save.stats?.steps)],
+    ['Map points held', n((save.points || []).length)]
+  ];
+  return '<table>' + rows.map(([k, v]) =>
+    `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('') + '</table>';
+}
+
+function download(obj, tag) {
+  const stamp = new Date(Number(obj.savedAt) || Date.now())
+    .toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `RECOVERED-${tag}-${stamp}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+/* ---------------- origin + quota ---------------- */
+(async () => {
+  let quota = '';
+  try {
+    const est = await navigator.storage?.estimate?.();
+    if (est) quota = ` · using <b>${(est.usage / 1048576).toFixed(2)} MB</b> of quota-managed storage`;
+  } catch {}
+  let persisted = '';
+  try { persisted = (await navigator.storage?.persisted?.()) ? ' · storage marked persistent' : ' · storage NOT persistent'; } catch {}
+  $('origin').innerHTML =
+    `Origin <code>${esc(location.origin)}</code>${quota}${persisted}<br>` +
+    `<span class="muted">Saves are tied to this exact origin. If this is not the address you normally play on, that alone explains a fresh account.</span>`;
+})();
+
+/* ---------------- the save record ---------------- */
+(async () => {
+  const box = $('idb');
+  const keysBox = $('keys');
+  try {
+    // Only open if it already exists, so this page never creates a database.
+    if (indexedDB.databases) {
+      const list = await indexedDB.databases();
+      // No `list.length` guard here: an empty list is the real "storage was
+      // wiped" answer, and falling through would have indexedDB.open() create
+      // a stray empty database and report the wrong thing.
+      if (!list.some(d => d.name === DB_NAME)) {
+        box.className = 'card banner bad';
+        box.innerHTML = `<b>No database called <code>${DB_NAME}</code> on this origin.</b><br>
+          <span class="muted">Either this is the wrong origin, or the storage was cleared.</span>`;
+        keysBox.textContent = '—';
+        return;
+      }
+    }
+
+    const db = await openDB();
+    const res = await getAll(db);
+
+    if (!res) {
+      box.className = 'card banner bad';
+      box.innerHTML = `<b>Database exists but has no <code>${KV_STORE}</code> store.</b>`;
+      keysBox.textContent = '—';
+      return;
+    }
+
+    keysBox.innerHTML = res.keys.length
+      ? res.keys.map(k => `<code>${esc(k)}</code>`).join(' ')
+      : 'The store is empty.';
+
+    const save = res.values[KEY_SAVE];
+    if (!save) {
+      box.className = 'card banner bad';
+      box.innerHTML = `<b>No <code>${KEY_SAVE}</code> record.</b><br>
+        <span class="muted">The database is here but the save entry is gone.</span>`;
+      return;
+    }
+
+    const stored = (save.storage || []).length;
+    const looksEmpty = stored === 0 && (Number(save.xp) || 0) === 0;
+    box.className = 'card banner ' + (looksEmpty ? 'bad' : 'good');
+    box.innerHTML =
+      (looksEmpty
+        ? '<b>Found a save, but it looks like the fresh empty account.</b>'
+        : `<b>Found your save — ${n(stored)} creatures.</b>`) +
+      summaryTable(save) +
+      '<button class="primary" id="dl-idb">Download this save</button>' +
+      '<button id="raw-idb">Show raw JSON</button>' +
+      '<div id="raw-idb-box"></div>';
+
+    $('dl-idb').onclick = () => download(save, 'indexeddb');
+    $('raw-idb').onclick = () => {
+      $('raw-idb-box').innerHTML = '<pre>' + esc(JSON.stringify(save, null, 1)) + '</pre>';
+    };
+  } catch (e) {
+    box.className = 'card banner bad';
+    box.innerHTML = `<b>Could not read the database.</b><br><span class="muted">${esc(e.message || e)}</span>`;
+  }
+})();
+
+/* ---------------- the linked file handle ---------------- */
+(async () => {
+  const box = $('handle');
+  try {
+    if (indexedDB.databases) {
+      const list = await indexedDB.databases();
+      if (!list.some(d => d.name === DB_NAME)) { box.textContent = '—'; return; }
+    }
+    const db = await openDB();
+    const res = await getAll(db);
+    const h = res?.values?.[KEY_HANDLE];
+
+    if (!h) {
+      box.innerHTML = `<b>No linked file handle stored.</b><br>
+        <span class="muted">The game had no device file linked, so it was only writing to the browser
+        database. That also means it has not overwritten any file on your phone.</span>`;
+      return;
+    }
+
+    let perm = 'unknown';
+    try { perm = await h.queryPermission?.({ mode: 'read' }) ?? 'granted'; } catch {}
+
+    box.innerHTML =
+      `<table>
+         <tr><td>File name</td><td>${esc(h.name || '(unknown)')}</td></tr>
+         <tr><td>Read permission</td><td>${esc(perm)}</td></tr>
+       </table>
+       <p class="small muted">The browser will not reveal the folder, but the name is the file the game
+       was auto-saving into. Tap below to read what is in it right now — this opens it for
+       <b>reading only</b>.</p>
+       <button class="primary" id="read-file">Read that file</button>
+       <div id="file-out"></div>`;
+
+    $('read-file').onclick = async () => {
+      const out = $('file-out');
+      out.textContent = 'Requesting permission…';
+      try {
+        const p = await h.requestPermission?.({ mode: 'read' }) ?? 'granted';
+        if (p !== 'granted') { out.innerHTML = '<p class="small">Permission was refused.</p>'; return; }
+        const file = await h.getFile();
+        const text = await file.text();
+        const data = JSON.parse(text);
+        out.innerHTML =
+          `<p class="small muted">Last modified ${esc(new Date(file.lastModified).toLocaleString())}
+             · ${n(file.size)} bytes
+             · ${text.includes('\n') ? 'indented (a manual backup)' : 'single line (an auto-save)'}</p>` +
+          summaryTable(data) +
+          '<button class="primary" id="dl-file">Download this file\'s contents</button>';
+        $('dl-file').onclick = () => download(data, 'linked-file');
+      } catch (e) {
+        out.innerHTML = `<p class="small">Could not read it: ${esc(e.message || e)}</p>`;
+      }
+    };
+  } catch (e) {
+    box.innerHTML = `<span class="muted">${esc(e.message || e)}</span>`;
+  }
+})();
+</script>
+</body>
+</html>
