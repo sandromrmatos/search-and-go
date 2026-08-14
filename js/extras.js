@@ -529,6 +529,11 @@ function renderInfo(tab = 'basics') {
   if (tab === 'basics') {
     const o = Object.fromEntries(POI_OUTCOMES.map(x => [x.kind, x.weight]));
     out.push(
+      el('h4', { text: 'Creatures' }),
+      el('p', { html: `There are <b>5 types</b> of creatures: <b>Mystic</b>, <b>Wind</b>, <b>Neutral</b>, <b>Celestial</b> and <b>Mechanic</b>.` }),
+      el('p', { html: `Creatures come in <b>5 rarities</b>: <b>Common</b> or rarity 1, <b>Uncommon</b> or rarity 2, <b>Rare</b> or rarity 3, <b>Epic</b> or rarity 4, and <b>Legendary</b> or rarity 5.` }),
+      el('p', { html: `Each species has <b>3 possible stages</b>: <b>Stage 1</b>, <b>Stage 2</b>, and <b>Stage 3</b>. You can only catch <b>Stage 1 creatures</b> in the wild — you need to <b>evolve</b> them to get their Stage 2 and Stage 3 forms.` }),
+      el('h4', { text: 'The map' }),
       el('p', { html: `Real shops, cafes and other amenities around you become points on the map. Everything within <b>${RULES.SCAN_RADIUS_M} m</b> is checked, and the whole map re-rolls every <b>${RULES.SCAN_INTERVAL_MS / 60000} minutes</b>.` }),
       el('p', { html: `You must be within <b>${RULES.CAPTURE_RANGE_M} m</b> of a point to interact with it — creatures, items, raids, grunts and the breeding centre all use the same rule. The green circle around you shows that reach. It widens to <b>${RULES.RELAX_RANGE_M} m</b> during <b>${RELAX_HOUR_LABEL}</b>, see Daily events below.` }),
       el('h4', { text: 'What each icon means' }),
@@ -594,9 +599,7 @@ function renderInfo(tab = 'basics') {
         el('li', { html: buddyRarityLine() }),
         el('li', { html: 'A buddy can still battle, level up and evolve. It <b>cannot be released</b>, on its own or through multi-select, and creatures in the breeding centre cannot be buddies.' }),
         el('li', { html: 'Swapping or removing a buddy loses the part-walked progress towards the current candy.' })
-      ),
-      el('h4', { text: 'Debug tools' }),
-      el('p', { html: `The 🛠 tools are only available to the trainer named <b>${DEBUG_TRAINER_NAME}</b>. Under any other name the button is hidden and the fake location and range override are ignored.` })
+      )
     );
   }
 
@@ -615,7 +618,7 @@ function renderInfo(tab = 'basics') {
         el('li', { html: 'Potions cannot be used during a battle, or on a creature that has fainted.' }),
         el('li', { html: 'Only one incense and one Stardust Magnet can run at a time. <b>Rare Incense</b> shares the incense slot, so it cannot stack with a plain one.' }),
         el('li', { html: `<b>Rare Incense</b> spawns on the same 2-minute rhythm but with far better odds: ${rareIncenseLine()}. Compare that to a wild spawn at ${wildOddsLine()}.` }),
-        el('li', { html: `<b>Incubators</b> do nothing yet. You get one <b>Incubator</b> at player level 5, and a <b>Single Use Incubator</b> from about <b>${pct(RAID_REWARD.incubatorChance)}</b> of raid wins, plus several from the raid missions. Hold on to them — what they hatch is coming later.` })
+        el('li', { html: `<b>Incubators</b> let you hatch eggs by walking. The plain <b>Incubator</b> is reusable — it ties up until the egg hatches, then you can use it again. A <b>Single Use Incubator</b> is consumed the moment you start it. You get a plain incubator at player level 5, and single use incubators from raid wins (about ${pct(RAID_REWARD.incubatorChance)} chance) and several missions.` })
       )
     );
   }
@@ -688,9 +691,12 @@ function renderInfo(tab = 'basics') {
       el('h4', { text: 'Stat Boosters and the Research Lab' }),
       el('p', { html: 'Another new item coming soon is the <b>Stat Booster</b>! If you’ve been collecting candy from creatures you don’t plan to level up, and aren’t sure what to do with the extras, the new <b>Research Lab</b> building will let you convert that spare candy into Stat Boosters. More details on how these work will be revealed soon…' }),
       el('h4', { text: 'More candy' }),
-      el('p', { html: 'Struggling to find enough candy to level up your strongest Epic and Legendary creatures? <b>New ways to obtain candy are on the way!</b> Hope you’ve got good precision…' })
+      el('p', { html: 'Struggling to find enough candy to level up your strongest Epic and Legendary creatures? <b>New ways to obtain candy are on the way!</b> Hope you’ve got good precision…' }),
+      el('h4', { text: 'Mythical rarity' }),
+      el('p', { html: 'A new rarity, <b>rarity 6</b> or <b>mythical</b>, is planned to come in the future. You won&apos;t be able to catch more than one and they are extremely powerful.' })
     );
   }
 
   body.append(...out.filter(Boolean));
 }
+

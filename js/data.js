@@ -154,9 +154,10 @@ export const MAX_CREATURE_LEVEL = 10;
 /** Every creature level adds 10% of the base stat (linear, not compounding). */
 export const STAT_GROWTH_PER_LEVEL = 0.10;
 
+/** Total XP needed to reach each player level. */
 export const PLAYER_LEVEL_XP = {
   1: 0, 2: 25, 3: 100, 4: 250, 5: 1000, 6: 2000, 7: 3500, 8: 6000,
-  9: 10000, 10: 15000, 11: 22000, 12: 30000, 13: 38000, 14: 45000, 15: 50000
+  9: 10000, 10: 15000, 11: 22000, 12: 30000, 13: 42000, 14: 60000, 15: 80000
 };
 /** Every player level grants these items. Level 3 also awards a breeding centre. */
 export const LEVEL_UP_REWARDS = {

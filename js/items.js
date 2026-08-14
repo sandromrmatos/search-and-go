@@ -94,20 +94,18 @@ export const ITEMS = {
     name: 'Incubator',
     plural: 'Incubators',
     image: 'incubator.png',
-    use: 'none',
-    soon: true,
+    use: 'egg',
     order: 8,
-    blurb: 'A reusable incubator, awarded at player level 5. What it hatches is coming in a later update.'
+    blurb: 'Reusable. Put an egg in, walk the distance, and it frees up for the next one. It can only hold one egg at a time. You get one at player level 5.'
   },
   single_use_incubator: {
     id: 'single_use_incubator',
     name: 'Single Use Incubator',
     plural: 'Single Use Incubators',
     image: 'single use incubator.png',
-    use: 'none',
-    soon: true,
+    use: 'egg',
     order: 9,
-    blurb: 'A one-shot incubator, often dropped by raid bosses. What it hatches is coming in a later update.'
+    blurb: 'Holds one egg and is used up the moment you start it. Dropped by raid wins and handed out by several missions.'
   }
 };
 
