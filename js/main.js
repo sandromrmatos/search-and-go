@@ -6,7 +6,7 @@ import {
   loadDatabase, DB, RULES, SETS, RARITY_NAMES, species, familyName,
   BREEDING_UNLOCK_LEVEL, isRelaxHour
 } from './data.js';
-import { Persist } from './persist.js';
+import { Persist, progressOf } from './persist.js';
 import { store } from './state.js';
 import { Geo, distance, parseCoords, formatDistance, offsetMeters } from './geo.js';
 import { fetchPOIs, clearPOICache } from './osm.js';
@@ -63,6 +63,112 @@ function dlog(...parts) {
 }
 
 /* ===============================================================
+   Save guard reporting
+   =============================================================== */
+let warnedBlockedAt = 0;
+
+/**
+ * A refused write means the game is holding a blank account while the device
+ * still has real progress. That is recoverable, but only if the player stops
+ * and does something about it, so say so loudly rather than in a toast.
+ */
+function warnSaveBlocked() {
+  const g = store.saveBlocked;
+  if (!g) return;
+  if (Date.now() - warnedBlockedAt < 60_000) return;   // don't spam every autosave
+  warnedBlockedAt = Date.now();
+
+  dlog(`Save refused: would have blanked a save with ${g.existing.creatures} creatures`);
+  toast('Saving is paused to protect your existing progress — open Profile', 'bad', 6000);
+
+  const el = $('#save-guard-banner');
+  if (el) {
+    el.classList.remove('hidden');
+    el.innerHTML =
+      `<b>Saving is paused.</b> This device still holds a save with ` +
+      `<b>${g.existing.creatures} creatures</b> and ` +
+      `<b>${Number(g.existing.xp).toLocaleString()} XP</b> ` +
+      `(saved ${g.existingSavedAt ? new Date(g.existingSavedAt).toLocaleString() : 'earlier'}), ` +
+      `but the game is running an empty account. Nothing has been overwritten. ` +
+      `Reload the game to try loading it again, or use Reset all progress if you really want to start over.`;
+  }
+}
+
+/* ===============================================================
+   Recovery gate
+
+   Shown instead of the game when a save should exist but could not be loaded.
+   Nothing here starts the game loop, so no autosave can run and overwrite
+   whatever is still on the device.
+   =============================================================== */
+function showRecoveryGate() {
+  const boot = $('#boot');
+  const snap = store.loadRecoverable;
+  const readFailed = store.loadReadFailed;
+
+  const snapLine = snap
+    ? `<p class="small" style="color:#b9ffd0;margin:0 0 4px">
+         Newest snapshot: <b>${new Date(snap.savedAt).toLocaleString()}</b> —
+         ${snap.progress.creatures} creatures, ${Number(snap.progress.xp).toLocaleString()} XP.
+       </p>`
+    : `<p class="small" style="color:#ffd9a8;margin:0 0 4px">No snapshot was found on this device.</p>`;
+
+  boot.innerHTML = `
+    <div style="max-width:38ch;text-align:center;padding:20px">
+      <h1 style="margin:0 0 8px;font-size:20px">Your save did not load</h1>
+      <p style="color:#ffd9a8;margin:0 0 12px">
+        ${readFailed
+          ? 'The save could not be read. It may still be on this device.'
+          : 'No save was found, but this device has a snapshot, so one should exist.'}
+      </p>
+      <p class="small" style="color:#98a1c8;margin:0 0 14px">
+        The game has <b>not</b> started, so nothing has been overwritten.
+        Do not skip past this unless you are happy to start over.
+      </p>
+      ${snapLine}
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
+        <button id="rg-retry" class="btn primary">Try loading again</button>
+        ${snap ? '<button id="rg-snap" class="btn">Restore that snapshot</button>' : ''}
+        <button id="rg-import" class="btn">Restore from a backup file…</button>
+        <button id="rg-fresh" class="btn ghost">Start a new account anyway</button>
+      </div>
+      <input id="rg-file" type="file" accept="application/json,.json" hidden />
+      <p id="rg-msg" class="small" style="color:#ff9b9b;margin:12px 0 0"></p>
+    </div>`;
+
+  const say = m => { const n = $('#rg-msg'); if (n) n.textContent = m; };
+
+  $('#rg-retry').addEventListener('click', () => location.reload());
+
+  $('#rg-snap')?.addEventListener('click', async () => {
+    try {
+      await store.replace(snap.data);          // force-writes, so the guard allows it
+      toast('Snapshot restored', 'good', 3600);
+      location.reload();
+    } catch (e) { say(e.message || 'Could not restore that snapshot'); }
+  });
+
+  $('#rg-import').addEventListener('click', () => $('#rg-file').click());
+  $('#rg-file').addEventListener('change', async e => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const data = await Persist.importFile(file);
+      if (progressOf(data).empty && !confirm('That backup looks empty. Restore it anyway?')) return;
+      await store.replace(data);
+      location.reload();
+    } catch { say('That file could not be read as a save.'); }
+  });
+
+  $('#rg-fresh').addEventListener('click', async () => {
+    if (!confirm('Start a brand-new account? Anything still on this device will be replaced.')) return;
+    await store.reset();                       // explicit, so it force-writes
+    location.reload();
+  });
+}
+
+/* ===============================================================
    Boot
    =============================================================== */
 async function boot() {
@@ -78,6 +184,17 @@ async function boot() {
     Persist.onStatusChange = () => renderSaveStatus();
     const src = await store.load();
     dlog(`Save loaded from: ${src}`);
+
+    // A brand-new player and a save we simply could not read look identical
+    // from here. Treating the second as the first is what destroys a save, so
+    // stop and ask rather than starting a fresh account that would autosave
+    // over it. Returning here means the game loop never starts, so nothing
+    // writes while the player decides.
+    if (src === 'none' && (store.loadReadFailed || store.loadRecoverable)) {
+      dlog(`Save missing (readFailed=${store.loadReadFailed}) — holding at the recovery gate`);
+      showRecoveryGate();
+      return;
+    }
 
     msg('Setting up…');
     setMissionsRenderer(renderMissions);
@@ -112,6 +229,14 @@ async function boot() {
     GameMap.invalidate();
 
     onLocation(Geo.current);
+
+    // Say it once per session if progress is only in the browser. This is the
+    // failure that goes unnoticed for days, so it should not need a visit to
+    // Profile to discover.
+    if (!Persist.status().autoFileSave && store.s.storage.length > 0) {
+      toast('Your progress is only saved in this browser — link a save file in Profile', 'bad', 6500);
+      dlog('Warning: no device file is being auto-saved');
+    }
 
     // Ask for a nickname the very first time someone plays.
     if (!store.nickname) openNicknamePrompt({ firstRun: true });
@@ -741,7 +866,12 @@ function initUI() {
   initDebugPanel();
 
   // repaint the HUD and the missions badge whenever the save changes
-  store.subscribe(() => { renderHUD(); renderMissionBadge(); syncDebugButton(); });
+  store.subscribe((_s, reason) => {
+    renderHUD();
+    renderMissionBadge();
+    syncDebugButton();
+    if (reason === 'save-blocked') warnSaveBlocked();
+  });
   syncDebugButton();
 }
 

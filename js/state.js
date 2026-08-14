@@ -329,6 +329,12 @@ class Store {
     this._saving = false;
     this.lastSavedAt = 0;
     this.loadedFrom = 'none';
+    /** Set when the last save was refused to protect existing progress. */
+    this.saveBlocked = null;
+    /** True when loading hit a read error rather than finding nothing. */
+    this.loadReadFailed = false;
+    /** A snapshot that could be restored, when the save went missing. */
+    this.loadRecoverable = null;
   }
 
   /* ---------------- plumbing ---------------- */
@@ -346,37 +352,57 @@ class Store {
     this._saveTimer = setTimeout(() => this.flush(), 700);
   }
 
-  async flush() {
+  /**
+   * `force` bypasses the "do not blank an existing save" guard, and is only for
+   * changes the player asked for explicitly: Reset all progress, and importing
+   * or restoring a save.
+   */
+  async flush({ force = false } = {}) {
     clearTimeout(this._saveTimer);
     if (this._saving) { this._pendingFlush = true; return; }
     this._saving = true;
     try {
-      this.lastSavedAt = await Persist.writeNow(this.s);
+      const at = await Persist.writeNow(this.s, { force });
+      // null means the write was refused to protect existing progress.
+      if (at == null) {
+        this.saveBlocked = Persist.guardTripped;
+        this.emit('save-blocked');
+      } else {
+        this.lastSavedAt = at;
+        this.saveBlocked = null;
+      }
     } catch (e) {
       console.error('[state] save failed', e);
     } finally {
       this._saving = false;
-      if (this._pendingFlush) { this._pendingFlush = false; this.flush(); }
+      if (this._pendingFlush) { this._pendingFlush = false; this.flush({ force }); }
     }
   }
 
+  /**
+   * Loads without writing anything. `readFailed` and `recoverable` are kept so
+   * the caller can refuse to start a fresh account over a save it merely failed
+   * to read.
+   */
   async load() {
-    const { data, source } = await Persist.load();
+    const { data, source, readFailed, recoverable } = await Persist.load();
     this.s = migrate(data);
     this.loadedFrom = source;
+    this.loadReadFailed = !!readFailed;
+    this.loadRecoverable = recoverable || null;
     this.emit('load');
     return source;
   }
 
   async replace(raw) {
     this.s = migrate(raw);
-    await this.flush();
+    await this.flush({ force: true });
     this.emit('load');
   }
 
   async reset() {
     this.s = blankState();
-    await this.flush();
+    await this.flush({ force: true });
     this.emit('load');
   }
 

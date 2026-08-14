@@ -679,6 +679,16 @@ a { color: var(--accent); }
 /* player-facing settings switch, same shape as the debug ones */
 .opt-toggle { display: flex; align-items: center; gap: 9px; padding: 4px 0 2px; font-size: 13.5px; }
 .opt-toggle input { width: 18px; height: 18px; accent-color: var(--accent); flex: 0 0 auto; }
+
+/* save-integrity notices, loudest first */
+.save-guard {
+  margin: 0 0 10px; padding: 10px 12px; border-radius: 12px; font-size: 13px; line-height: 1.5;
+  background: #ff6b6b1f; border: 1px solid #ff6b6b88; color: #ffd9d9;
+}
+.save-warn {
+  margin: 0 0 10px; padding: 9px 12px; border-radius: 12px; font-size: 13px; line-height: 1.5;
+  background: #ffd1661a; border: 1px solid #ffd16677; color: #ffe9c2;
+}
 .dbg-coords { display: flex; gap: 8px; margin: 4px 0 8px; }
 .dbg-coords label { flex: 1; display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--muted); }
 .dbg-coords input {

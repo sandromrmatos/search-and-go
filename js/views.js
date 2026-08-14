@@ -1168,6 +1168,29 @@ export function renderSaveStatus() {
   bits.push(st.persisted ? 'Browser storage is marked persistent.' : 'Browser storage is not persistent (may be evicted under pressure).');
   if (store.lastSavedAt) bits.push(`Last saved ${new Date(store.lastSavedAt).toLocaleTimeString()}.`);
   $('#save-status').textContent = bits.join(' ');
+
+  // Keep the red guard banner in step with the live state.
+  const guard = $('#save-guard-banner');
+  if (guard && !store.saveBlocked) guard.classList.add('hidden');
+
+  // A silent unlink is what cost a save before: the game kept running and kept
+  // saving to the browser only, and said nothing. Call it out whenever there is
+  // real progress at stake.
+  const warn = $('#save-warn');
+  if (warn) {
+    const atStake = store.s.storage.length;
+    const unprotected = !st.autoFileSave && atStake > 0;
+    warn.classList.toggle('hidden', !unprotected);
+    if (unprotected) {
+      warn.innerHTML = st.linked
+        ? `<b>Not auto-saving to your file.</b> "${st.fileName}" lost permission, so your
+           ${atStake} creatures only exist in this browser. Tap
+           <b>Re-link / change save file</b> below, and take a backup now.`
+        : `<b>No save file linked.</b> Your ${atStake} creatures only exist in this browser,
+           which can be cleared without warning. Tap <b>Link save file on device</b> below,
+           and take a backup now.`;
+    }
+  }
   $('#btn-link-file').textContent = st.linked ? 'Re-link / change save file' : 'Link save file on device';
   $('#btn-link-file').disabled = !st.supportsFS;
   $('#btn-load-file').disabled = !st.supportsFS;

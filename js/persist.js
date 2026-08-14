@@ -16,9 +16,36 @@ const KV_STORE = 'kv';
 const KEY_SAVE = 'save';
 const KEY_HANDLE = 'saveFileHandle';
 
+const KEY_SNAPSHOTS = 'snapshots';
+
 export const SAVE_FILENAME = 'search-and-go-save.json';
 
+/* How many rolling snapshots to keep, and how far apart they have to be.
+   These are a last line of defence: they live under their own key, so a bad
+   write to `save` cannot touch them. */
+export const SNAPSHOT_KEEP = 6;
+export const SNAPSHOT_GAP_MS = 3 * 3_600_000;   // 3 hours
+
 let idb = null;
+
+/**
+ * How much progress a save represents, and whether it is effectively blank.
+ * Used to refuse writes that would replace real progress with a fresh account.
+ */
+export function progressOf(save) {
+  if (!save || typeof save !== 'object') {
+    return { creatures: 0, xp: 0, captures: 0, registered: 0, empty: true };
+  }
+  const creatures = Array.isArray(save.storage) ? save.storage.length : 0;
+  const xp = Number(save.xp) || 0;
+  const captures = Number(save.stats?.captures) || 0;
+  const registered = save.registered && typeof save.registered === 'object'
+    ? Object.keys(save.registered).length : 0;
+  return {
+    creatures, xp, captures, registered,
+    empty: creatures === 0 && xp === 0 && captures === 0 && registered === 0
+  };
+}
 
 /* ---------------------------------------------------------------
    IndexedDB primitives
@@ -76,6 +103,10 @@ export const Persist = {
   persisted: false,
   lastError: null,
   onStatusChange: null,
+  /** Set when a write was refused for trying to blank an existing save. */
+  guardTripped: null,
+  /** When the device file was last written successfully. */
+  lastFileWriteAt: 0,
 
   /* ---------- lifecycle ---------- */
 
@@ -123,7 +154,9 @@ export const Persist = {
       fileName: this.fileHandle?.name || null,
       filePermission: this.filePermission,
       persisted: this.persisted,
-      autoFileSave: !!this.fileHandle && this.filePermission === 'granted'
+      autoFileSave: !!this.fileHandle && this.filePermission === 'granted',
+      lastFileWriteAt: this.lastFileWriteAt,
+      guardTripped: this.guardTripped
     };
   },
 
@@ -133,24 +166,39 @@ export const Persist = {
    * Reads the newest available save. Prefers whichever of the local file
    * or the IndexedDB copy has the later `savedAt` stamp.
    */
+  /**
+   * Reads the newest available save. Prefers whichever of the local file
+   * or the IndexedDB copy has the later `savedAt` stamp.
+   *
+   * `readFailed` distinguishes "this is a brand-new player" from "we could not
+   * read the save" — those look identical otherwise, and treating the second as
+   * the first is what destroys a save.
+   */
   async load() {
-    let fromIDB = null, fromFile = null;
+    let fromIDB = null, fromFile = null, readFailed = false;
 
     try { fromIDB = await idbGet(KEY_SAVE) || null; }
-    catch (e) { this.lastError = e; }
+    catch (e) { this.lastError = e; readFailed = true; }
 
     if (this.fileHandle && this.filePermission === 'granted') {
       try { fromFile = await this._readFile(this.fileHandle); }
-      catch (e) { this.lastError = e; }
+      catch (e) { this.lastError = e; readFailed = true; }
+    }
+
+    // Nothing loaded, but a snapshot with progress exists: the save is missing
+    // rather than absent, so the caller must not start a fresh account.
+    let recoverable = null;
+    if (!fromIDB && !fromFile) {
+      recoverable = await this.newestSnapshot();
     }
 
     if (fromFile && fromIDB) {
       const pick = (fromFile.savedAt || 0) > (fromIDB.savedAt || 0) ? fromFile : fromIDB;
-      return { data: pick, source: pick === fromFile ? 'file' : 'idb' };
+      return { data: pick, source: pick === fromFile ? 'file' : 'idb', readFailed, recoverable };
     }
-    if (fromFile) return { data: fromFile, source: 'file' };
-    if (fromIDB) return { data: fromIDB, source: 'idb' };
-    return { data: null, source: 'none' };
+    if (fromFile) return { data: fromFile, source: 'file', readFailed, recoverable };
+    if (fromIDB) return { data: fromIDB, source: 'idb', readFailed, recoverable };
+    return { data: null, source: 'none', readFailed, recoverable };
   },
 
   async _readFile(handle) {
@@ -162,8 +210,34 @@ export const Persist = {
 
   /* ---------- saving ---------- */
 
-  /** Immediate write to every available layer. */
-  async writeNow(data) {
+  /**
+   * Immediate write to every available layer.
+   *
+   * Guarded: a blank account will never be allowed to overwrite a save that
+   * still holds progress. That is exactly how a save gets destroyed — the game
+   * fails to read it, starts a fresh account, and the first autosave lands on
+   * top. Deliberate wipes (Reset all progress, importing a backup) pass
+   * `force: true`.
+   *
+   * @returns {Promise<number|null>} the savedAt stamp, or null if refused.
+   */
+  async writeNow(data, { force = false } = {}) {
+    if (!force && progressOf(data).empty) {
+      let existing = null;
+      try { existing = await idbGet(KEY_SAVE) || null; } catch { /* fall through and allow */ }
+      const before = progressOf(existing);
+      if (existing && !before.empty) {
+        // Refuse outright: nothing is written to the database or the file.
+        this.guardTripped = {
+          at: Date.now(),
+          existing: before,
+          existingSavedAt: Number(existing.savedAt) || 0
+        };
+        this._emit();
+        return null;
+      }
+    }
+
     const payload = { ...data, savedAt: Date.now() };
     try { await idbSet(KEY_SAVE, payload); }
     catch (e) { this.lastError = e; }
@@ -173,6 +247,7 @@ export const Persist = {
         const w = await this.fileHandle.createWritable();
         await w.write(new Blob([JSON.stringify(payload)], { type: 'application/json' }));
         await w.close();
+        this.lastFileWriteAt = payload.savedAt;
       } catch (e) {
         this.lastError = e;
         // Permission may have lapsed (e.g. file moved / access revoked).
@@ -180,7 +255,47 @@ export const Persist = {
         this._emit();
       }
     }
+
+    await this._maybeSnapshot(payload);
     return payload.savedAt;
+  },
+
+  /* ---------- rolling snapshots ---------- */
+
+  /**
+   * Keeps a short history of known-good saves under their own key, spaced out
+   * in time. Map points are dropped: they are transient and would double the
+   * size for no recovery value.
+   */
+  async _maybeSnapshot(payload) {
+    if (progressOf(payload).empty) return;      // never snapshot a blank account
+    try {
+      const list = (await idbGet(KEY_SNAPSHOTS)) || [];
+      const last = list[list.length - 1];
+      if (last && (payload.savedAt - (last.savedAt || 0)) < SNAPSHOT_GAP_MS) return;
+
+      const { points, ...keep } = payload;
+      list.push({ savedAt: payload.savedAt, progress: progressOf(payload), data: keep });
+      while (list.length > SNAPSHOT_KEEP) list.shift();
+      await idbSet(KEY_SNAPSHOTS, list);
+    } catch (e) {
+      this.lastError = e;   // never let snapshotting break a real save
+    }
+  },
+
+  /** Newest last. Each entry is { savedAt, progress, data }. */
+  async snapshots() {
+    try { return (await idbGet(KEY_SNAPSHOTS)) || []; }
+    catch { return []; }
+  },
+
+  /** The most recent snapshot that actually holds progress, or null. */
+  async newestSnapshot() {
+    const list = await this.snapshots();
+    for (let i = list.length - 1; i >= 0; i--) {
+      if (list[i] && !progressOf(list[i].data).empty) return list[i];
+    }
+    return null;
   },
 
   /* ---------- device file linking ---------- */
