@@ -90,6 +90,9 @@ function blankState() {
     /** Day + 8-hour slot of the last "grunt at your feet" spawn, e.g. "2026-08-13#1". */
     gruntWindow: null,
 
+    /** Newest news entry the player has seen, as a timestamp. */
+    newsSeenAt: 0,
+
     stats: {
       captures: 0, evolutions: 0, deletes: 0, levelUps: 0, scans: 0,
       raidsWon: 0, gruntsBeaten: 0, itemsCollected: 0, shinies: 0,
@@ -106,7 +109,11 @@ function blankState() {
       filterType: '', filterStage: '', filterRarity: '', setIndex: 0,
       // Hides the ticked-off points on the map. They stay live underneath and
       // keep their spot reserved — this only stops them being drawn.
-      hideCollectedPoints: false
+      hideCollectedPoints: false,
+      /** Collection shows shiny artwork, with silhouettes for shinies not caught. */
+      collectionShiny: false,
+      /** Storage is filtered to one family root id, or '' for everything. */
+      storageFamily: ''
     }
   };
 }
@@ -716,6 +723,23 @@ class Store {
   hasShinyCaught(speciesId) { return !!this.s.shinyCaught?.[speciesId]; }
   totalCaughtOf(speciesId) { return this.s.caughtCount?.[speciesId] || 0; }
   get registeredCount() { return Object.keys(this.s.registered).length; }
+  get shinyCaughtCount() { return Object.keys(this.s.shinyCaught || {}).length; }
+
+  /* ---------------- news ---------------- */
+
+  /** How many entries are newer than the last visit to the News tab. */
+  unreadNewsCount(entries) {
+    const seen = Number(this.s.newsSeenAt) || 0;
+    return (entries || []).filter(e => e.at > seen).length;
+  }
+
+  /** Called when the News tab is opened. Returns the previous mark. */
+  markNewsSeen(now = Date.now()) {
+    const before = Number(this.s.newsSeenAt) || 0;
+    this.s.newsSeenAt = now;
+    this.touch('news');
+    return before;
+  }
 
   register(speciesId) {
     if (this.s.registered[speciesId]) return false;

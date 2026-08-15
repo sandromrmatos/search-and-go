@@ -82,6 +82,7 @@ export function openBattle(point) {
  * storage untouched. Now it confirms, then writes the current HP out.
  */
 export function closeBattle() {
+  endPeek();
   if (busy) return;
 
   const b = ctx?.battle;
@@ -215,6 +216,84 @@ function ultraDiscNotice() {
    Step 2: team picker
    --------------------------------------------------------------- */
 
+/* ---------------------------------------------------------------
+   Move preview
+
+   Hold a creature in the team picker to see the moves it will actually bring
+   into this battle; let go and you are back to choosing, with nothing selected.
+   --------------------------------------------------------------- */
+
+const PEEK_DELAY_MS = 320;
+let peekTimer = null;
+let peekEl = null;
+/** Set while a preview is open so the release click does not also select. */
+let peekConsumed = false;
+
+function startPeek(c) {
+  clearTimeout(peekTimer);
+  peekTimer = setTimeout(() => showPeek(c), PEEK_DELAY_MS);
+}
+
+function endPeek() {
+  clearTimeout(peekTimer);
+  peekTimer = null;
+  if (peekEl) {
+    peekEl.remove();
+    peekEl = null;
+    peekConsumed = true;   // swallow the click that ends this press
+  }
+}
+
+/** True once, if the press that just ended had opened a preview. */
+function consumePeek() {
+  const was = peekConsumed;
+  peekConsumed = false;
+  return was;
+}
+
+function showPeek(c) {
+  const s = species(c.speciesId);
+  if (!s) return;
+  const st = creatureStats(c);
+  const max = maxHpOf(c), hp = hpOf(c);
+  // Exactly the move list battlerFromCreature will hand to the battle.
+  const moves = s.movesAt(c.level, c.moveUnlock);
+
+  peekEl?.remove();
+  peekEl = el('div', { class: 'move-peek' },
+    el('div', { class: 'move-peek-card' },
+      el('div', { class: 'move-peek-top' },
+        el('img', { src: s.spritePath(c.shiny), alt: s.name }),
+        el('div', {},
+          el('b', { text: s.name + (c.shiny ? ' ★' : '') }),
+          el('div', { class: 'muted small', text: `Lv ${c.level} · ${s.type} · ${hp}/${max} HP` }),
+          el('div', { class: 'small', text: `${st.attack} Atk · ${st.defence} Def · ${st.speed} Spd` })
+        )
+      ),
+      moves.length
+        ? el('div', { class: 'move-list' }, ...moves.map(m =>
+            el('div', { class: 'move' },
+              el('div', { class: 'move-top' },
+                el('b', { text: m.name }),
+                el('span', { class: 'lv', text: m.isBuff ? 'Buff' : `${m.power} pw` })
+              ),
+              el('div', { class: 'move-meta' },
+                m.isBuff
+                  ? el('span', { class: 'bf', text: `Raises ${STAT_LABELS[m.buffStat]} by ${Math.round(m.buffPct * 100)}%` })
+                  : el('span', { class: 'pw', text: `${m.power} power` })
+              )
+            )))
+        : el('p', { class: 'hint', text: 'No moves yet.' }),
+      el('p', { class: 'hint', text: 'Let go to go back to choosing.' })
+    )
+  );
+  document.body.append(peekEl);
+}
+
+// A press that ends anywhere must still close the preview.
+window.addEventListener('pointerup', endPeek);
+window.addEventListener('pointercancel', endPeek);
+
 function showPicker() {
   ctx.picked = [];
   pickPage = 0;
@@ -267,7 +346,18 @@ function renderPicker() {
 
     grid.append(el('button', {
       class: 'cell' + (idx >= 0 ? ' picked' : ''),
-      onclick: () => togglePick(c.uid)
+      onclick: e => {
+        // A long press opened the move preview, so this click is the release of
+        // that press, not a choice.
+        if (consumePeek()) { e.preventDefault(); return; }
+        togglePick(c.uid);
+      },
+      onpointerdown: () => startPeek(c),
+      onpointerup: endPeek,
+      onpointercancel: endPeek,
+      onpointerleave: endPeek,
+      // Stop the mobile long-press menu fighting the preview.
+      oncontextmenu: e => e.preventDefault()
     },
       idx >= 0 ? el('span', { class: 'pick-order', text: String(idx + 1) }) : null,
       el('span', { class: 'lvl', text: 'Lv' + c.level }),

@@ -95,11 +95,17 @@ export function renderStorageTabs() {
   itemTab.innerHTML = 'Items';
   if (total) itemTab.append(el('span', { class: 'tab-badge', text: String(total) }));
 
+  const family = store.s.ui.storageFamily;
+  const shown = family
+    ? store.s.storage.filter(c => familyRoot(c.speciesId) === family).length
+    : store.s.storage.length;
   $('#storage-count').textContent = tab === 'items'
     ? `${total} item${total === 1 ? '' : 's'}`
     : tab === 'eggs'
       ? `${store.eggs.length} of ${MAX_EGGS} eggs`
-      : `${store.s.storage.length} stored`;
+      : family
+        ? `${shown} of ${store.s.storage.length} shown`
+        : `${store.s.storage.length} stored`;
 }
 
 /* The sorted creature list, cached so prev/next arrows can walk it. */
@@ -113,16 +119,28 @@ export function renderStorage() {
   if (store.s.ui.storageTab === 'eggs') return renderEggs();
 
   const grid = $('#storage-grid');
-  const { storageSort, storageDir } = store.s.ui;
+  const { storageSort, storageDir, storageFamily } = store.s.ui;
+
+  // An active family filter narrows the list before sorting, so paging, the
+  // pager and the sheet's prev/next arrows all stay inside the filter.
+  const source = storageFamily
+    ? store.s.storage.filter(c => familyRoot(c.speciesId) === storageFamily)
+    : store.s.storage;
+  renderStorageFilterBar(storageFamily, source.length);
+
   // Sort the whole collection first, then cut it into pages.
-  sortedStorage = [...store.s.storage].sort(SORTERS[storageSort] || SORTERS.id);
+  sortedStorage = [...source].sort(SORTERS[storageSort] || SORTERS.id);
   if (storageDir < 0) sortedStorage.reverse();
 
   const page = clampPage(store.s.ui.storagePage, sortedStorage.length);
   if (page !== store.s.ui.storagePage) store.s.ui.storagePage = page;
   const list = pageSlice(sortedStorage, page);
 
-  $('#storage-empty').classList.toggle('hidden', sortedStorage.length > 0);
+  const empty = $('#storage-empty');
+  empty.classList.toggle('hidden', sortedStorage.length > 0);
+  empty.textContent = storageFamily
+    ? `No ${familyName(storageFamily)} in your storage.`
+    : 'Nothing here yet. Go catch something!';
   $('#storage-sort').value = storageSort;
   $('#storage-dir').textContent = storageDir > 0 ? '↑' : '↓';
 
@@ -191,6 +209,40 @@ export function renderStorage() {
   } else if (bar) {
     bar.remove();
   }
+}
+
+/**
+ * The "showing only this family" chip. Always visible while a filter is on, so
+ * a persisted filter can never leave someone staring at an empty grid with no
+ * way out.
+ */
+function renderStorageFilterBar(familyRootId, count) {
+  const bar = $('#storage-filter-bar');
+  if (!bar) return;
+  bar.classList.toggle('hidden', !familyRootId);
+  bar.innerHTML = '';
+  if (!familyRootId) return;
+
+  bar.append(
+    el('span', { class: 'filter-chip' },
+      el('span', { text: `🎒 ${familyName(familyRootId)} line · ${count}` }),
+      el('button', {
+        class: 'chip-x',
+        title: 'Show everything again',
+        onclick: () => {
+          store.setUI({ storageFamily: '', storagePage: 0 });
+          renderStorage();
+        }
+      }, '✕')
+    ),
+    el('button', {
+      class: 'mini-btn',
+      onclick: () => {
+        store.setUI({ storageFamily: '', storagePage: 0 });
+        renderStorage();
+      }
+    }, 'Show all')
+  );
 }
 
 /** Page controls under the storage grid, plus swipe on the grid itself. */
@@ -849,6 +901,17 @@ export function renderCollection() {
   $('#filter-stage').value = ui.filterStage || '';
   $('#filter-rarity').value = ui.filterRarity || '';
 
+  // Shiny mode is a completion view: the same species list, but showing the
+  // shiny artwork for the ones you have caught shiny and a silhouette for the
+  // rest, so you can see what is still missing.
+  const shinyMode = !!ui.collectionShiny;
+  const shinyBtn = $('#collection-shiny');
+  if (shinyBtn) {
+    shinyBtn.textContent = shinyMode ? '★ Shiny' : '☆ Shiny';
+    shinyBtn.classList.toggle('fav-active', shinyMode);
+    shinyBtn.title = shinyMode ? 'Showing your shiny collection' : 'Show your shiny collection';
+  }
+
   let list = DB.species.filter(s => {
     if (ui.filterType && s.type !== ui.filterType) return false;
     if (ui.filterStage && String(s.stage) !== String(ui.filterStage)) return false;
@@ -862,24 +925,46 @@ export function renderCollection() {
     list = [...list].sort((a, b) => store.countOfSpecies(b.id) - store.countOfSpecies(a.id) || a.order - b.order);
   }
 
-  const registeredHere = list.filter(s => store.isRegistered(s.id)).length;
+  const have = s => (shinyMode ? store.hasShinyCaught(s.id) : store.isRegistered(s.id));
+  const haveHere = list.filter(have).length;
+  const totalHave = shinyMode ? store.shinyCaughtCount : store.registeredCount;
+  const word = shinyMode ? 'shiny' : 'registered';
   $('#collection-count').textContent =
-    `${registeredHere} / ${list.length} registered` +
-    (list.length !== DB.species.length ? ` (filtered · ${store.registeredCount} / ${DB.species.length} total)` : '');
+    `${haveHere} / ${list.length} ${word}` +
+    (list.length !== DB.species.length ? ` (filtered · ${totalHave} / ${DB.species.length} total)` : '');
 
   const grid = $('#collection-grid');
   grid.innerHTML = '';
   const frag = document.createDocumentFragment();
   for (const s of list) {
     const known = store.isRegistered(s.id);
+    const got = have(s);
+
+    // In shiny mode the art is always the shiny one; not-yet-caught shinies are
+    // blacked out to a silhouette. A handful of species have no shiny file, so
+    // fall back to the normal art — the silhouette filter hides the difference.
+    const img = el('img', {
+      src: shinyMode ? s.shinyPath : s.imagePath,
+      alt: s.name,
+      loading: 'lazy'
+    });
+    if (shinyMode) {
+      img.addEventListener('error', () => { img.src = s.imagePath; }, { once: true });
+    }
+
     frag.append(el('button', {
-      class: 'cell' + (known ? '' : ' locked'),
+      class: 'cell'
+        + (shinyMode ? (got ? ' shiny' : ' shadow') : (known ? '' : ' locked')),
       onclick: () => openSpeciesSheet(s.id)
     },
       s.rarity ? el('span', { class: `rar r-${s.rarity}`, text: s.rarity }) : null,
-      el('img', { src: s.imagePath, alt: s.name, loading: 'lazy' }),
+      shinyMode && got ? el('span', { class: 'shiny-star', text: '★' }) : null,
+      img,
       el('span', { class: 'nm', text: s.name }),
-      el('span', { class: `sub ${known ? 't-' + s.type : ''}`, text: known ? s.type : '???' }),
+      el('span', {
+        class: `sub ${got && known ? 't-' + s.type : ''}`,
+        text: shinyMode ? (got ? s.type : 'Not caught') : (known ? s.type : '???')
+      }),
       el('span', { class: 'stg', text: 'S' + s.stage })
     ));
   }
@@ -1012,10 +1097,38 @@ export function openSpeciesSheet(speciesId) {
 
     chain.length > 1 ? el('p', { class: 'hint', text: 'Family: ' + chain.map(x => x.name).join(' → ') }) : null,
     s.stage === 1
-      ? el('p', { class: 'hint', text: 'Found in the wild at shops and amenities.' })
-      : el('p', { class: 'hint', text: 'Only obtainable by evolving with candy.' })
+      ? el('p', { class: 'hint', text: 'Found in the wild at shops, amenities, tourist spots, bus stops and industrial buildings.' })
+      : el('p', { class: 'hint', text: 'Only obtainable by evolving with candy.' }),
+
+    // Jump to everything you own from this line, whichever stage it is in.
+    el('div', { class: 'btn-row' },
+      el('button', {
+        class: 'btn primary',
+        onclick: () => showFamilyInStorage(s.id)
+      }, '🎒 Show in your storage')
+    ),
+    el('p', { class: 'hint', text: `Filters Storage to your ${familyName(s.id)} line — every stage, ${chain.length > 1 ? 'pre-evolutions and evolutions included' : 'this creature only'}.` })
   );
   openSheet('sheet');
+}
+
+/**
+ * Filters Storage to one family and shows it. The whole line is included, so it
+ * does not matter which stage you opened this from.
+ */
+export function showFamilyInStorage(speciesId) {
+  const root = familyRoot(speciesId);
+  const owned = store.s.storage.filter(c => familyRoot(c.speciesId) === root).length;
+
+  closeSheet('sheet');
+  store.setUI({ storageFamily: root, storageTab: 'creatures', storagePage: 0 });
+
+  // Drive the real nav button so the active view, the highlight and the render
+  // all stay in step — view switching lives in that handler.
+  document.querySelector('.nav-btn[data-view="storage"]')?.click();
+  renderStorage();
+
+  if (!owned) toast(`You have no ${familyName(speciesId)} in storage yet`, '', 3200);
 }
 
 /* ===============================================================

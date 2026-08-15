@@ -396,6 +396,25 @@ a { color: var(--accent); }
 .cell .sub { font-size: 10px; color: var(--muted); }
 .cell.locked img { filter: grayscale(1) brightness(.42) contrast(.85); opacity: .8; }
 .cell.locked .nm { color: var(--muted); }
+
+/* a shiny you have not caught yet: a flat silhouette */
+.cell.shadow img { filter: brightness(0) contrast(0); opacity: .5; }
+.cell.shadow .nm { color: var(--muted); }
+.cell.shadow .sub { color: #6f7796; }
+
+/* "showing only this family" chip above the storage grid */
+.filter-bar { display: flex; align-items: center; gap: 8px; padding: 0 14px 8px; }
+.filter-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 8px 6px 11px; border-radius: 99px; font-size: 12.5px;
+  background: linear-gradient(135deg, #7b8cff33, #9a6bff22);
+  border: 1px solid #7b8cff66; color: var(--txt);
+}
+.filter-chip .chip-x {
+  width: 20px; height: 20px; border-radius: 50%; flex: 0 0 auto;
+  background: #ffffff1f; border: 1px solid var(--line); color: var(--txt);
+  font-size: 11px; line-height: 1;
+}
 .cell .lvl {
   position: absolute; top: 5px; left: 5px; font-size: 10px; font-weight: 700;
   background: #0b1024cc; border: 1px solid var(--line); border-radius: 99px; padding: 1px 6px;
@@ -844,6 +863,26 @@ a { color: var(--accent); }
 .bt-roster { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
 .bt-roster .cell { padding: 8px 4px; }
 
+/* ---- team picker: hold-to-peek move preview ---- */
+.move-peek {
+  position: fixed; inset: 0; z-index: 9000;
+  display: grid; place-items: center; padding: 22px;
+  background: #05070fcc; backdrop-filter: blur(3px);
+  pointer-events: none;                 /* never swallows the release */
+  animation: fade .12s ease;
+}
+@keyframes fade { from { opacity: 0; } }
+.move-peek-card {
+  width: 100%; max-width: 320px; max-height: 76vh; overflow: hidden;
+  background: var(--panel-solid); border: 1px solid #7b8cff66; border-radius: 18px;
+  padding: 14px; box-shadow: 0 12px 40px #000b;
+}
+.move-peek-top { display: flex; align-items: center; gap: 11px; margin-bottom: 10px; }
+.move-peek-top img { width: 64px; height: 64px; object-fit: contain; flex: 0 0 auto; }
+.move-peek-top b { font-size: 15px; }
+.move-peek .move-list { max-height: 46vh; overflow: hidden; }
+.move-peek .hint { margin: 8px 0 0; text-align: center; }
+
 /* ---- team picker ---- */
 .cell.picked { border-color: var(--accent); box-shadow: 0 0 0 2px #7b8cff66 inset; }
 .cell .pick-order {
@@ -942,6 +981,34 @@ a { color: var(--accent); }
 .nav.nav-5 { grid-template-columns: repeat(5, 1fr); }
 .nav.nav-5 .nav-btn { font-size: 9.5px; }
 .nav.nav-5 .nav-btn span { font-size: 18px; }
+.nav.nav-6 { grid-template-columns: repeat(6, 1fr); }
+.nav.nav-6 .nav-btn { font-size: 8.5px; }
+.nav.nav-6 .nav-btn span { font-size: 17px; }
+
+/* ============================================================
+   NEWS
+   ============================================================ */
+.news-list { display: flex; flex-direction: column; gap: 10px; padding: 4px 12px 20px; }
+.news-item {
+  position: relative; padding: 13px 14px; border-radius: 14px;
+  background: var(--panel-solid); border: 1px solid var(--line);
+}
+.news-item.unread { border-color: #ffd16688; box-shadow: 0 0 14px #ffd16622; }
+.news-item.unread::before {
+  content: ""; position: absolute; top: 13px; right: 13px;
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--accent2); box-shadow: 0 0 8px var(--accent2);
+}
+.news-when { font-size: 11.5px; color: var(--muted); letter-spacing: .3px; }
+.news-item h3 { margin: 3px 0 7px; font-size: 15px; padding-right: 18px; }
+.news-item p { margin: 0 0 7px; font-size: 13.5px; line-height: 1.6; color: #c9d2f2; }
+.news-item p:last-child { margin-bottom: 0; }
+.news-item b { color: var(--txt); }
+.news-new-tag {
+  display: inline-block; margin-left: 7px; padding: 1px 7px; border-radius: 99px;
+  font-size: 9.5px; font-weight: 800; letter-spacing: .4px;
+  background: var(--accent2); color: #241c00; vertical-align: 2px;
+}
 
 /* the tab glows when something is claimable */
 .nav-btn.glow span {

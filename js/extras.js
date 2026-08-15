@@ -583,7 +583,7 @@ function renderInfo(tab = 'basics') {
       el('p', { html: `Creatures come in <b>5 rarities</b>: <b>Common</b> or rarity 1, <b>Uncommon</b> or rarity 2, <b>Rare</b> or rarity 3, <b>Epic</b> or rarity 4, and <b>Legendary</b> or rarity 5.` }),
       el('p', { html: `Each species has <b>3 possible stages</b>: <b>Stage 1</b>, <b>Stage 2</b>, and <b>Stage 3</b>. You can only catch <b>Stage 1 creatures</b> in the wild — you need to <b>evolve</b> them to get their Stage 2 and Stage 3 forms.` }),
       el('h4', { text: 'The map' }),
-      el('p', { html: `Real shops, cafes and other amenities around you become points on the map. Everything within <b>${RULES.SCAN_RADIUS_M} m</b> is checked, and the whole map re-rolls every <b>${RULES.SCAN_INTERVAL_MS / 60000} minutes</b>.` }),
+      el('p', { html: `Real places around you become points on the map: <b>shops</b>, <b>cafes and other amenities</b>, <b>tourist spots</b>, <b>bus stops</b>, and <b>industrial and service buildings</b>. Everything within <b>${RULES.SCAN_RADIUS_M} m</b> is checked, and the whole map re-rolls every <b>${RULES.SCAN_INTERVAL_MS / 60000} minutes</b>. <b>Parks and gardens</b> are the exception — they produce battle grunts instead of loot.` }),
       el('p', { html: `You must be within <b>${RULES.CAPTURE_RANGE_M} m</b> of a point to interact with it — creatures, items, raids, grunts and the breeding centre all use the same rule. The green circle around you shows that reach. It widens to <b>${RULES.RELAX_RANGE_M} m</b> during <b>${RELAX_HOUR_LABEL}</b>, see Daily events below.` }),
       el('h4', { text: 'What each icon means' }),
       keyline('✦', 'Flickering stars — a wild creature. You only see which one after you catch it.'),

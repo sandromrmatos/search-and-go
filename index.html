@@ -115,6 +115,7 @@
           <button id="storage-dir" class="mini-btn" title="Toggle sort direction">↑</button>
           <button id="btn-multi-select" class="mini-btn" title="Select multiple to release">☐</button>
         </div>
+        <div id="storage-filter-bar" class="filter-bar hidden"></div>
         <div id="storage-grid" class="grid"></div>
         <p id="storage-empty" class="empty">Nothing here yet. Go catch something!</p>
       </div>
@@ -175,6 +176,7 @@
               <option value="caught">Times caught</option>
             </select>
           </label>
+          <button id="collection-shiny" class="mini-btn" title="Show your shiny collection">☆ Shiny</button>
           <button id="filter-reset" class="mini-btn">Reset</button>
         </div>
         <div class="collection-progress">
@@ -204,6 +206,15 @@
       </div>
       <div id="missions-list" class="mission-list"></div>
       <div id="daily-timer" class="daily-timer hidden"></div>
+    </section>
+
+    <!-- NEWS VIEW -->
+    <section class="view view-news" id="view-news">
+      <div class="view-head">
+        <h2>News</h2>
+        <div class="view-head-right"><span id="news-count" class="muted"></span></div>
+      </div>
+      <div id="news-list" class="news-list"></div>
     </section>
 
     <!-- PROFILE VIEW -->
@@ -293,11 +304,12 @@
   </main>
 
   <!-- ---- BOTTOM NAV ---- -->
-  <nav class="nav nav-5">
+  <nav class="nav nav-6">
     <button class="nav-btn active" data-view="map"><span>🗺</span>Map</button>
     <button class="nav-btn" data-view="storage"><span>🎒</span>Storage</button>
     <button class="nav-btn" data-view="collection"><span>📖</span>Collection</button>
     <button class="nav-btn" data-view="missions" id="nav-missions"><span>🎯</span>Missions</button>
+    <button class="nav-btn" data-view="news" id="nav-news"><span>📰</span>News</button>
     <button class="nav-btn" data-view="profile"><span>👤</span>Profile</button>
   </nav>
 </div>

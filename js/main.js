@@ -26,6 +26,7 @@ import {
   initExtras, renderMissions, renderMissionBadge, openBreeding
 } from './extras.js';
 import { setMissionsRenderer } from './views.js';
+import { renderNews, renderNewsBadge, loadNews } from './news.js';
 import { initEggs, maybePromptHatch, showEggDropPopup } from './eggs.js';
 import { $, $$, el, toast, wireSheetClosers, openSheet, closeSheet, num } from './ui.js';
 
@@ -223,6 +224,10 @@ async function boot() {
     renderMissionBadge();
     syncMap();
     startLoop();
+
+    // The news file is small and optional, so let it land in the background —
+    // the badge appears once it has.
+    loadNews().then(renderNewsBadge);
 
     $('#boot').classList.add('hidden');
     $('#app').classList.remove('hidden');
@@ -684,6 +689,7 @@ function initUI() {
     $$('.nav-btn').forEach(b => b.classList.toggle('active', b === btn));
     $$('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
     renderView(name);
+    if (name === 'news') renderNews();
     if (name === 'map') GameMap.invalidate();
   }));
 
@@ -774,6 +780,16 @@ function initUI() {
     renderStorage();
   });
   $('#btn-multi-select').addEventListener('click', () => enterMultiSelect());
+
+  // ---- collection shiny view ----
+  $('#collection-shiny').addEventListener('click', () => {
+    const on = !store.s.ui.collectionShiny;
+    store.setUI({ collectionShiny: on });
+    renderCollection();
+    toast(on
+      ? 'Showing your shiny collection — silhouettes are the ones still missing'
+      : 'Back to your normal collection');
+  });
 
   // ---- collection filters + set nav ----
   $('#filter-type').addEventListener('change', e => { store.setUI({ filterType: e.target.value }); renderCollection(); });

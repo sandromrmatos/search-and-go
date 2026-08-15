@@ -1,8 +1,10 @@
 /* ============================================================
    osm.js — OpenStreetMap POI lookup through the Overpass API
 
-   Any node/way/relation carrying a `shop=*` or `amenity=*` tag
-   inside the scan radius becomes a candidate spawn point.
+   A node/way/relation inside the scan radius becomes a candidate spawn point
+   when it carries any of: shop=*, amenity=*, tourism=*, highway=bus_stop,
+   building=industrial, building=service, leisure=park or leisure=garden.
+   The two leisure values produce grunts; everything else produces loot.
    Map data © OpenStreetMap contributors (ODbL).
    ============================================================ */
 
@@ -56,12 +58,16 @@ function remember(key, lat, lng, radius, pois) {
 
 function buildQuery(lat, lng, radius) {
   const la = lat.toFixed(7), ln = lng.toFixed(7);
-  // shops/amenities become creature, item, disc and raid points;
+  // Everything except parks becomes creature, item, disc and raid points;
   // parks and gardens are where battle grunts hang around.
   return `[out:json][timeout:25];
 (
   nwr["shop"](around:${radius},${la},${ln});
   nwr["amenity"](around:${radius},${la},${ln});
+  nwr["tourism"](around:${radius},${la},${ln});
+  nwr["highway"="bus_stop"](around:${radius},${la},${ln});
+  nwr["building"="industrial"](around:${radius},${la},${ln});
+  nwr["building"="service"](around:${radius},${la},${ln});
   nwr["leisure"="park"](around:${radius},${la},${ln});
   nwr["leisure"="garden"](around:${radius},${la},${ln});
 );
@@ -78,7 +84,10 @@ function labelFor(tags) {
   return tags.name || tags['name:en'] || tags.brand || tags.operator ||
     (tags.shop ? prettify(tags.shop) : null) ||
     (tags.amenity ? prettify(tags.amenity) : null) ||
+    (tags.tourism ? prettify(tags.tourism) : null) ||
     (tags.leisure ? prettify(tags.leisure) : null) ||
+    (tags.highway === 'bus_stop' ? 'Bus Stop' : null) ||
+    (tags.building ? prettify(tags.building) + ' Building' : null) ||
     'Point of interest';
 }
 
@@ -150,13 +159,39 @@ function hostOf(u) { try { return new URL(u).host; } catch { return u; } }
  */
 const PARK_LEISURE = new Set(['park', 'garden']);
 
+/** Only these building values count — most buildings are just houses. */
+const BUILDING_KINDS = new Set(['industrial', 'service']);
+
+/**
+ * What sort of point this element is, or null when it is not one we use.
+ *
+ * Order matters. Shops and amenities win so existing behaviour is untouched
+ * (a kiosk inside a park stays a shop), and parks are checked before the newer
+ * sources because `isPark` routes a POI into the grunt roll instead of the loot
+ * roll. Anything that falls through is dropped.
+ */
+function classify(tags) {
+  if (tags.shop) return { kind: 'shop', kindValue: tags.shop };
+  if (tags.amenity) return { kind: 'amenity', kindValue: tags.amenity };
+  if (PARK_LEISURE.has(tags.leisure)) {
+    return { kind: 'park', kindValue: tags.leisure, isPark: true, isGarden: tags.leisure === 'garden' };
+  }
+  if (tags.tourism) return { kind: 'tourism', kindValue: tags.tourism };
+  if (tags.highway === 'bus_stop') return { kind: 'transport', kindValue: 'bus_stop' };
+  if (BUILDING_KINDS.has(tags.building)) return { kind: 'building', kindValue: tags.building };
+  return null;
+}
+
 function normalise(json, origin, radius) {
   const out = [];
   const seen = new Set();
   for (const el of json.elements || []) {
     const tags = el.tags || {};
-    const isPark = PARK_LEISURE.has(tags.leisure);
-    if (!tags.shop && !tags.amenity && !isPark) continue;
+    // This gate is separate from the query: without it, anything Overpass
+    // returns that we do not classify would be parsed and thrown away.
+    const info = classify(tags);
+    if (!info) continue;
+    const isPark = !!info.isPark;
     const pt = elementPoint(el);
     if (!pt) continue;
     // Overpass's `around` filter already guarantees the element's geometry
@@ -170,18 +205,16 @@ function normalise(json, origin, radius) {
     const id = `${el.type}/${el.id}`;
     if (seen.has(id)) continue;
     seen.add(id);
-    // A place tagged as both a shop and a park counts as a shop.
-    const kind = tags.shop ? 'shop' : tags.amenity ? 'amenity' : 'park';
     out.push({
       id,
       lat: pt.lat,
       lng: pt.lng,
       name: labelFor(tags),
-      kind,
-      kindValue: tags.shop || tags.amenity || tags.leisure,
-      isPark: kind === 'park',
+      kind: info.kind,
+      kindValue: info.kindValue,
+      isPark,
       // Gardens are green space too, but they roll a much lower grunt chance.
-      isGarden: kind === 'park' && tags.leisure === 'garden',
+      isGarden: !!info.isGarden,
       distance: d
     });
   }
@@ -189,7 +222,7 @@ function normalise(json, origin, radius) {
   return out;
 }
 
-/** Splits a POI list into the shop/amenity points and the parks. */
+/** Splits a POI list into the loot-bearing points and the parks. */
 export function splitPOIs(pois) {
   return {
     places: pois.filter(p => !p.isPark),
