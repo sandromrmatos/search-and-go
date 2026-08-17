@@ -6,6 +6,7 @@ import {
   loadDatabase, DB, RULES, SETS, RARITY_NAMES, species, familyName,
   BREEDING_UNLOCK_LEVEL, isRelaxHour, RAID_INVASION_LABEL
 } from './data.js';
+import { Weather } from './weather.js';
 import { Persist, progressOf } from './persist.js';
 import { store } from './state.js';
 import { Geo, distance, parseCoords, formatDistance, offsetMeters } from './geo.js';
@@ -20,7 +21,8 @@ import { initBattleUI, openBattle, isBattleOpen } from './battleui.js';
 import {
   renderHUD, renderStorage, renderCollection, renderProfile, renderSaveStatus,
   initCollectionFilters, refreshAll, renderView, renderStorageTabs,
-  renderEffectChips, openNicknamePrompt, setViewHooks, enterMultiSelect
+  renderEffectChips, openNicknamePrompt, setViewHooks, enterMultiSelect,
+  renderWeatherChip
 } from './views.js';
 import {
   initExtras, renderMissions, renderMissionBadge, openBreeding
@@ -217,6 +219,10 @@ async function boot() {
       dlog(`Debug location restored: ${dbg.lat}, ${dbg.lng}`);
     }
 
+    // Repaint the chip the moment a reading lands, rather than waiting for the
+    // next save change to trigger a HUD repaint.
+    Weather.onChange(renderWeatherChip);
+
     Geo.onChange(onLocation);
     Geo.start();
 
@@ -313,22 +319,25 @@ function trackSteps(pos) {
   }
 }
 
+/* Nothing about the player's position is shown on the map any more — no
+   coordinates, no accuracy. A location problem would otherwise be completely
+   silent, so it is reported once as a toast instead of a permanent chip. */
+let geoErrorShown = false;
+
 function onLocation(pos) {
-  const badge = $('#geo-status');
   if (!pos) {
-    badge.className = 'geo-status err';
-    badge.textContent = Geo.error || 'Waiting for location…';
+    if (!geoErrorShown) {
+      geoErrorShown = true;
+      toast(Geo.error || 'Waiting for location…', 'bad', 4200);
+    }
     return;
   }
+  geoErrorShown = false;
   trackSteps(pos);
   GameMap.setPlayer(pos);
-  if (Geo.usingFake) {
-    badge.className = 'geo-status fake';
-    badge.textContent = `🛠 Fake location · ${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}`;
-  } else {
-    badge.className = 'geo-status';
-    badge.textContent = `📍 ${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)} · ±${Math.round(pos.accuracy)} m`;
-  }
+  // A fresh fix is the moment to check the temperature. Cheap: the module
+  // ignores the call unless the reading is stale or the player has moved on.
+  Weather.refresh(pos);
 }
 
 async function scanWhenReady() {
@@ -642,6 +651,10 @@ function startLoop() {
     }
 
     GameMap.tick(now, Geo.current, { range: interactRange() });
+
+    // Keeps the temperature current while the player stands still, since a
+    // stationary device may not emit another location event for a long time.
+    if (Geo.current) Weather.refresh(Geo.current);
 
     // One trainer walks up to you per 8-hour window. Checked on the loop
     // rather than only at boot, so a window that rolls over while the game is

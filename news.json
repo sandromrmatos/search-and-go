@@ -26,5 +26,16 @@
       "**Raid Invasion — Wednesdays 19:00–20:00.** During this hour, spinning disc POIs always give **1 ultra capture disc** on top of normal rewards. Point odds shift to: **10% creature, 40% discs, 10% potion/revive, 30% regular raid, 10% exclusive raid**.",
       "**Training Dojo Hour — Saturdays 13:30–14:00.** Grunts take over normal POIs with **no spawn limit**. Point odds become: **10% creature, 15% discs, 35% potion/revive, 3% regular raid, 2% exclusive raid, 35% grunts**."
     ]
+  },
+  {
+    "at": "2026-08-17 16:05",
+    "title": "Live temperature, coordinates gone, swipe through your Collection",
+    "body": [
+      "**The temperature where you are.** A new 🌡 chip sits in the top bar between your stardust and the ℹ button, showing the real outdoor temperature in **°C**. It comes from **Open-Meteo**, a free weather service, and refreshes every 15 minutes or whenever you travel a couple of kilometres. It is decoration for now — nothing in the game depends on it.",
+      "**Your coordinates are gone from the screen.** The chip under the map used to print your exact latitude and longitude, which is the last thing you want in a screenshot. The whole chip has been removed — your position is never shown as numbers anywhere in the game now. Only a location rounded to about a kilometre is sent when looking up the temperature, so the exact spot never leaves your device.",
+      "**Swipe through your Collection.** Open any creature from your Collection and swipe left or right, or use the ‹ › arrows, to move to the next one — exactly like your Storage already worked. It follows your current sort and filters, so a filtered Collection only walks the creatures that match.",
+      "**\"Times caught\" now sorts properly.** Sorting your Collection by Times caught was reading how many of that creature you happen to be holding, not how many you have ever caught. It now uses the **lifetime total** shown as \"Total caught\" on the creature's page, so releasing one no longer shuffles the order.",
+      "**New weekly mission: Walk 75 km.** Worth **75 XP**, **700 stardust** and **1 Shiny Incense**, on top of the existing 25 km and 50 km walks."
+    ]
   }
 ]

@@ -706,6 +706,11 @@ export const WEEKLY_MISSIONS = [
     id: 'weekWalk50', kind: 'metresWeek', target: 50_000, unit: 'km', xp: 50, dust: 500,
     items: { rare_incense: 1 },
     label: 'Walk 50 km this week'
+  },
+  {
+    id: 'weekWalk75', kind: 'metresWeek', target: 75_000, unit: 'km', xp: 75, dust: 700,
+    items: { shiny_incense: 1 },
+    label: 'Walk 75 km this week'
   }
 ];
 

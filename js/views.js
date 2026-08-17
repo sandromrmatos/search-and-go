@@ -17,6 +17,7 @@ import { store, creatureStats, maxHpOf, hpOf, isFainted, isHurt } from './state.
 import { Persist } from './persist.js';
 import { playEvolution } from './anim.js';
 import { ITEMS, itemImage, itemName, itemsInOrder, INCENSE_ITEMS } from './items.js';
+import { Weather, temperatureLabel } from './weather.js';
 import {
   $, $$, el, toast, openSheet, closeSheet, num, timeLeftLabel,
   clampPage, pageSlice, pagerBar, pageOfIndex, wireSwipe, bumpEl
@@ -35,10 +36,27 @@ export function renderHUD() {
   const p = store.progress;
   $('#hud-level').textContent = p.level;
   $('#hud-stardust').textContent = num(store.s.stardust);
+  renderWeatherChip();
   $('#hud-xp-text').textContent = p.max
     ? `${num(store.s.xp)} XP · MAX`
     : `${num(p.into)} / ${num(p.need)} XP → Lv ${p.level + 1}`;
   $('#hud-xp-fill').style.width = p.pct + '%';
+}
+
+/**
+ * The temperature chip. Dimmed until the first reading lands, and it keeps
+ * showing the last known figure if a later request fails — a slightly old
+ * temperature is more use than an empty chip.
+ */
+export function renderWeatherChip() {
+  const chip = $('#hud-weather');
+  const value = $('#hud-temp');
+  if (!chip || !value) return;
+  value.textContent = temperatureLabel();
+  chip.classList.toggle('pending', !Weather.known);
+  chip.title = Weather.known
+    ? 'Temperature where you are · Open-Meteo'
+    : (Weather.error || 'Waiting for the temperature…');
 }
 
 /* ===============================================================
@@ -110,6 +128,8 @@ export function renderStorageTabs() {
 
 /* The sorted creature list, cached so prev/next arrows can walk it. */
 let sortedStorage = [];
+/* The same idea for the Collection: the filtered, sorted species list on screen. */
+let sortedCollection = [];
 let multiSelectMode = false;
 let multiSelected = new Set();
 
@@ -1004,11 +1024,18 @@ export function renderCollection() {
     return true;
   });
 
-  // Sort collection
+  // Sort collection. "Times caught" means the lifetime total — the same figure
+  // the species sheet shows as "Total caught". It used to read how many you are
+  // holding right now, so releasing a creature quietly changed the order.
   const collSort = $('#collection-sort')?.value || 'id';
   if (collSort === 'caught') {
-    list = [...list].sort((a, b) => store.countOfSpecies(b.id) - store.countOfSpecies(a.id) || a.order - b.order);
+    list = [...list].sort((a, b) =>
+      store.totalCaughtOf(b.id) - store.totalCaughtOf(a.id) || a.order - b.order);
   }
+
+  // Cached so the species sheet's arrows and swipe can walk this exact order,
+  // filters and all, the way the storage sheet walks sortedStorage.
+  sortedCollection = list;
 
   const have = s => (shinyMode ? store.hasShinyCaught(s.id) : store.isRegistered(s.id));
   const haveHere = list.filter(have).length;
@@ -1060,6 +1087,21 @@ export function renderCollection() {
 }
 
 export function openSpeciesSheet(speciesId) {
+  renderSpeciesSheet(speciesId);
+  openSheet('sheet');
+}
+
+/**
+ * Moves the species sheet along the collection, mirroring how the storage sheet
+ * walks sortedStorage. The Collection renders every match on one page, so
+ * unlike storage there is no page to keep in step.
+ */
+function goToSpecies(speciesId, host, dir) {
+  if (!speciesId) { bumpEl(host, dir); return; }
+  renderSpeciesSheet(speciesId);
+}
+
+function renderSpeciesSheet(speciesId) {
   const s = species(speciesId);
   if (!s) return;
   const known = store.isRegistered(s.id);
@@ -1087,9 +1129,30 @@ export function openSpeciesSheet(speciesId) {
       }, '☆ Show shiny')
     : null;
 
+  // Prev / next along whatever the Collection is currently showing. Falls back
+  // to no navigation if the sheet was opened from somewhere else entirely.
+  const navIdx = sortedCollection.findIndex(x => x.id === s.id);
+  const prevId = navIdx > 0 ? sortedCollection[navIdx - 1].id : null;
+  const nextId = navIdx >= 0 && navIdx < sortedCollection.length - 1
+    ? sortedCollection[navIdx + 1].id
+    : null;
+
   const body = $('#sheet-body');
   body.innerHTML = '';
   body.append(
+    navIdx >= 0
+      ? el('div', { class: 'sheet-nav' },
+        el('button', {
+          class: 'arrow-btn', disabled: !prevId, 'aria-label': 'Previous creature',
+          onclick: () => goToSpecies(prevId, body, 'right')
+        }, '‹'),
+        el('span', { class: 'muted small', text: `${navIdx + 1} of ${sortedCollection.length}` }),
+        el('button', {
+          class: 'arrow-btn', disabled: !nextId, 'aria-label': 'Next creature',
+          onclick: () => goToSpecies(nextId, body, 'left')
+        }, '›')
+      )
+      : null,
     el('div', { class: 'det-head' },
       img,
       el('div', { class: 'det-title' },
@@ -1196,7 +1259,14 @@ export function openSpeciesSheet(speciesId) {
     ),
     el('p', { class: 'hint', text: `Filters Storage to your ${familyName(s.id)} line — every stage, ${chain.length > 1 ? 'pre-evolutions and evolutions included' : 'this creature only'}.` })
   );
-  openSheet('sheet');
+
+  // Swiping walks the same list as the arrows, exactly as in storage. Both
+  // sheets share #sheet-body and the same handler key, so whichever one drew
+  // last owns the gesture.
+  wireSwipe(body, {
+    onLeft: () => goToSpecies(nextId, body, 'left'),
+    onRight: () => goToSpecies(prevId, body, 'right')
+  }, { key: 'sheetNav' });
 }
 
 /**
