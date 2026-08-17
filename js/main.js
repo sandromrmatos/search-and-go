@@ -4,7 +4,7 @@
 
 import {
   loadDatabase, DB, RULES, SETS, RARITY_NAMES, species, familyName,
-  BREEDING_UNLOCK_LEVEL, isRelaxHour
+  BREEDING_UNLOCK_LEVEL, isRelaxHour, RAID_INVASION_LABEL
 } from './data.js';
 import { Persist, progressOf } from './persist.js';
 import { store } from './state.js';
@@ -360,7 +360,8 @@ async function doScan({ force = false, reason = 'auto', forceKind = null, always
     const r = await runScan(pos, { force, forceKind, alwaysGrunt });
     const c = r.counts;
     dlog(`Scan (${reason}): ${r.places} places + ${r.parks} parks · ` +
-         `${c.creature} creatures, ${c.discs} discs, ${c.items} items, ${c.raid} raids, ${c.grunt} grunts · ` +
+         `${c.creature} creatures, ${c.discs} discs, ${c.items} items, ${c.raid} raids, ` +
+         `${c.exraid} exclusive raids, ${c.grunt} grunts · ` +
          `skipped ${r.skipped.occupied} occupied, ${r.skipped.tooClose} too close, ${r.skipped.nothing} empty · ` +
          `grunts: ${r.skipped.gruntRoll} lost the roll, ${r.skipped.gruntTooClose} no room, ${r.skipped.gruntCap} over cap`);
 
@@ -505,6 +506,11 @@ async function collectItems(live) {
   body.innerHTML = '';
   body.append(
     el('div', { style: { textAlign: 'center', padding: '12px 0' } },
+      // Says why the haul is bigger than usual, so the bonus is not a mystery.
+      live.invasion
+        ? el('p', { class: 'muted small', style: { margin: '0 0 8px' },
+                    text: `${RAID_INVASION_LABEL} — this one came with an extra Ultra Capture Disc.` })
+        : null,
       ...entries.map(([id, qty]) =>
         el('div', { style: { marginBottom: '12px' } },
           el('img', { src: itemImage(id), alt: '', style: { width: '72px', height: '72px', objectFit: 'contain' } }),

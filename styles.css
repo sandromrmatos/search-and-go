@@ -333,6 +333,25 @@ a { color: var(--accent); }
   to   { transform: scale(1.18) translateY(-2px); filter: drop-shadow(0 0 15px #ffb03c) brightness(1.35); }
 }
 
+/* Exclusive raids: the same flame glyph rotated round to blue, so the two
+   raid types read as related but are impossible to mix up at a glance. */
+.ico-flame-blue {
+  font-size: 27px;
+  filter: hue-rotate(178deg) saturate(1.5)
+          drop-shadow(0 0 8px #3ca8ff) drop-shadow(0 0 16px #0066ffaa);
+  animation: flameFlickerBlue .7s ease-in-out infinite alternate;
+}
+@keyframes flameFlickerBlue {
+  from {
+    transform: scale(1) translateY(0);
+    filter: hue-rotate(178deg) saturate(1.5) drop-shadow(0 0 7px #3ca8ff) brightness(1);
+  }
+  to {
+    transform: scale(1.18) translateY(-2px);
+    filter: hue-rotate(178deg) saturate(1.5) drop-shadow(0 0 15px #7ad7ff) brightness(1.35);
+  }
+}
+
 .ico-grunt {
   font-size: 25px;
   filter: drop-shadow(0 0 8px #b07cff);
@@ -346,6 +365,7 @@ a { color: var(--accent); }
 .glow-disc  { background: radial-gradient(circle, #56b6ff55 0%, transparent 70%); }
 .glow-item  { background: radial-gradient(circle, #ff444466 0%, transparent 70%); }
 .glow-raid  { background: radial-gradient(circle, #ff6b3c66 0%, transparent 70%); }
+.glow-exraid { background: radial-gradient(circle, #3ca8ff77 0%, transparent 70%); }
 .glow-grunt { background: radial-gradient(circle, #b07cff55 0%, transparent 70%); }
 
 /* ---- collected: stays on the map, ticked, until the timer runs out ---- */
@@ -389,6 +409,11 @@ a { color: var(--accent); }
   background: var(--panel-solid); border: 1px solid var(--line);
   display: flex; flex-direction: column; align-items: center; gap: 3px;
   transition: transform .12s ease;
+  /* Tiles are held down as a gesture (multi-select in storage, move preview in
+     the battle picker), so the mobile text-selection callout must stay out. */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 .cell:active { transform: scale(.96); }
 .cell img { width: 100%; aspect-ratio: 1; object-fit: contain; }
@@ -441,6 +466,10 @@ a { color: var(--accent); }
 .tag {
   font-size: 11px; font-weight: 600; border-radius: 99px; padding: 3px 9px;
   background: #ffffff12; border: 1px solid var(--line);
+}
+/* Exclusive creatures and raids, in the same blue as the exclusive flame. */
+.tag-exclusive {
+  color: #9ad9ff; background: #3ca8ff22; border-color: #3ca8ff66;
 }
 .empty { text-align: center; color: var(--muted); padding: 28px 20px; }
 
@@ -532,6 +561,18 @@ a { color: var(--accent); }
   border-color: #8fb4ff88; color: #dbe7ff;
   background: linear-gradient(135deg, rgba(46,60,120,.95), rgba(11,16,36,.95));
   box-shadow: 0 0 12px #8fb4ff33;
+}
+/* Weekly events. Raid Invasion borrows the raid flame's orange, Training Dojo
+   the grunt's purple, so the chip matches what is filling the map. */
+.fx-chip.event-raidInvasion {
+  border-color: #ff7a3c99; color: #ffdcc7;
+  background: linear-gradient(135deg, rgba(110,48,20,.95), rgba(11,16,36,.95));
+  box-shadow: 0 0 12px #ff7a3c44;
+}
+.fx-chip.event-trainingDojo {
+  border-color: #b07cff99; color: #e8dcff;
+  background: linear-gradient(135deg, rgba(72,44,120,.95), rgba(11,16,36,.95));
+  box-shadow: 0 0 12px #b07cff44;
 }
 
 /* ---- HP bar ---- */
@@ -853,6 +894,7 @@ a { color: var(--accent); }
 .bt-boss { text-align: center; padding: 8px 0 4px; }
 .bt-boss img { width: 168px; height: 168px; object-fit: contain; filter: drop-shadow(0 6px 22px #ff7a3c66); }
 .bt-boss.grunt img { filter: drop-shadow(0 6px 22px #b07cff66); }
+.bt-boss.exclusive img { filter: drop-shadow(0 6px 22px #3ca8ff88); }
 .bt-boss h3 { margin: 4px 0 6px; font-size: 24px; }
 .bt-boss .reveal-tags { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px; }
 .bt-quote {
@@ -1076,6 +1118,9 @@ a { color: var(--accent); }
   padding: 2px 6px; border-radius: 99px;
   background: #4ade80; color: #06240f;
 }
+/* Exclusive 15 km eggs, tinted to match the exclusive raid flame. A ready
+   exclusive egg keeps the green ready border, which wins on specificity. */
+.egg-cell.egg-exclusive { border-color: #3ca8ff66; box-shadow: 0 0 14px #3ca8ff22; }
 .egg-cell.egg-ready { border-color: #4ade8088; box-shadow: 0 0 14px #4ade8033; }
 .egg-cell.egg-ready .egg-img { animation: eggNudge 1.6s ease-in-out infinite; }
 @keyframes eggNudge {

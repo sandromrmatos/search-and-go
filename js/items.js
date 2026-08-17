@@ -1,8 +1,8 @@
 /* ============================================================
-   items.js — the seven items, what they do and how they are used
+   items.js — every item, what it does and how it is used
    ============================================================ */
 
-import { ITEM_DIR, RULES } from './data.js';
+import { ITEM_DIR, RULES, SHINY_INCENSE_ODDS } from './data.js';
 
 /**
  * `use` describes how the player triggers it from the Items tab:
@@ -70,6 +70,17 @@ export const ITEMS = {
     rareOdds: true,
     blurb: 'Works like an Incense — 20 minutes, a creature every 2 minutes lasting 1 min 30 s — but the odds lean hard towards rarer creatures.'
   },
+  shiny_incense: {
+    id: 'shiny_incense',
+    name: 'Shiny Incense',
+    plural: 'Shiny Incenses',
+    image: 'shiny incense.png',
+    use: 'timed',
+    order: 5.7,
+    durationMs: RULES.INCENSE_DURATION_MS,
+    shinyOdds: true,
+    blurb: `Works like an Incense — 20 minutes, a creature every 2 minutes lasting 1 min 30 s — but every creature you catch while it burns has a ${Math.round(SHINY_INCENSE_ODDS * 100)}% chance of being shiny. It replaces the usual shiny odds rather than adding to them, so it does not stack with a Shiny Bonanza.`
+  },
   stardust_magnet: {
     id: 'stardust_magnet',
     name: 'Stardust Magnet',
@@ -110,6 +121,12 @@ export const ITEMS = {
 };
 
 export const ITEM_IDS = Object.keys(ITEMS);
+
+/**
+ * Every incense variant. They all share the single incense effect slot, so
+ * only one can burn at a time — no stacking a Shiny on top of a Rare.
+ */
+export const INCENSE_ITEMS = ['incense', 'rare_incense', 'shiny_incense'];
 
 export const item = id => ITEMS[id] || null;
 

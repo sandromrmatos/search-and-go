@@ -11,8 +11,8 @@
    ============================================================ */
 
 import {
-  MAX_EGGS, INCUBATOR_ITEMS, REUSABLE_INCUBATOR,
-  eggDef, eggImage, eggLabel, RULES
+  MAX_EGGS, MAX_EXCLUSIVE_EGGS, INCUBATOR_ITEMS, REUSABLE_INCUBATOR,
+  eggDef, eggImage, eggLabel, isExclusiveEgg, RULES
 } from './data.js';
 import { store } from './state.js';
 import { ITEMS, itemImage } from './items.js';
@@ -68,8 +68,11 @@ export function renderEggs() {
 
   const free = store.freeIncubators();
   const freeTotal = Object.values(free).reduce((a, b) => a + b, 0);
+  const exCount = store.exclusiveEggs.length;
   $('#eggs-hint').innerHTML =
-    `Holding <b>${eggs.length}</b> of <b>${MAX_EGGS}</b> eggs. ` +
+    `Holding <b>${store.normalEggs.length}</b> of <b>${MAX_EGGS}</b> eggs` +
+    // The three exclusive slots are separate, so they are counted separately.
+    ` and <b>${exCount}</b> of <b>${MAX_EXCLUSIVE_EGGS}</b> exclusive 15 km eggs. ` +
     (freeTotal
       ? `<b>${freeTotal}</b> incubator${freeTotal === 1 ? '' : 's'} free — tap an egg to start it walking.`
       : 'No incubators free. A reusable Incubator stays busy until its egg hatches.');
@@ -81,7 +84,8 @@ export function renderEggs() {
     const ready = store.isEggReady(egg);
 
     grid.append(el('button', {
-      class: 'cell egg-cell' + (ready ? ' egg-ready' : '') + (egg.incubator ? ' egg-walking' : ''),
+      class: 'cell egg-cell' + (ready ? ' egg-ready' : '') + (egg.incubator ? ' egg-walking' : '')
+        + (isExclusiveEgg(egg.type) ? ' egg-exclusive' : ''),
       onclick: () => {
         if (ready) { promptHatch(egg.id, { force: true }); return; }
         if (egg.incubator) { toast(`${km(p.left)} km still to walk`, '', 2600); return; }
@@ -202,7 +206,9 @@ export function showEggDropPopup(egg) {
       el('p', { style: { margin: '8px 0 0', fontWeight: '700', fontSize: '17px' },
                 text: `${def.km} km Egg!` }),
       el('p', { class: 'muted small', text: `Put it in an incubator and walk ${def.km} km to hatch it.` }),
-      el('p', { class: 'muted small', text: `Egg storage: ${store.eggs.length} of ${MAX_EGGS}` }),
+      el('p', { class: 'muted small', text: isExclusiveEgg(egg.type)
+        ? `Exclusive egg storage: ${store.exclusiveEggs.length} of ${MAX_EXCLUSIVE_EGGS}`
+        : `Egg storage: ${store.normalEggs.length} of ${MAX_EGGS}` }),
       el('button', {
         class: 'btn primary wide', style: { marginTop: '14px' },
         onclick: () => closeSheet('sheet')

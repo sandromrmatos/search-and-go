@@ -5,7 +5,13 @@
 import {
   species, familyName, familyRarity, RARITY_NAMES, RULES,
   BREEDING_UNLOCK_LEVEL, BREEDING_CANDY_CAP, BREEDING_SLOTS_BY_LEVEL,
-  MAX_CREATURE_LEVEL, CREATURE_LEVEL_COST, POI_OUTCOMES, SHINY_ODDS,
+  MAX_CREATURE_LEVEL, CREATURE_LEVEL_COST, POI_OUTCOMES, POI_OUTCOMES_WEEKEND, SHINY_ODDS,
+  POI_OUTCOMES_RAID_INVASION, POI_OUTCOMES_TRAINING_DOJO,
+  RAID_INVASION_LABEL, RAID_INVASION_DAY, RAID_INVASION_START, RAID_INVASION_END,
+  RAID_INVASION_DISC_BONUS,
+  TRAINING_DOJO_LABEL, TRAINING_DOJO_DAY, TRAINING_DOJO_START, TRAINING_DOJO_END,
+  SHINY_INCENSE_ODDS, EXCLUSIVE_SET_NAME, EXCLUSIVE_RAID_BOSS_MODIFIERS,
+  EXCLUSIVE_RAID_REWARD, EXCLUSIVE_RAID_WEIGHTS, MAX_EXCLUSIVE_EGGS, DB,
   BONANZA_HOUR_START, BONANZA_HOUR_END, STAT_LABELS,
   RELAX_HOUR_START, RELAX_HOUR_END, RELAX_HOUR_LABEL, dustBonusFor,
   BUDDY_KM_PER_CANDY, STARDUST_SUNDAY_LABEL, STARDUST_SUNDAY_MULTIPLIER,
@@ -65,6 +71,7 @@ export function initExtras({ onChange } = {}) {
 const MISSION_ICON = {
   registered: '📖', captures: '🎯', capturesToday: '📅',
   raidsWon: '🔥', raidRarity: '💎', gruntsBeaten: '🧍',
+  exclusiveRaidsWon: '💠', exclusiveRaidRarity: '💠',
   capturesWeek: '🗓', daysCaughtThisWeek: '✅', eggsHatched: '🥚',
   metresToday: '👣', metresWeek: '👣', creaturesAtLevel: '⬆'
 };
@@ -538,6 +545,30 @@ const weightLine = table => {
 const rareIncenseLine = () => weightLine(RARE_INCENSE_WEIGHTS);
 const wildOddsLine = () => weightLine(RARITY_WEIGHTS);
 
+/** Plain-English name for each POI outcome, for the odds lines below. */
+const OUTCOME_WORDS = {
+  creature: 'a creature',
+  discs: 'discs',
+  items: 'a potion or revive',
+  raid: 'a regular raid',
+  exraid: 'an Exclusive Raid',
+  grunt: 'a grunt',
+  nothing: 'nothing'
+};
+
+/**
+ * "22% a creature · 28% discs · …" read straight off a POI odds table, so the
+ * four tables can never drift out of step with what the info menu claims.
+ */
+const poiOddsLine = table => table
+  .map(x => `<b>${x.weight}%</b> ${OUTCOME_WORDS[x.kind] || x.kind}`)
+  .join(' · ');
+
+/** "19:00 to 20:00 every Wednesday" for a weekly event window. */
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const weeklyWindowLabel = (day, start, end) =>
+  `${clockLabel(start)} to ${clockLabel(end)} every ${DAY_NAMES[day]}`;
+
 /** The player level from which every level-up includes a Rare Incense. */
 const RARE_INCENSE_FROM_LEVEL = levelUpRewardFromLevel('rare_incense');
 
@@ -575,28 +606,36 @@ function renderInfo(tab = 'basics') {
   body.innerHTML = '';
   const out = [];
 
+  // Both the Basics and Battles tabs quote the per-point odds, so they are read
+  // once here rather than in each block.
+  const o = Object.fromEntries(POI_OUTCOMES.map(x => [x.kind, x.weight]));
+  const ow = Object.fromEntries(POI_OUTCOMES_WEEKEND.map(x => [x.kind, x.weight]));
+
   if (tab === 'basics') {
-    const o = Object.fromEntries(POI_OUTCOMES.map(x => [x.kind, x.weight]));
     out.push(
       el('h4', { text: 'Creatures' }),
       el('p', { html: `There are <b>5 types</b> of creatures: <b>Mystic</b>, <b>Wind</b>, <b>Neutral</b>, <b>Celestial</b> and <b>Mechanic</b>.` }),
       el('p', { html: `Creatures come in <b>5 rarities</b>: <b>Common</b> or rarity 1, <b>Uncommon</b> or rarity 2, <b>Rare</b> or rarity 3, <b>Epic</b> or rarity 4, and <b>Legendary</b> or rarity 5.` }),
       el('p', { html: `Each species has <b>3 possible stages</b>: <b>Stage 1</b>, <b>Stage 2</b>, and <b>Stage 3</b>. You can only catch <b>Stage 1 creatures</b> in the wild — you need to <b>evolve</b> them to get their Stage 2 and Stage 3 forms.` }),
+      el('p', { html: `Your Collection has a second tab, <b>${EXCLUSIVE_SET_NAME}</b>, holding <b>${DB.exclusive.length} creatures</b> that never appear in the wild, from an incense, or from a normal egg. <b>Exclusive Raids</b> and the <b>15 km eggs</b> they drop are the only way to get them, and they only come in rarities <b>3, 4 and 5</b>.` }),
       el('h4', { text: 'The map' }),
       el('p', { html: `Real places around you become points on the map: <b>shops</b>, <b>cafes and other amenities</b>, <b>tourist spots</b>, <b>bus stops</b>, and <b>industrial and service buildings</b>. Everything within <b>${RULES.SCAN_RADIUS_M} m</b> is checked, and the whole map re-rolls every <b>${RULES.SCAN_INTERVAL_MS / 60000} minutes</b>. <b>Parks and gardens</b> are the exception — they produce battle grunts instead of loot.` }),
       el('p', { html: `You must be within <b>${RULES.CAPTURE_RANGE_M} m</b> of a point to interact with it — creatures, items, raids, grunts and the breeding centre all use the same rule. The green circle around you shows that reach. It widens to <b>${RULES.RELAX_RANGE_M} m</b> during <b>${RELAX_HOUR_LABEL}</b>, see Daily events below.` }),
       el('h4', { text: 'What each icon means' }),
       keyline('✦', 'Flickering stars — a wild creature. You only see which one after you catch it.'),
-      keyline('◉', 'Spinning disc — Capturing Discs, and occasionally an Ultra Capture Disc.'),
+      keyline('◉', `Spinning disc — Capturing Discs, and occasionally an Ultra Capture Disc. During a <b>${RAID_INVASION_LABEL}</b> every one of these also carries an Ultra Capture Disc.`),
       keyline('!', 'Rotating exclamation — a Potion or a Revive.'),
-      keyline('🔥', 'Bright flame — a raid boss. Battle it with three creatures.'),
-      keyline('🧍', 'A person in a park or garden — a battle grunt who wants a 3 v 3.'),
+      keyline('🔥', 'Bright orange flame — a raid boss. Battle it with three creatures.'),
+      keyline('🔥', 'Blue flame — an <b>Exclusive Raid</b>. Same idea, tougher boss, and the only place some creatures ever appear. See the Battles tab.'),
+      keyline('🧍', `A person in a park or garden — a battle grunt who wants a 3 v 3. During <b>${TRAINING_DOJO_LABEL}</b> they turn up on ordinary map points too.`),
       keyline('⚑', 'Your breeding centre, once you place it.'),
       keyline('↑', 'Put two fingers on the map and twist to rotate it. Pins and timers stay upright; street names are printed into the map tiles so those turn with the roads. The compass button appears once you are off north — tap it to straighten up, or let go within a few degrees and it snaps back on its own.'),
       keyline('✓', 'A green tick means you have already used that point. It stays until its timer ends. If the ticked-off pins clutter things up, <b>Profile → Map display</b> can hide them — they still hold their spot, so nothing new appears there until the timer runs out either way.'),
       el('h4', { text: 'Odds per point' }),
       el('ul', {},
-        el('li', { html: `<b>${o.creature}%</b> a creature · <b>${o.discs}%</b> discs · <b>${o.items}%</b> a potion or revive · <b>${o.raid}%</b> a raid · <b>${o.nothing}%</b> nothing` }),
+        el('li', { html: `<b>Monday to Friday:</b> ${poiOddsLine(POI_OUTCOMES)}` }),
+        el('li', { html: `<b>Saturday and Sunday:</b> ${poiOddsLine(POI_OUTCOMES_WEEKEND)}. The extra Exclusive Raid chance comes out of the "nothing" slice, so everything else keeps its weekday odds.` }),
+        el('li', { html: `Two <b>weekly events</b> replace those odds entirely for their window — see Weekly events below.` }),
         el('li', { html: `Parks roll separately: <b>${pct(RULES.GRUNT_CHANCE)}</b> chance of a grunt in a <b>leisure=park</b>, and <b>${pct(RULES.GARDEN_GRUNT_CHANCE)}</b> in a quieter <b>leisure=garden</b>.` }),
         el('li', { html: `Each park rolls <b>${RULES.GRUNT_ROLLS_PER_PARK}</b> times, so a big park can hold several grunts. They do not stand at the middle of the park — they appear <b>${RULES.GRUNT_SPAWN_MIN_M}–${RULES.GRUNT_SPAWN_MAX_M} m</b> from you in any direction, up to <b>${RULES.MAX_ACTIVE_GRUNTS}</b> at a time.` }),
         el('li', { html: `On top of those, one trainer walks <b>right up to you</b> once in each 8-hour stretch of the day — <b>midnight–8am</b>, <b>8am–4pm</b> and <b>4pm–midnight</b>. It appears on your own position the first time you have the game open during that stretch, waits <b>${Math.round(RULES.WINDOW_GRUNT_MS / 60_000)} minutes</b>, and does not use up one of the ${RULES.MAX_ACTIVE_GRUNTS} park slots. One per stretch, so three a day at most.` }),
@@ -604,6 +643,13 @@ function renderInfo(tab = 'basics') {
       ),
       el('h4', { text: 'Shiny creatures' }),
       el('p', { html: `Roughly <b>${pct(SHINY_ODDS.normal.spawn)}</b> of wild catches and <b>${pct(SHINY_ODDS.normal.raid)}</b> of raid catches are shiny — a colour variant, marked with a ★ in storage. Odds double during <b>Shiny Bonanza Hour</b> (${clockLabel(BONANZA_HOUR_START)}–${clockLabel(BONANZA_HOUR_END)} every day) and all of <b>Shiny Bonanza Day</b>, the last Saturday of the month.` }),
+      el('p', { html: `A <b>Shiny Incense</b> pins the rate to a flat <b>${pct(SHINY_INCENSE_ODDS)}</b> for everything you catch or hatch while it burns. It <b>replaces</b> the usual odds instead of multiplying them, so it does not stack with a Bonanza — during a Bonanza Hour the doubled raid rate of ${pct(SHINY_ODDS.bonanza.raid)} is close enough that it is worth saving the incense for a quieter moment.` }),
+      el('h4', { text: 'Weekly events' }),
+      el('p', { html: 'Two events take over the map for a short window each week. While one is running its odds <b>replace</b> the usual table rather than adding to it, and a chip on the map counts down the time left. Remember the map only re-rolls every few minutes, so points that appeared before the event started keep whatever they were.' }),
+      el('ul', {},
+        el('li', { html: `<b>${RAID_INVASION_LABEL}</b> — ${weeklyWindowLabel(RAID_INVASION_DAY, RAID_INVASION_START, RAID_INVASION_END)}. Every <b>disc point</b> hands over <b>${itemListLine(RAID_INVASION_DISC_BONUS)}</b> on top of its usual drop, and the odds become: ${poiOddsLine(POI_OUTCOMES_RAID_INVASION)}. There is <b>no "nothing"</b> slice, so every point in range turns into something, and <b>${POI_OUTCOMES_RAID_INVASION.filter(x => x.kind === 'raid' || x.kind === 'exraid').reduce((a, b) => a + b.weight, 0)}%</b> of them are raids.` }),
+        el('li', { html: `<b>${TRAINING_DOJO_LABEL}</b> — ${weeklyWindowLabel(TRAINING_DOJO_DAY, TRAINING_DOJO_START, TRAINING_DOJO_END)}. Grunts take over the ordinary map points: this is the only time a shop or amenity becomes a grunt instead of loot, and they stand right at the point rather than being scattered like park grunts. The odds become: ${poiOddsLine(POI_OUTCOMES_TRAINING_DOJO)}. The usual <b>cap of ${RULES.MAX_ACTIVE_GRUNTS} grunts</b> on the map does not apply for these 30 minutes — there is <b>no limit</b>, so the map holds as many as there are places to put them. Parks and gardens keep rolling on top.` })
+      ),
       el('h4', { text: 'Daily events' }),
       el('ul', {},
         el('li', { html: `<b>${STARDUST_SUNDAY_LABEL}</b> — all day every Sunday. Every bit of stardust you earn is <b>×${STARDUST_SUNDAY_MULTIPLIER}</b>: captures, raids, grunts, missions and range rewards alike. The doubling is applied <b>last</b>, after the player-level bonus and any Stardust Magnet, so it doubles the final figure.` }),
@@ -614,7 +660,8 @@ function renderInfo(tab = 'basics') {
       el('ul', {},
         el('li', { html: 'Storage sorts by ID, name, type, rarity, level, <b>total stats</b>, shiny, <b>favourite</b> or most recent. Every picker — battle team, breeding, buddy — offers the same list and follows whatever you last chose.' }),
         el('li', { html: '<b>Total stats</b> adds up HP, Attack, Defence and Speed, the same figure shown as "Total" on a creature. Tap <b>↓</b> to put your strongest first when picking a battle team.' }),
-        el('li', { html: 'Tapping a <b>Potion</b> offers <b>Heal all</b>, which spends as many potions as each creature needs to reach full HP. A <b>Revive</b> offers <b>Revive all</b>. Both tell you how many they will use first.' })
+        el('li', { html: 'Tapping a <b>Potion</b> offers <b>Heal all</b>, which spends as many potions as each creature needs to reach full HP. A <b>Revive</b> offers <b>Revive all</b>. Both tell you how many they will use first.' }),
+        el('li', { html: '<b>Hold</b> a creature in your Storage to start <b>multi-select</b> with that one already ticked, then tap the rest and <b>Release</b> them together. A plain tap still opens the creature. Favourites, shinies, buddies and creatures in the breeding centre cannot be selected. Holding a creature in the <b>battle team picker</b> is a different gesture — that one previews its moves.' })
       ),
       el('h4', { text: 'Steps' }),
       el('p', { html: `Your walking is tracked while the game is open and shown in your Profile. One step is counted per <b>${RULES.METRES_PER_STEP} m</b> of real movement; jumps over <b>${RULES.MAX_WALK_JUMP_M} m</b> are ignored as GPS noise, and a fake debug location never counts. The same distance feeds your <b>eggs</b>, your <b>buddy</b> and the <b>walking missions</b> together — you never have to choose.` }),
@@ -632,13 +679,15 @@ function renderInfo(tab = 'basics') {
       el('h4', { text: 'Eggs' }),
       el('p', { html: `Collecting a disc or item point has a <b>${pct(EGG_DROP_CHANCE)}</b> chance of also giving you an egg — <b>80%</b> a 5 km egg, <b>20%</b> a 10 km egg. They live in the <b>Eggs</b> tab of your Storage.` }),
       el('ul', {},
-        el('li', { html: `You can hold <b>${MAX_EGGS}</b> eggs at once. While you are full no more will drop, so hatch some to make room.` }),
+        el('li', { html: `You can hold <b>${MAX_EGGS}</b> ordinary eggs at once. While you are full no more will drop, so hatch some to make room.` }),
+        el('li', { html: `<b>15 km eggs are separate.</b> They have their own <b>${MAX_EXCLUSIVE_EGGS} slots</b>, so a full set of ${MAX_EGGS} ordinary eggs never blocks one, and ${MAX_EXCLUSIVE_EGGS} exclusive eggs never block an ordinary one.` }),
         el('li', { html: 'An egg does nothing until it is in an <b>incubator</b>. Tap the egg to pick one, or tap an incubator in your Items and pick an egg.' }),
         el('li', { html: 'A <b>Single Use Incubator</b> is used up the moment you start. The plain <b>Incubator</b> is reusable, but it is tied up until its egg hatches.' }),
         el('li', { html: 'Then walk. The tile shows the kilometres done and the incubator it is in, top-left.' }),
         el('li', { html: 'When one is ready you get a prompt <b>on the map</b> — it will not interrupt a battle or your storage. Tap Hatch and see what turns up.' }),
         el('li', { html: `A <b>5 km</b> egg pays <b>${EGG_TYPES['5km'].dust} stardust</b>, <b>${EGG_TYPES['5km'].xp} XP</b> and <b>+${EGG_TYPES['5km'].bonusCandy} candy</b> on top of the usual catch candy: ${weightLine(EGG_TYPES['5km'].weights)}.` }),
         el('li', { html: `A <b>10 km</b> egg pays <b>${EGG_TYPES['10km'].dust} stardust</b>, <b>${EGG_TYPES['10km'].xp} XP</b> and <b>+${EGG_TYPES['10km'].bonusCandy} candy</b> on top of the usual catch candy: ${weightLine(EGG_TYPES['10km'].weights)}.` }),
+        el('li', { html: `A <b>15 km</b> egg only ever comes from an <b>Exclusive Raid</b> (a <b>${pct(EXCLUSIVE_RAID_REWARD.eggChance)}</b> chance per win) and only hatches <b>${EXCLUSIVE_SET_NAME}</b> creatures: ${weightLine(EGG_TYPES['15km'].weights)}. It pays <b>${EGG_TYPES['15km'].dust} stardust</b>, <b>${EGG_TYPES['15km'].xp} XP</b> and <b>+${EGG_TYPES['15km'].bonusCandy} candy</b> — that is <b>${EGG_TYPES['15km'].dust - EGG_TYPES['10km'].dust} more stardust</b> and <b>${EGG_TYPES['15km'].bonusCandy - EGG_TYPES['10km'].bonusCandy} more candy</b> than a 10 km egg.` }),
         el('li', { html: `Hatchlings arrive at <b>level ${EGG_HATCH_LEVEL}</b>, not level 1, so they are worth battling with straight away.` }),
         el('li', { html: `Stardust from an egg grows with your player level like every other reward, and shinies hatch at the <b>raid</b> rate of ${pct(SHINY_ODDS.normal.raid)} — doubled during a Bonanza.` }),
         el('li', { html: 'Hatching is not catching, so it does not count towards the "catch" missions. There are separate <b>Hatch</b> missions for that.' })
@@ -669,10 +718,11 @@ function renderInfo(tab = 'basics') {
       el('ul', {},
         el('li', { html: 'No Capturing Disc means no catching — you will be told when you tap a creature.' }),
         el('li', { html: 'Potions cannot be used during a battle, or on a creature that has fainted.' }),
-        el('li', { html: 'Only one incense and one Stardust Magnet can run at a time. <b>Rare Incense</b> shares the incense slot, so it cannot stack with a plain one.' }),
+        el('li', { html: 'Only one incense and one Stardust Magnet can run at a time. <b>Rare Incense</b> and <b>Shiny Incense</b> share the incense slot, so no two incenses can ever stack.' }),
         el('li', { html: `<b>Rare Incense</b> spawns on the same 2-minute rhythm but with far better odds: ${rareIncenseLine()}. Compare that to a wild spawn at ${wildOddsLine()}.` }),
         el('li', { html: `<b>Incubators</b> let you hatch eggs by walking. The plain <b>Incubator</b> is reusable — it ties up until the egg hatches, then you can use it again. A <b>Single Use Incubator</b> is consumed the moment you start it. You get a plain incubator at player level 5, and single use incubators from raid wins (${pct(RAID_REWARD.incubatorChance)}, or <b>guaranteed</b> from a rarity ${RAID_BONUS_RARITIES.join(' or ')} boss) and several missions.` }),
-        el('li', { html: `<b>Rare Incense</b> is the hardest one to come by: a <b>${pct(raidRareIncenseChance(RAID_BONUS_RARITIES[0]))}</b> drop from rarity ${RAID_BONUS_RARITIES.join(' and ')} raids, a handful of missions, and one <b>every level from player level ${RARE_INCENSE_FROM_LEVEL}</b> onwards.` })
+        el('li', { html: `<b>Rare Incense</b> is the hardest one to come by: a <b>${pct(raidRareIncenseChance(RAID_BONUS_RARITIES[0]))}</b> drop from rarity ${RAID_BONUS_RARITIES.join(' and ')} raids, a handful of missions, and one <b>every level from player level ${RARE_INCENSE_FROM_LEVEL}</b> onwards.` }),
+        el('li', { html: `<b>Shiny Incense</b> spawns creatures on the same rhythm and at the same wild odds as a plain Incense, but pins the shiny rate to a flat <b>${pct(SHINY_INCENSE_ODDS)}</b> for everything you catch or hatch while it runs. Because it <b>replaces</b> the normal odds it does not stack with a <b>Shiny Bonanza</b>. It comes from <b>Exclusive Raids</b> (a <b>${pct(EXCLUSIVE_RAID_REWARD.shinyIncenseChance)}</b> chance per win) and a few missions.` })
       )
     );
   }
@@ -719,6 +769,15 @@ function renderInfo(tab = 'basics') {
         el('li', { html: `A grunt pays <b>${num(GRUNT_REWARD.dust[0])}–${num(GRUNT_REWARD.dust[1])}</b> stardust, again plus your player level.` }),
         el('li', { html: 'Lose and you can retry as many times as you like until the timer runs out.' }),
         el('li', { html: 'Start a battle before the point expires and you can finish it even if the timer runs out mid-fight.' })
+      ),
+      el('h4', { text: 'Exclusive Raids' }),
+      el('p', { html: `A point with a <b>blue flame</b> instead of the orange one is an <b>Exclusive Raid</b>. It holds a creature from the <b>${EXCLUSIVE_SET_NAME}</b> collection — ${DB.exclusive.length} creatures that cannot be caught in the wild, from an incense, or from a 5 or 10 km egg. They turn up at <b>${o.exraid}%</b> per point on weekdays and <b>${ow.exraid}%</b> at weekends.` }),
+      el('ul', {},
+        el('li', { html: `Only rarities <b>3, 4 and 5</b> exist here: <b>${EXCLUSIVE_RAID_WEIGHTS[3]}%</b> rarity 3, <b>${EXCLUSIVE_RAID_WEIGHTS[4]}%</b> rarity 4 and <b>${EXCLUSIVE_RAID_WEIGHTS[5]}%</b> rarity 5.` }),
+        el('li', { html: `The boss is tougher than a normal raid of the same rarity: <b>×${EXCLUSIVE_RAID_BOSS_MODIFIERS.hp} HP</b> instead of ×${RAID_BOSS_MODIFIERS.hp}, and <b>+${Math.round((EXCLUSIVE_RAID_BOSS_MODIFIERS.attack - 1) * 100)}%</b> Attack, Defence and Speed instead of +${Math.round((RAID_BOSS_MODIFIERS.attack - 1) * 100)}%.` }),
+        el('li', { html: 'Catching works exactly the same — you still need an <b>Ultra Capture Disc</b>.' }),
+        el('li', { html: `XP and stardust match the equivalent normal raid tier, and every normal raid drop still applies. On top of that there is a <b>${pct(EXCLUSIVE_RAID_REWARD.shinyIncenseChance)}</b> chance of a <b>Shiny Incense</b> and a separate <b>${pct(EXCLUSIVE_RAID_REWARD.eggChance)}</b> chance of a <b>15 km egg</b>. The two rolls are independent, so one win can pay both.` }),
+        el('li', { html: 'An exclusive win counts towards the ordinary raid missions <i>and</i> its own set of Exclusive Raid missions, so they progress together.' })
       )
     );
   }

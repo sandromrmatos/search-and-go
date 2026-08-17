@@ -35,6 +35,9 @@ const ICON_HTML = {
   raid: `
     <div class="glow glow-raid"></div>
     <div class="icon-wrap"><span class="ico-flame">🔥</span></div>`,
+  exraid: `
+    <div class="glow glow-exraid"></div>
+    <div class="icon-wrap"><span class="ico-flame-blue">🔥</span></div>`,
   grunt: `
     <div class="glow glow-grunt"></div>
     <div class="icon-wrap"><span class="ico-grunt">🧍</span></div>`
@@ -50,6 +53,8 @@ function iconFor(point) {
     return `<div class="glow glow-grunt"></div>
             <div class="icon-wrap"><span class="ico-grunt">${glyph}</span></div>`;
   }
+  // Exclusive raids are raid points with a flag, and get the blue flame.
+  if (point.kind === 'raid' && point.raid?.exclusive) return ICON_HTML.exraid;
   return ICON_HTML[point.kind] || ICON_HTML.creature;
 }
 

@@ -9,5 +9,22 @@
       "**Jump straight to a family.** Open any creature in your Collection and tap \"Show in your storage\" to filter Storage to that whole line — every stage, pre-evolutions and evolutions included.",
       "**This News tab.** Updates land here newest first, with a yellow dot on anything you have not read yet."
     ]
+  },
+  {
+    "at": "2026-08-17 13:55",
+    "title": "HUGE UPDATE! Exclusive Raids, 15 km eggs, Shiny Incense, New Missions, Move Updates and New Weekly Events",
+    "body": [
+      "**Hold to multi-select.** Press and hold a creature in your Storage to start multi-select with that creature already ticked, then tap the others you want and release them together. A normal tap still opens the creature as before.",
+      "**Exclusive Raids arrive.** A new raid type appears on the map with a **blue flame** instead of the usual orange one. They hold creatures found nowhere else, and those creatures have their own Collection tab: **Exclusive**.",
+      "**Tougher bosses.** An Exclusive Raid boss has **4× HP** instead of 3×, and **+30%** Attack, Defence and Speed instead of +25%. Only rarities 3, 4 and 5 appear: **50%** rarity 3, **35%** rarity 4, **15%** rarity 5. You still catch them with an **Ultra Capture Disc**.",
+      "**New drops.** XP and stardust match a normal raid of the same rarity, and every usual raid drop still applies. On top, each win has a **25%** chance of a **Shiny Incense** and a separate **25%** chance of a **15 km egg**.",
+      "**Shiny Incense.** Works exactly like a regular Incense, except every creature you catch or hatch while it burns has a flat **3%** shiny chance. It replaces the normal odds rather than adding to them, so it does **not** stack with Shiny Bonanza. It shares the incense slot with the plain and Rare varieties.",
+      "**15 km eggs.** Only dropped by Exclusive Raids, and they only hatch Exclusive creatures — 50% rarity 3, 35% rarity 4, 15% rarity 5. They pay **+50 stardust** and **+2 candy** over a 10 km egg, and they live in **three slots of their own**, so a full set of six ordinary eggs never blocks one.",
+      "**New lifetime missions.** Seven for Exclusive Raids — one for each of rarities 3, 4 and 5, then 5, 10, 20 and 50 wins — paying XP, stardust, Ultra Capture Discs, incenses and a Stardust Magnet. Exclusive wins count towards the ordinary raid missions as well. There is also a new **Catch 7500 creatures** milestone.",
+      "**Updated point odds.** Weekdays: 22% a creature, 28% discs, 15% a potion or revive, 5% a regular raid, **2% an Exclusive Raid**, 28% nothing. Weekends: the same, but **4% an Exclusive Raid** and 26% nothing.",
+      "**Updated buff moves.** Moves that increase a creature’s stats now boost those stats by a higher percentage.",
+      "**Raid Invasion — Wednesdays 19:00–20:00.** During this hour, spinning disc POIs always give **1 ultra capture disc** on top of normal rewards. Point odds shift to: **10% creature, 40% discs, 10% potion/revive, 30% regular raid, 10% exclusive raid**.",
+      "**Training Dojo Hour — Saturdays 13:30–14:00.** Grunts take over normal POIs with **no spawn limit**. Point odds become: **10% creature, 15% discs, 35% potion/revive, 3% regular raid, 2% exclusive raid, 35% grunts**."
+    ]
   }
 ]

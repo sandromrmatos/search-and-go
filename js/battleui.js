@@ -6,11 +6,13 @@
 
 import {
   species, RARITY_NAMES, STAT_LABELS, BATTLE_TEAM_SIZE, familyName,
-  statsFor, raidBossStats, RAID_CAPTURE_LEVEL, RAID_BOSS_MODIFIERS
+  statsFor, raidBossStats, RAID_CAPTURE_LEVEL, raidModifiers, EXCLUSIVE_RAID_REWARD,
+  eggLabel
 } from './data.js';
 
 /** "+50%" style label straight from the raid modifier table. */
-const bossPct = key => `+${Math.round((RAID_BOSS_MODIFIERS[key] - 1) * 100)}%`;
+const bossPct = (key, exclusive = false) =>
+  `+${Math.round((raidModifiers(exclusive)[key] - 1) * 100)}%`;
 import { store, creatureStats, maxHpOf, hpOf, isFainted } from './state.js';
 import { sortedForPicker } from './views.js';
 import { Battle, buildRaidBattle, buildGruntBattle, battlerFromEnemySpec } from './battle.js';
@@ -121,15 +123,20 @@ function renderPreview() {
   if (ctx.kind === 'raid') {
     const raid = ctx.raid;
     const sp = species(raid.speciesId);
-    const stats = raidBossStats(sp, raid.level);
-    $('#bt-title').textContent = `Rarity ${raid.rarity} Raid`;
+    const exclusive = !!raid.exclusive;
+    const stats = raidBossStats(sp, raid.level, exclusive);
+    const mods = raidModifiers(exclusive);
+    $('#bt-title').textContent = exclusive
+      ? `Rarity ${raid.rarity} Exclusive Raid`
+      : `Rarity ${raid.rarity} Raid`;
 
     body.append(
-      el('div', { class: 'bt-boss' },
+      el('div', { class: `bt-boss${exclusive ? ' exclusive' : ''}` },
         el('img', { src: sp.spritePath(raid.shiny), alt: sp.name }),
         raid.shiny ? el('div', { class: 'new-banner', text: '★ SHINY' }) : null,
         el('h3', { text: sp.name }),
         el('div', { class: 'reveal-tags' },
+          exclusive ? el('span', { class: 'tag tag-exclusive', text: '💠 Exclusive' }) : null,
           el('span', { class: `tag t-${sp.type}`, text: sp.type }),
           el('span', { class: 'tag', text: `Level ${raid.level}` }),
           el('span', { class: `tag r-${raid.rarity}`, text: `${raid.rarity} · ${RARITY_NAMES[raid.rarity]}` })
@@ -138,17 +145,28 @@ function renderPreview() {
           ? el('div', { class: 'not-registered-badge', text: 'Not registered yet' })
           : null
       ),
+      exclusive
+        ? el('p', { class: 'hint', text: 'An Exclusive Raid. This creature cannot be found any other way, and the boss hits harder than a normal raid of the same rarity.' })
+        : null,
       el('div', { class: 'det-rows' },
-        statLine('HP', stats.hp, `×${RAID_BOSS_MODIFIERS.hp} for a raid`),
-        statLine('Attack', stats.attack, bossPct('attack')),
-        statLine('Defence', stats.defence, bossPct('defence')),
-        statLine('Speed', stats.speed, bossPct('speed'))
+        statLine('HP', stats.hp, `×${mods.hp} for a raid`),
+        statLine('Attack', stats.attack, bossPct('attack', exclusive)),
+        statLine('Defence', stats.defence, bossPct('defence', exclusive)),
+        statLine('Speed', stats.speed, bossPct('speed', exclusive))
       ),
       el('h4', { class: 'sheet-h4', text: 'If you win' }),
       el('div', { class: 'rewards' },
         el('span', { class: 'reward' }, el('span', { text: '⭐' }), el('span', { text: `+${raid.xp} XP` })),
         el('span', { class: 'reward' }, el('span', { text: DUST_ICON }),
-          el('span', { text: `+${raid.dustRange[0]}–${raid.dustRange[1]} stardust` }))
+          el('span', { text: `+${raid.dustRange[0]}–${raid.dustRange[1]} stardust` })),
+        exclusive
+          ? el('span', { class: 'reward' }, el('span', { text: '✨' }),
+            el('span', { text: `${Math.round(EXCLUSIVE_RAID_REWARD.shinyIncenseChance * 100)}% a Shiny Incense` }))
+          : null,
+        exclusive
+          ? el('span', { class: 'reward' }, el('span', { text: '🥚' }),
+            el('span', { text: `${Math.round(EXCLUSIVE_RAID_REWARD.eggChance * 100)}% a 15 km egg` }))
+          : null
       ),
       ultraDiscNotice()
     );
@@ -467,12 +485,12 @@ function startFight() {
     : buildGruntBattle(team, ctx.grunt.team);
 
   $('#bt-arena-title').textContent = ctx.kind === 'raid'
-    ? `Raid · ${species(ctx.raid.speciesId).name}`
+    ? `${ctx.raid.exclusive ? 'Exclusive Raid' : 'Raid'} · ${species(ctx.raid.speciesId).name}`
     : `${ctx.grunt.characterLabel || 'Grunt'} battle`;
 
   $('#bt-log').innerHTML = '';
   logLine(ctx.kind === 'raid'
-    ? `A rarity ${ctx.raid.rarity} ${species(ctx.raid.speciesId).name} towers over you.`
+    ? `A rarity ${ctx.raid.rarity}${ctx.raid.exclusive ? ' exclusive' : ''} ${species(ctx.raid.speciesId).name} towers over you.`
     : `“${ctx.grunt.phrase}”`);
 
   step('arena');
@@ -671,7 +689,8 @@ function renderResult() {
       { icon: DUST_ICON, label: `+${num(rewards.dust)} stardust${rewards.sunday ? ' (Sunday ×2)' : ''}` },
       rewards.bonus ? { icon: '🎁', label: `Bonus ${itemName(rewards.bonus)}` } : null,
       // Guaranteed drops: raid revives + incubator, grunt potions/revives
-      ...Object.entries(rewards.items || {}).map(([id, n]) => ({ img: itemImage(id), label: `+${n} ${itemName(id, n)}` }))
+      ...Object.entries(rewards.items || {}).map(([id, n]) => ({ img: itemImage(id), label: `+${n} ${itemName(id, n)}` })),
+      rewards.egg ? { icon: '🥚', label: `A ${eggLabel(rewards.egg.type)}` } : null
     ].filter(Boolean);
     body.append(el('div', { class: 'rewards' }, ...chips.map(r =>
       el('span', { class: 'reward' },
@@ -679,6 +698,13 @@ function renderResult() {
           ? el('img', { src: r.img, alt: '', style: { width: '18px', height: '18px', objectFit: 'contain' } })
           : el('span', { text: r.icon }),
         el('span', { text: r.label })))));
+  }
+
+  // An exclusive egg is lost if all three exclusive slots are taken, so say so
+  // rather than silently dropping it.
+  if (won && rewards?.eggBlocked) {
+    body.append(el('p', { class: 'hint', style: { color: '#ffd9a8' } },
+      'A 15 km egg dropped, but your three exclusive egg slots are full. Hatch one to make room for the next.'));
   }
 
   // Buttons

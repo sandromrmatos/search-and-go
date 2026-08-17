@@ -3,7 +3,11 @@
 
    Rules implemented here (the numbers all live in RULES / data.js):
      • every shop or amenity within the scan radius rolls one outcome:
-         22% creature · 28% discs · 15% items · 5% raid · 30% nothing
+         22% creature · 28% discs · 15% items · 5% raid · 2% exclusive raid
+         (4% at weekends) · the rest nothing
+     • two weekly events replace that table for their window: Raid Invasion
+       (Wednesdays 19:00-20:00) and Training Dojo Hour (Saturdays 13:30-14:00),
+       the latter being the only time a shop can turn into a grunt
      • leisure=park rolls separately for a battle grunt, leisure=garden rolls
        the same way at a lower chance; grunts are scattered on a ring around
        the player, not at the park centre, and are capped per player
@@ -18,12 +22,14 @@
 
 import {
   RULES, randInt, rollSpawnSpecies, rollPOIOutcome, rollDiscDrop, rollItemDrop,
-  rollRaid, rollShiny, species, gruntLevelRange, GRUNT_CHARACTERS, GRUNT_PHRASES,
-  BATTLE_TEAM_SIZE, DB, chance, RARE_INCENSE_WEIGHTS
+  rollRaid, rollExclusiveRaid, rollShiny, species, gruntLevelRange, GRUNT_CHARACTERS, GRUNT_PHRASES,
+  BATTLE_TEAM_SIZE, DB, chance, RARE_INCENSE_WEIGHTS,
+  isRaidInvasion, applyRaidInvasionBonus, gruntsAreUncapped
 } from './data.js';
 import { distance, offsetMeters } from './geo.js';
 import { fetchPOIs, splitPOIs } from './osm.js';
 import { store, gruntWindowKey } from './state.js';
+import { itemName } from './items.js';
 
 let scanning = false;
 export const isScanning = () => scanning;
@@ -64,22 +70,32 @@ function makeCreaturePoint(poi, now) {
 }
 
 function makeDiscPoint(poi, now) {
-  return { ...basePoint('discs', poi, now), drop: rollDiscDrop() };
+  // The bonus is baked in when the point is created, so a disc point spawned
+  // during the invasion still pays it if you reach it a moment after 20:00.
+  const at = new Date(now);
+  const drop = applyRaidInvasionBonus(rollDiscDrop(), at);
+  return {
+    ...basePoint('discs', poi, now),
+    drop,
+    invasion: isRaidInvasion(at) || undefined
+  };
 }
 
 function makeItemPoint(poi, now) {
   return { ...basePoint('items', poi, now), drop: rollItemDrop() };
 }
 
-function makeRaidPoint(poi, now) {
-  const raid = rollRaid();
+function makeRaidPoint(poi, now, exclusive = false) {
+  const raid = exclusive ? rollExclusiveRaid() : rollRaid();
   return {
     ...basePoint('raid', poi, now),
     speciesId: raid.speciesId,
     raid: {
       ...raid,
       // You can see a shiny raid boss before you fight it.
-      shiny: store.s.debug.shinyBoost ? chance(0.5) : rollShiny('raid'),
+      shiny: store.s.debug.shinyBoost
+        ? chance(0.5)
+        : rollShiny('raid', new Date(now), store.shinyOpts()),
       defeated: false
     }
   };
@@ -88,7 +104,9 @@ function makeRaidPoint(poi, now) {
 /** A grunt brings three creatures scaled to the player's level. */
 export function buildGruntTeam(playerLevel) {
   const [lo, hi] = gruntLevelRange(playerLevel);
-  const pool = DB.species;
+  // Grunts never field exclusive creatures — an Exclusive Raid is the only
+  // place you should ever see one.
+  const pool = DB.species.filter(s => !s.exclusive);
   const team = [];
   const used = new Set();
   while (team.length < BATTLE_TEAM_SIZE && used.size < pool.length) {
@@ -189,6 +207,9 @@ export async function runScan(pos, { force = false, forceKind = null, alwaysGrun
     const { places, parks } = splitPOIs(pois);
 
     const now = Date.now();
+    // One clock reading for the whole scan, so a scan that straddles the end of
+    // an event cannot use the event table for some POIs and not others.
+    const nowDate = new Date(now);
     const active = store.activePoints(now);
     const occupiedPOIs = new Set(active.map(p => p.poiId));
     const taken = active.map(p => ({ lat: p.lat, lng: p.lng }));
@@ -198,9 +219,12 @@ export async function runScan(pos, { force = false, forceKind = null, alwaysGrun
     // still in `taken`, so nothing else spawns on top of it.
     const parkGrunts = active.filter(p => p.kind === 'grunt' && p.source !== 'window');
     const gruntSpots = parkGrunts.map(p => ({ lat: p.lat, lng: p.lng }));
+    // Counted across both loops below: a dojo grunt standing on a shop is as
+    // real as one in a park, so it has to be in the same tally.
+    let liveGrunts = gruntSpots.length;
 
     const created = [];
-    const counts = { creature: 0, discs: 0, items: 0, raid: 0, grunt: 0 };
+    const counts = { creature: 0, discs: 0, items: 0, raid: 0, exraid: 0, grunt: 0 };
     const skipped = { occupied: 0, tooClose: 0, nothing: 0, gruntTooClose: 0, gruntRoll: 0, gruntCap: 0 };
 
     // ---- shops and amenities ----
@@ -208,7 +232,7 @@ export async function runScan(pos, { force = false, forceKind = null, alwaysGrun
       if (occupiedPOIs.has(poi.id)) { skipped.occupied++; continue; }
       if (tooClose(poi, taken, RULES.MIN_SPAWN_SEPARATION_M)) { skipped.tooClose++; continue; }
 
-      const kind = forceKind || rollPOIOutcome();
+      const kind = forceKind || rollPOIOutcome(nowDate);
       if (kind === 'nothing') { skipped.nothing++; continue; }
 
       let point = null;
@@ -216,12 +240,30 @@ export async function runScan(pos, { force = false, forceKind = null, alwaysGrun
       else if (kind === 'discs') point = makeDiscPoint(poi, now);
       else if (kind === 'items') point = makeItemPoint(poi, now);
       else if (kind === 'raid') point = makeRaidPoint(poi, now);
+      // An Exclusive Raid is still a raid point — it just carries the
+      // exclusive flag, so every raid code path keeps working unchanged.
+      else if (kind === 'exraid') point = makeRaidPoint(poi, now, true);
+      // Only Training Dojo Hour puts a grunt on a shop or amenity. Unlike a
+      // park, the POI's own position is usable, so it stands right there.
+      else if (kind === 'grunt') {
+        // The event lifts the *count* limit, not the spacing rule: grunts still
+        // keep their wider distance from each other, so a run of neighbouring
+        // shops cannot produce a wall of them.
+        if (tooClose(poi, gruntSpots, RULES.MIN_GRUNT_SEPARATION_M)) {
+          skipped.gruntTooClose++;
+          continue;
+        }
+        point = makeGruntPoint(poi, now, store.level);
+      }
       if (!point) continue;
 
       created.push(point);
       counts[kind]++;
+      if (kind === 'grunt') liveGrunts++;
       occupiedPOIs.add(poi.id);
       taken.push({ lat: poi.lat, lng: poi.lng });
+      // A dojo grunt is a real grunt: parks must keep their distance from it.
+      if (kind === 'grunt') gruntSpots.push({ lat: poi.lat, lng: poi.lng });
     }
 
     // ---- parks and gardens: battle grunts ----
@@ -230,14 +272,15 @@ export async function runScan(pos, { force = false, forceKind = null, alwaysGrun
     // several rolls and holds that many grunts, topped up on every scan, and
     // they are scattered across the whole scan radius like any other spawn.
     const rollsPerPark = rule('GRUNT_ROLLS_PER_PARK', 3);
-    const maxGrunts = rule('MAX_ACTIVE_GRUNTS', 6);
+    // Training Dojo Hour lifts the ceiling completely: for those 30 minutes the
+    // map holds as many grunts as there are places to put them.
+    const maxGrunts = gruntsAreUncapped(nowDate) ? Infinity : rule('MAX_ACTIVE_GRUNTS', 6);
     // How many live grunts each park is already responsible for.
     const gruntsPerPOI = new Map();
     for (const p of parkGrunts) {
       gruntsPerPOI.set(p.poiId, (gruntsPerPOI.get(p.poiId) || 0) + 1);
     }
 
-    let liveGrunts = gruntSpots.length;
     for (const park of parks) {
       const slots = rollsPerPark - (gruntsPerPOI.get(park.id) || 0);
       if (slots <= 0) { skipped.occupied++; continue; }
@@ -287,7 +330,10 @@ export function tickIncense(pos, now = Date.now()) {
   if (fx.lastSpawnAt && now - fx.lastSpawnAt < RULES.INCENSE_EVERY_MS) return null;
 
   // A Rare Incense rolls the same pools against much rarer-leaning weights.
+  // A Shiny Incense uses the plain pool — its difference is the shiny roll,
+  // which happens at capture time.
   const sp = fx.rare ? rollSpawnSpecies(RARE_INCENSE_WEIGHTS) : rollSpawnSpecies();
+  const itemId = fx.itemId || 'incense';
   const point = {
     id: newId('incense'),
     kind: 'creature',
@@ -295,9 +341,9 @@ export function tickIncense(pos, now = Date.now()) {
     poiId: 'incense/' + now,
     lat: pos.lat,
     lng: pos.lng,
-    poiName: fx.rare ? 'Rare Incense' : 'Incense',
+    poiName: itemName(itemId),
     poiKind: 'incense',
-    poiKindValue: fx.rare ? 'rare_incense' : 'incense',
+    poiKindValue: itemId,
     speciesId: sp.id,
     createdAt: now,
     expiresAt: now + lifetimeFor('incense'),
@@ -365,6 +411,7 @@ export function debugPointAt(pos, kind = 'creature', speciesId = null) {
   if (kind === 'discs') point = makeDiscPoint(poi, now);
   else if (kind === 'items') point = makeItemPoint(poi, now);
   else if (kind === 'raid') point = makeRaidPoint(poi, now);
+  else if (kind === 'exraid') point = makeRaidPoint(poi, now, true);
   else if (kind === 'grunt') point = makeGruntPoint(poi, now, store.level);
   else {
     point = makeCreaturePoint(poi, now);

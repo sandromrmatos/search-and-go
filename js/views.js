@@ -3,20 +3,20 @@
    ============================================================ */
 
 import {
-  DB, SETS, RARITY_NAMES, MAX_CREATURE_LEVEL, MAX_PLAYER_LEVEL, STAT_KEYS, STAT_LABELS,
+  DB, SETS, speciesForSet, RARITY_NAMES, MAX_CREATURE_LEVEL, MAX_PLAYER_LEVEL, STAT_KEYS, STAT_LABELS,
   STAT_GROWTH_PER_LEVEL,
   species, familyRoot, familyName, familyRarity, levelUpCost, moveLevelFor, statsFor,
   fullLearnset, finalEvolutionOf,
   breedingSlotsFor, BREEDING_UNLOCK_LEVEL, bonanzaState,
   isRelaxHour, relaxHourEndsIn, RELAX_HOUR_LABEL, RULES, BUDDY_KM_PER_CANDY,
   isStardustSunday, STARDUST_SUNDAY_LABEL, STARDUST_SUNDAY_MULTIPLIER,
-  MAX_EGGS, INCUBATOR_ITEMS
+  MAX_EGGS, MAX_EXCLUSIVE_EGGS, INCUBATOR_ITEMS, poiEventState
 } from './data.js';
 import { renderEggs, renderEggTabBadge, openEggPickerFor } from './eggs.js';
 import { store, creatureStats, maxHpOf, hpOf, isFainted, isHurt } from './state.js';
 import { Persist } from './persist.js';
 import { playEvolution } from './anim.js';
-import { ITEMS, itemImage, itemName, itemsInOrder } from './items.js';
+import { ITEMS, itemImage, itemName, itemsInOrder, INCENSE_ITEMS } from './items.js';
 import {
   $, $$, el, toast, openSheet, closeSheet, num, timeLeftLabel,
   clampPage, pageSlice, pagerBar, pageOfIndex, wireSwipe, bumpEl
@@ -102,7 +102,7 @@ export function renderStorageTabs() {
   $('#storage-count').textContent = tab === 'items'
     ? `${total} item${total === 1 ? '' : 's'}`
     : tab === 'eggs'
-      ? `${store.eggs.length} of ${MAX_EGGS} eggs`
+      ? `${store.normalEggs.length}/${MAX_EGGS} + ${store.exclusiveEggs.length}/${MAX_EXCLUSIVE_EGGS} eggs`
       : family
         ? `${shown} of ${store.s.storage.length} shown`
         : `${store.s.storage.length} stored`;
@@ -158,9 +158,12 @@ export function renderStorage() {
 
     frag.append(el('button', {
       class: 'cell' + (c.shiny ? ' shiny' : '') + (selected ? ' picked' : ''),
-      onclick: () => {
+      onclick: e => {
+        // A long press just started multi-select, so this click is the release
+        // of that press rather than a tap.
+        if (consumeHold()) { e.preventDefault(); return; }
         if (multiSelectMode) {
-          if (c.favourite || c.breeding != null || c.shiny || isBuddy) {
+          if (!canMultiSelect(c)) {
             toast('Cannot select favourites, shinies, buddies or breeding creatures', 'bad');
             return;
           }
@@ -169,7 +172,15 @@ export function renderStorage() {
           return;
         }
         openCreatureSheet(c.uid);
-      }
+      },
+      // Hold to start multi-select with this creature already ticked.
+      onpointerdown: e => startHold(c, e),
+      onpointermove: trackHold,
+      onpointerup: endHold,
+      onpointercancel: endHold,
+      onpointerleave: endHold,
+      // Stop the mobile long-press menu fighting the gesture.
+      oncontextmenu: e => e.preventDefault()
     },
       selected ? el('span', { class: 'pick-order', text: '✓' }) : null,
       el('span', { class: 'lvl', text: 'Lv' + c.level }),
@@ -276,9 +287,79 @@ function goToStoragePage(page, grid = null) {
   $('#storage-grid')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
 
-export function enterMultiSelect() {
+/**
+ * Creatures you are not allowed to mass release, so they are also not allowed
+ * to be multi-selected.
+ */
+function canMultiSelect(c) {
+  return !c.favourite && c.breeding == null && !c.shiny && !store.isBuddy(c.uid);
+}
+
+/* ---------------- hold a tile to start multi-select ----------------
+   Same gesture and timing as holding a creature in the battle team picker, so
+   there is only one "press and wait" feel to learn. A plain tap still opens
+   the creature, which is why this cannot simply be a click.
+   ------------------------------------------------------------------ */
+
+const HOLD_MS = 320;
+/** Past this much finger travel it is a scroll, not a press. */
+const HOLD_SLOP_PX = 10;
+let holdTimer = null;
+let holdFrom = null;
+/** Set while a hold has just opened a selection, to swallow its release click. */
+let holdConsumed = false;
+
+function startHold(c, e) {
+  clearTimeout(holdTimer);
+  // Cleared on every new press, so a hold whose release click never arrived
+  // (the grid is rebuilt under the finger) cannot swallow a later tap.
+  holdConsumed = false;
+  holdFrom = e ? { x: e.clientX, y: e.clientY } : null;
+
+  holdTimer = setTimeout(() => {
+    holdTimer = null;
+    if (multiSelectMode) return;
+    if (!canMultiSelect(c)) {
+      toast('Favourites, shinies, buddies and breeding creatures cannot be released', 'bad');
+      return;
+    }
+    holdConsumed = true;
+    enterMultiSelect(c.uid);
+    toast('Multi-select on — tap more to add, or Cancel to stop', 'good', 2800);
+  }, HOLD_MS);
+}
+
+/** A press that turns into a scroll must not fire the hold. */
+function trackHold(e) {
+  if (!holdTimer || !holdFrom) return;
+  if (Math.abs(e.clientX - holdFrom.x) > HOLD_SLOP_PX ||
+      Math.abs(e.clientY - holdFrom.y) > HOLD_SLOP_PX) {
+    endHold();
+  }
+}
+
+function endHold() {
+  clearTimeout(holdTimer);
+  holdTimer = null;
+  holdFrom = null;
+}
+
+/** True once, if the press that just ended had started a selection. */
+function consumeHold() {
+  const was = holdConsumed;
+  holdConsumed = false;
+  return was;
+}
+
+// A press that ends anywhere at all must still cancel a pending hold.
+window.addEventListener('pointerup', endHold);
+window.addEventListener('pointercancel', endHold);
+
+/** `uid` pre-ticks that creature, which is how the hold gesture starts it. */
+export function enterMultiSelect(uid = null) {
   multiSelectMode = true;
   multiSelected.clear();
+  if (uid) multiSelected.add(uid);
   renderStorage();
 }
 
@@ -337,8 +418,8 @@ export function openItemSheet(itemId) {
     }, itemId === 'potion' ? 'Use on a creature' : 'Revive a creature'));
   }
   if (def.use === 'timed') {
-    // Both incense types share the one incense slot.
-    const kind = (itemId === 'incense' || itemId === 'rare_incense') ? 'incense' : 'magnet';
+    // Every incense type shares the one incense slot.
+    const kind = INCENSE_ITEMS.includes(itemId) ? 'incense' : 'magnet';
     const active = store.effect(kind);
     actions.push(el('button', {
       class: 'btn primary',
@@ -912,7 +993,11 @@ export function renderCollection() {
     shinyBtn.title = shinyMode ? 'Showing your shiny collection' : 'Show your shiny collection';
   }
 
-  let list = DB.species.filter(s => {
+  // Each tab has its own species list: the Exclusive tab shows only the
+  // raid-exclusive creatures, and the main set leaves them out.
+  const setSpecies = speciesForSet(set);
+
+  let list = setSpecies.filter(s => {
     if (ui.filterType && s.type !== ui.filterType) return false;
     if (ui.filterStage && String(s.stage) !== String(ui.filterStage)) return false;
     if (ui.filterRarity && String(s.rarity ?? '') !== String(ui.filterRarity)) return false;
@@ -927,11 +1012,13 @@ export function renderCollection() {
 
   const have = s => (shinyMode ? store.hasShinyCaught(s.id) : store.isRegistered(s.id));
   const haveHere = list.filter(have).length;
-  const totalHave = shinyMode ? store.shinyCaughtCount : store.registeredCount;
   const word = shinyMode ? 'shiny' : 'registered';
+  // The "total" figure is per set, so the Exclusive tab reads out of 19 rather
+  // than out of the whole dex.
+  const setHave = setSpecies.filter(have).length;
   $('#collection-count').textContent =
     `${haveHere} / ${list.length} ${word}` +
-    (list.length !== DB.species.length ? ` (filtered · ${totalHave} / ${DB.species.length} total)` : '');
+    (list.length !== setSpecies.length ? ` (filtered · ${setHave} / ${setSpecies.length} total)` : '');
 
   const grid = $('#collection-grid');
   grid.innerHTML = '';
@@ -1346,8 +1433,8 @@ export function renderEffectChips(now = Date.now()) {
     const fx = store.effect(b.kind, now);
     if (!fx) continue;
     // The incense chip reflects whichever incense is burning.
-    const id = b.kind === 'incense' && fx.rare ? 'rare_incense' : b.id;
-    const label = b.kind === 'incense' && fx.rare ? 'Rare Incense' : b.label;
+    const id = b.kind === 'incense' ? (fx.itemId || b.id) : b.id;
+    const label = b.kind === 'incense' ? (itemName(id) || b.label) : b.label;
     host.append(el('div', { class: `fx-chip ${b.kind}` },
       el('img', { src: itemImage(id), alt: '' }),
       el('span', { text: label }),
@@ -1379,6 +1466,20 @@ export function renderEffectChips(now = Date.now()) {
       el('span', { text: '🌙' }),
       el('span', { text: `${RELAX_HOUR_LABEL} · ${RULES.RELAX_RANGE_M} m reach` }),
       el('b', { text: timeLeftLabel(relaxHourEndsIn(nowDate)) })
+    ));
+  }
+
+  // A weekly event rewrites the POI odds, which is invisible on the map unless
+  // it says so — the next reset is up to 3 minutes away.
+  const event = poiEventState(nowDate);
+  if (event) {
+    const blurb = event.id === 'raidInvasion'
+      ? 'raids everywhere · discs pay an Ultra'
+      : 'grunts everywhere · no limit';
+    host.append(el('div', { class: `fx-chip event-${event.id}` },
+      el('span', { text: event.id === 'raidInvasion' ? '🔥' : '🥋' }),
+      el('span', { text: `${event.label} · ${blurb}` }),
+      el('b', { text: timeLeftLabel(event.endsIn) })
     ));
   }
 }

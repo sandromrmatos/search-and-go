@@ -10,6 +10,15 @@ export const CSV_FILE = 'Elemental Awakening Creatures.csv';
 export const STATS_CSV_FILE = 'Elemental Awakening Creatures Stats and Moves.csv';
 export const SET_NAME = 'Elemental Awakening';
 
+/**
+ * Raid-exclusive creatures. One self-contained file: species info, stats and
+ * moves all sit on the same row, unlike the main set which splits them.
+ */
+export const EXCLUSIVE_CSV_FILE = 'Raid Exclusive - Search and Go.csv';
+export const EXCLUSIVE_SET_NAME = 'Exclusive';
+/** Exclusive dex numbers start here so they never collide with the main set. */
+export const EXCLUSIVE_ORDER_BASE = 1000;
+
 export const IMAGE_DIR = 'images';
 export const SHINY_DIR = 'shiny';
 export const ITEM_DIR = 'items';
@@ -79,14 +88,51 @@ export const RULES = {
 
 /**
  * What a shop/amenity POI turns into on each scan. Weights are percentages
- * and must total 100.
+ * and must total 100. Weekends run a better Exclusive Raid rate, taken out of
+ * the "nothing" slice so every other outcome keeps its weekday odds.
  */
 export const POI_OUTCOMES = [
   { kind: 'creature', weight: 22 },
   { kind: 'discs',    weight: 28 },
   { kind: 'items',    weight: 15 },
   { kind: 'raid',     weight: 5 },
-  { kind: 'nothing',  weight: 30 }
+  { kind: 'exraid',   weight: 2 },
+  { kind: 'nothing',  weight: 28 }
+];
+
+export const POI_OUTCOMES_WEEKEND = [
+  { kind: 'creature', weight: 22 },
+  { kind: 'discs',    weight: 28 },
+  { kind: 'items',    weight: 15 },
+  { kind: 'raid',     weight: 5 },
+  { kind: 'exraid',   weight: 4 },
+  { kind: 'nothing',  weight: 26 }
+];
+
+/**
+ * Raid Invasion odds. There is no "nothing" slice at all, so every POI in
+ * range produces something, and raids of both kinds take up 40% of the table.
+ */
+export const POI_OUTCOMES_RAID_INVASION = [
+  { kind: 'creature', weight: 10 },
+  { kind: 'discs',    weight: 40 },
+  { kind: 'items',    weight: 10 },
+  { kind: 'raid',     weight: 30 },
+  { kind: 'exraid',   weight: 10 }
+];
+
+/**
+ * Training Dojo Hour odds. This is the only table where a shop or amenity can
+ * turn into a grunt — normally grunts only come out of parks and gardens. Like
+ * the invasion table it has no "nothing" slice.
+ */
+export const POI_OUTCOMES_TRAINING_DOJO = [
+  { kind: 'creature', weight: 10 },
+  { kind: 'discs',    weight: 15 },
+  { kind: 'items',    weight: 35 },
+  { kind: 'raid',     weight: 3 },
+  { kind: 'exraid',   weight: 2 },
+  { kind: 'grunt',    weight: 35 }
 ];
 
 /** A "discs" point rolls one of these payloads. */
@@ -262,6 +308,13 @@ export const BATTLE_TEAM_SIZE = 3;
 /* Raid bosses are beefed up versions of a normal creature. */
 export const RAID_BOSS_MODIFIERS = { hp: 3, attack: 1.25, defence: 1.25, speed: 1.25 };
 
+/** Exclusive raid bosses are tougher again: more HP and a bigger stat buff. */
+export const EXCLUSIVE_RAID_BOSS_MODIFIERS = { hp: 4, attack: 1.30, defence: 1.30, speed: 1.30 };
+
+/** The right modifier table for a raid. */
+export const raidModifiers = (exclusive = false) =>
+  exclusive ? EXCLUSIVE_RAID_BOSS_MODIFIERS : RAID_BOSS_MODIFIERS;
+
 /** Which rarity a raid is, what level the boss is, and what beating it pays. */
 export const RAID_TIERS = {
   1: { weight: 30, levels: [3, 4], xp: 10, dust: [40, 60] },
@@ -270,6 +323,12 @@ export const RAID_TIERS = {
   4: { weight: 15, levels: [6, 7], xp: 50, dust: [300, 450] },
   5: { weight: 10, levels: [7, 8], xp: 80, dust: [500, 750] }
 };
+
+/**
+ * Exclusive raids only ever hold rarity 3, 4 or 5 bosses. Levels and payouts
+ * are the same as the equivalent normal raid tier — only the odds differ.
+ */
+export const EXCLUSIVE_RAID_WEIGHTS = { 3: 50, 4: 35, 5: 15 };
 
 /* ---------------------------------------------------------------
    Battle grunts
@@ -330,6 +389,17 @@ export const raidRareIncenseChance = rarity =>
 export const RAID_BONUS_RARITIES =
   Object.keys(RAID_REWARD.incubatorChanceByRarity).map(Number).sort((a, b) => a - b);
 
+/**
+ * Extra drops on top of the normal raid table, only from Exclusive Raids. The
+ * two rolls are independent, so one win can pay both, either or neither.
+ */
+export const EXCLUSIVE_RAID_REWARD = {
+  shinyIncenseChance: 0.25,
+  shinyIncenseItem: 'shiny_incense',
+  eggChance: 0.25,
+  eggType: '15km'
+};
+
 export const GRUNT_REWARD = {
   dust: [70, 95],
   bonus: [
@@ -356,6 +426,13 @@ export const SHINY_ODDS = {
   bonanza: { spawn: 0.02, raid: 0.04 }
 };
 
+/**
+ * Shiny Incense pins the shiny rate to a flat 3% for everything caught while
+ * it burns. It replaces the usual odds rather than multiplying them, so it
+ * never stacks with a Shiny Bonanza.
+ */
+export const SHINY_INCENSE_ODDS = 0.03;
+
 /** Shiny Bonanza Hour: local 17:30–18:30. */
 export const BONANZA_HOUR_START = 17.5;  // 17:30
 export const BONANZA_HOUR_END = 18.5;    // 18:30
@@ -368,6 +445,28 @@ export const BONANZA_HOUR_END = 18.5;    // 18:30
 export const RELAX_HOUR_START = 22.5;    // 22:30
 export const RELAX_HOUR_END = 22.75;     // 22:45
 export const RELAX_HOUR_LABEL = 'Relax and Good Night';
+
+/* ---------------------------------------------------------------
+   Weekly events that rewrite the POI odds for their window.
+
+   Both replace the ordinary weekday/weekend table outright rather than
+   nudging it, which is why each of their tables has to total 100 on its own.
+   They cannot overlap: one is a Wednesday, the other a Saturday.
+   --------------------------------------------------------------- */
+
+/** Raid Invasion: Wednesdays 19:00–20:00. */
+export const RAID_INVASION_LABEL = 'Raid Invasion';
+export const RAID_INVASION_DAY = 3;        // 0 = Sunday, so 3 = Wednesday
+export const RAID_INVASION_START = 19;     // 19:00
+export const RAID_INVASION_END = 20;       // 20:00
+/** Handed over by every disc point during the invasion, on top of its drop. */
+export const RAID_INVASION_DISC_BONUS = { ultra_disc: 1 };
+
+/** Training Dojo Hour: Saturdays 13:30–14:00. */
+export const TRAINING_DOJO_LABEL = 'Training Dojo Hour';
+export const TRAINING_DOJO_DAY = 6;        // Saturday
+export const TRAINING_DOJO_START = 13.5;   // 13:30
+export const TRAINING_DOJO_END = 14;       // 14:00
 
 /* ---------------------------------------------------------------
    Move unlock luck (rolled once per captured creature, kept by the family)
@@ -389,6 +488,8 @@ export const MOVE_UNLOCK_ROLL = [
    --------------------------------------------------------------- */
 export const EGG_DIR = 'eggs';
 export const MAX_EGGS = 6;
+/** Exclusive 15 km eggs sit in their own three slots, not the six above. */
+export const MAX_EXCLUSIVE_EGGS = 3;
 export const EGG_DROP_CHANCE = 0.10;
 /** Hatchlings arrive part-grown rather than at level 1. */
 export const EGG_HATCH_LEVEL = 3;
@@ -401,8 +502,20 @@ export const EGG_TYPES = {
   '10km': {
     id: '10km', km: 10, dust: 150, xp: 50, image: '10km_egg.png', bonusCandy: 5,
     weights: { 1: 32, 2: 30, 3: 25, 4: 10, 5: 3 }
+  },
+  /**
+   * Only ever dropped by an Exclusive Raid. Hatches from the exclusive pool,
+   * and pays a 10 km egg's rewards plus 50 stardust and 2 candies.
+   */
+  '15km': {
+    id: '15km', km: 15, dust: 200, xp: 50, image: '15km_egg.png', bonusCandy: 7,
+    exclusive: true,
+    weights: { 3: 50, 4: 35, 5: 15 }
   }
 };
+
+/** The egg type Exclusive Raids drop. */
+export const EXCLUSIVE_EGG_TYPE = '15km';
 
 /** Which egg you get when one drops. */
 export const EGG_TYPE_ROLL = [
@@ -419,8 +532,17 @@ export const eggImage = type => `${EGG_DIR}/${encodeURIComponent(eggDef(type).im
 export const eggLabel = type => `${eggDef(type).km} km egg`;
 export const eggMetres = type => eggDef(type).km * 1000;
 export const rollEggType = () => weightedPick(EGG_TYPE_ROLL).type;
-/** Eggs use their own rarity table rather than the wild spawn weights. */
-export const rollEggSpecies = type => rollSpawnSpecies(eggDef(type).weights);
+/** True for the 15 km egg, which uses the separate exclusive slots. */
+export const isExclusiveEgg = type => !!eggDef(type).exclusive;
+
+/**
+ * Eggs use their own rarity table rather than the wild spawn weights, and the
+ * 15 km egg draws from the exclusive pool instead of the spawnable one.
+ */
+export const rollEggSpecies = type => {
+  const def = eggDef(type);
+  return def.exclusive ? rollExclusiveSpecies(def.weights) : rollSpawnSpecies(def.weights);
+};
 
 /* ---------------------------------------------------------------
    Buddy
@@ -477,6 +599,11 @@ export const MISSIONS = [
     label: 'Catch 5000 creatures'
   },
   {
+    id: 'cat7500', kind: 'captures', target: 7500, xp: 400, dust: 3500,
+    items: { shiny_incense: 1, rare_incense: 1, incense: 1 },
+    label: 'Catch 7500 creatures'
+  },
+  {
     id: 'cat10000', kind: 'captures', target: 10000, xp: 500, dust: 5000,
     items: { breeding_center: 1, incense: 2, stardust_magnet: 2 },
     label: 'Catch 10000 creatures'
@@ -495,6 +622,17 @@ export const MISSIONS = [
   { id: 'raidR3', kind: 'raidRarity', rarity: 3, target: 1, xp: 20,  dust: 100, items: { single_use_incubator: 1 }, label: 'Successfully defeat a Rarity 3 raid' },
   { id: 'raidR4', kind: 'raidRarity', rarity: 4, target: 1, xp: 50,  dust: 250, items: { single_use_incubator: 2 }, label: 'Successfully defeat a Rarity 4 raid' },
   { id: 'raidR5', kind: 'raidRarity', rarity: 5, target: 1, xp: 100, dust: 500, items: { single_use_incubator: 2 }, label: 'Successfully defeat a Rarity 5 raid' },
+
+  // ---- exclusive raids ----
+  // Exclusive wins also feed the plain raid missions above, so these stack.
+  { id: 'exRaidR3', kind: 'exclusiveRaidRarity', rarity: 3, target: 1, xp: 20,  dust: 200,  items: { ultra_disc: 2 }, label: 'Defeat a Rarity 3 Exclusive Raid' },
+  { id: 'exRaidR4', kind: 'exclusiveRaidRarity', rarity: 4, target: 1, xp: 50,  dust: 500,  items: { ultra_disc: 2 }, label: 'Defeat a Rarity 4 Exclusive Raid' },
+  { id: 'exRaidR5', kind: 'exclusiveRaidRarity', rarity: 5, target: 1, xp: 100, dust: 1000, items: { ultra_disc: 3, incense: 1, stardust_magnet: 1 }, label: 'Defeat a Rarity 5 Exclusive Raid' },
+
+  { id: 'exRaid5',  kind: 'exclusiveRaidsWon', target: 5,  xp: 25,  dust: 250,  items: { ultra_disc: 2 }, label: 'Defeat 5 Exclusive Raids' },
+  { id: 'exRaid10', kind: 'exclusiveRaidsWon', target: 10, xp: 50,  dust: 500,  items: { ultra_disc: 2, incense: 1 }, label: 'Defeat 10 Exclusive Raids' },
+  { id: 'exRaid20', kind: 'exclusiveRaidsWon', target: 20, xp: 100, dust: 1000, items: { ultra_disc: 3, rare_incense: 1, shiny_incense: 1 }, label: 'Defeat 20 Exclusive Raids' },
+  { id: 'exRaid50', kind: 'exclusiveRaidsWon', target: 50, xp: 150, dust: 1500, items: { ultra_disc: 3, shiny_incense: 1 }, label: 'Defeat 50 Exclusive Raids' },
 
   // ---- grunts beaten ----
   { id: 'grunt5',   kind: 'gruntsBeaten', target: 5,   xp: 5,   dust: 20,   items: { stardust_magnet: 1 }, label: 'Successfully defeat 5 grunts' },
@@ -599,8 +737,13 @@ export const DAILY_MISSIONS = [
    --------------------------------------------------------------- */
 export const SETS = [
   { id: 'elemental-awakening', title: SET_NAME, available: true },
+  { id: 'exclusive', title: EXCLUSIVE_SET_NAME, available: true, exclusive: true },
   { id: 'coming-soon', title: 'Coming Soon', available: false }
 ];
+
+/** The species a collection tab lists. */
+export const speciesForSet = set =>
+  set?.exclusive ? DB.exclusive : DB.species.filter(s => !s.exclusive);
 
 /* ===============================================================
    CSV parsing
@@ -736,6 +879,13 @@ export const DB = {
   stage1: [],
   spawnable: [],
   byRarity: { 1: [], 2: [], 3: [], 4: [], 5: [] },
+  /**
+   * Raid-exclusive creatures. Deliberately kept out of `spawnable` and
+   * `byRarity` so nothing — wild spawns, incense or normal eggs — can ever
+   * reach them. Exclusive raids and 15 km eggs read these lists instead.
+   */
+  exclusive: [],
+  exclusiveByRarity: { 3: [], 4: [], 5: [] },
   familyOf: new Map(),
   familyMembers: new Map(),
   evolvesFrom: new Map(),
@@ -744,16 +894,26 @@ export const DB = {
   warnings: []
 };
 
-export async function loadDatabase(csvUrl = CSV_FILE, statsUrl = STATS_CSV_FILE) {
+export async function loadDatabase(
+  csvUrl = CSV_FILE,
+  statsUrl = STATS_CSV_FILE,
+  exclusiveUrl = EXCLUSIVE_CSV_FILE
+) {
   DB.warnings = [];
 
-  const [baseText, statsText] = await Promise.all([
+  const [baseText, statsText, exclusiveText] = await Promise.all([
     fetchText(csvUrl),
-    fetchText(statsUrl)
+    fetchText(statsUrl),
+    // A missing exclusive file is not fatal: the rest of the game still runs.
+    fetchText(exclusiveUrl).catch(err => {
+      DB.warnings.push(`Exclusive creatures not loaded: ${err.message}`);
+      return '';
+    })
   ]);
 
   const baseRows = toRecords(parseCSV(baseText));
   const statRows = toRecords(parseCSV(statsText));
+  const exclusiveRows = exclusiveText ? toRecords(parseCSV(exclusiveText)) : [];
 
   const statsById = new Map();
   const statsByName = new Map();
@@ -767,8 +927,9 @@ export async function loadDatabase(csvUrl = CSV_FILE, statsUrl = STATS_CSV_FILE)
   DB.byId.clear(); DB.byName.clear();
   DB.evolvesFrom.clear(); DB.familyOf.clear(); DB.familyMembers.clear();
   DB.moveIndex.clear();
-  DB.stage1 = []; DB.spawnable = [];
+  DB.stage1 = []; DB.spawnable = []; DB.exclusive = [];
   DB.byRarity = { 1: [], 2: [], 3: [], 4: [], 5: [] };
+  DB.exclusiveByRarity = { 3: [], 4: [], 5: [] };
 
   baseRows.forEach((r, idx) => {
     const id = r['id_output'] || r['id'];
@@ -804,7 +965,56 @@ export async function loadDatabase(csvUrl = CSV_FILE, statsUrl = STATS_CSV_FILE)
     DB.byName.set(sp.name.toLowerCase(), sp);
   });
 
+  /* ---- raid-exclusive creatures ----
+     Same row carries info, stats and moves. Their `order` is pushed past the
+     main set so the shared sort never interleaves the two collections. */
+  exclusiveRows.forEach((r, idx) => {
+    const rawId = r['id_output'] || r['id'];
+    if (!rawId) return;
+    // ids in this file are written as "Exclusive_01.png".
+    const id = rawId.replace(/\.png$/i, '');
+    const name = r['name'] || '';
+    if (!name) return;
+
+    const numMatch = id.match(/(\d+)\s*$/);
+    const rarityRaw = r['rarity'];
+    const candyRaw = r['evolution candy'];
+    const image = r['image'] || `${name}.png`;
+
+    const sp = new Species({
+      id,
+      order: EXCLUSIVE_ORDER_BASE + (numMatch ? Number(numMatch[1]) : idx + 1),
+      name,
+      stage: stageNumber(r['stage']),
+      type: r['type'] || 'Neutral',
+      image,
+      shinyImage: shinyFileFor(name, image),
+      rarity: rarityRaw ? Number(rarityRaw) : null,
+      evolvesToName: r['evolves to'] || null,
+      evolutionCandy: candyRaw ? Number(candyRaw) : null,
+      set: EXCLUSIVE_SET_NAME,
+      exclusive: true,
+      baseStats: readStats(r, name),
+      moves: readMoves(r, name)
+    });
+
+    if (DB.byId.has(sp.id)) {
+      DB.warnings.push(`Exclusive id "${sp.id}" clashes with an existing creature`);
+      return;
+    }
+    DB.species.push(sp);
+    DB.exclusive.push(sp);
+    DB.byId.set(sp.id, sp);
+    // Never let an exclusive shadow a main-set name lookup.
+    if (DB.byName.has(sp.name.toLowerCase())) {
+      DB.warnings.push(`Exclusive "${sp.name}" shares a name with a main-set creature`);
+    } else {
+      DB.byName.set(sp.name.toLowerCase(), sp);
+    }
+  });
+
   DB.species.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+  DB.exclusive.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
 
   // evolution links
   for (const sp of DB.species) {
@@ -837,9 +1047,22 @@ export async function loadDatabase(csvUrl = CSV_FILE, statsUrl = STATS_CSV_FILE)
     DB.familyMembers.set(sp.id, [sp.id]);
   }
 
-  DB.stage1 = DB.species.filter(s => s.stage === 1);
+  // Exclusives are left out of every spawn list on purpose — the only ways to
+  // meet them are an Exclusive Raid and a 15 km egg.
+  DB.stage1 = DB.species.filter(s => s.stage === 1 && !s.exclusive);
   DB.spawnable = DB.stage1.filter(s => s.rarity >= 1 && s.rarity <= 5);
   for (const sp of DB.spawnable) DB.byRarity[sp.rarity].push(sp);
+
+  for (const sp of DB.exclusive) {
+    if (sp.stage === 1 && DB.exclusiveByRarity[sp.rarity]) {
+      DB.exclusiveByRarity[sp.rarity].push(sp);
+    }
+  }
+  for (const r of [3, 4, 5]) {
+    if (!DB.exclusiveByRarity[r].length) {
+      DB.warnings.push(`No rarity ${r} exclusive creatures found`);
+    }
+  }
 
   DB.types = TYPES.filter(t => DB.species.some(s => s.type === t));
   for (const s of DB.species) if (!DB.types.includes(s.type)) DB.types.push(s.type);
@@ -999,13 +1222,106 @@ export function rollSpawnSpecies(weights = RARITY_WEIGHTS) {
   return DB.spawnable[Math.floor(Math.random() * DB.spawnable.length)];
 }
 
-/** Which map-point kind a POI produces this scan. */
-export function rollPOIOutcome() {
-  return weightedPick(POI_OUTCOMES).kind;
+/**
+ * Weighted pick from the exclusive pool. Only rarities 3, 4 and 5 exist here.
+ */
+export function rollExclusiveSpecies(weights = EXCLUSIVE_RAID_WEIGHTS) {
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const pool = DB.exclusiveByRarity[rollRarityWith(weights)];
+    if (pool?.length) return pool[Math.floor(Math.random() * pool.length)];
+  }
+  const all = DB.exclusive.filter(s => s.stage === 1);
+  return all.length ? all[Math.floor(Math.random() * all.length)] : rollSpawnSpecies();
 }
 
-export const rollDiscDrop = () => weightedPick(DISC_DROPS).items;
-export const rollItemDrop = () => weightedPick(ITEM_DROPS).items;
+/** True on Saturday and Sunday, which run slightly richer POI odds. */
+export const isWeekend = (now = new Date()) => {
+  const d = now.getDay();
+  return d === 0 || d === 6;
+};
+
+/** Is `now` inside a weekly window, given a day and decimal start/end hours? */
+const inWeeklyWindow = (now, day, start, end) => {
+  if (now.getDay() !== day) return false;
+  const t = now.getHours() + now.getMinutes() / 60;
+  return t >= start && t < end;
+};
+
+/** Millis until a weekly window closes. 0 when it is not running. */
+function weeklyWindowEndsIn(now, day, start, end) {
+  if (!inWeeklyWindow(now, day, start, end)) return 0;
+  // Derived from the end hour so retuning a window only means one edit.
+  const to = new Date(now);
+  to.setHours(Math.floor(end), Math.round((end % 1) * 60), 0, 0);
+  return Math.max(0, to - now);
+}
+
+export const isRaidInvasion = (now = new Date()) =>
+  inWeeklyWindow(now, RAID_INVASION_DAY, RAID_INVASION_START, RAID_INVASION_END);
+
+export const isTrainingDojo = (now = new Date()) =>
+  inWeeklyWindow(now, TRAINING_DOJO_DAY, TRAINING_DOJO_START, TRAINING_DOJO_END);
+
+/**
+ * The weekly event that owns the POI odds right now, or null on a normal day.
+ * Everything that needs to know an event is running reads this, so the window
+ * definitions never have to be re-checked in more than one place.
+ */
+export function poiEventState(now = new Date()) {
+  if (isRaidInvasion(now)) {
+    return {
+      id: 'raidInvasion',
+      label: RAID_INVASION_LABEL,
+      table: POI_OUTCOMES_RAID_INVASION,
+      endsIn: weeklyWindowEndsIn(now, RAID_INVASION_DAY, RAID_INVASION_START, RAID_INVASION_END)
+    };
+  }
+  if (isTrainingDojo(now)) {
+    return {
+      id: 'trainingDojo',
+      label: TRAINING_DOJO_LABEL,
+      table: POI_OUTCOMES_TRAINING_DOJO,
+      endsIn: weeklyWindowEndsIn(now, TRAINING_DOJO_DAY, TRAINING_DOJO_START, TRAINING_DOJO_END)
+    };
+  }
+  return null;
+}
+
+/**
+ * The odds table in force right now. An event wins over the weekday/weekend
+ * split — Training Dojo Hour falls on a Saturday, and for those 30 minutes its
+ * table replaces the weekend one entirely.
+ */
+export function poiOutcomeTable(now = new Date()) {
+  const event = poiEventState(now);
+  if (event) return event.table;
+  return isWeekend(now) ? POI_OUTCOMES_WEEKEND : POI_OUTCOMES;
+}
+
+/** Which map-point kind a POI produces this scan. */
+export function rollPOIOutcome(now = new Date()) {
+  return weightedPick(poiOutcomeTable(now)).kind;
+}
+
+/** During Training Dojo Hour the map holds as many grunts as it can fit. */
+export const gruntsAreUncapped = (now = new Date()) => isTrainingDojo(now);
+
+/**
+ * Copies rather than handing back the table's own object — a point's drop is
+ * edited in place during a Raid Invasion, and mutating the shared table would
+ * corrupt every later roll for the rest of the session.
+ */
+export const rollDiscDrop = () => ({ ...weightedPick(DISC_DROPS).items });
+export const rollItemDrop = () => ({ ...weightedPick(ITEM_DROPS).items });
+
+/** Adds the Raid Invasion bonus to a disc drop. No-op outside the window. */
+export function applyRaidInvasionBonus(drop, now = new Date()) {
+  if (!isRaidInvasion(now)) return drop;
+  for (const [id, n] of Object.entries(RAID_INVASION_DISC_BONUS)) {
+    drop[id] = (drop[id] || 0) + n;
+  }
+  return drop;
+}
 
 /** Rolls the per-creature move unlock luck. */
 export function rollMoveUnlock() {
@@ -1087,12 +1403,16 @@ export function statsFor(sp, level = 1, statMod = null) {
   return out;
 }
 
-/** Raid boss stats: levelled, then HP tripled and the rest up 10%. */
-export function raidBossStats(sp, level) {
+/**
+ * Raid boss stats: levelled, then boosted by the raid modifiers. Exclusive
+ * raids use the tougher table (4x HP, +30% instead of 3x and +25%).
+ */
+export function raidBossStats(sp, level, exclusive = false) {
   const base = statsFor(sp, level, null);
+  const mods = raidModifiers(exclusive);
   const out = {};
   for (const k of STAT_KEYS) {
-    out[k] = Math.max(1, Math.round(base[k] * (RAID_BOSS_MODIFIERS[k] ?? 1)));
+    out[k] = Math.max(1, Math.round(base[k] * (mods[k] ?? 1)));
   }
   return out;
 }
@@ -1152,12 +1472,19 @@ export function bonanzaState(now = new Date()) {
   return { active: day || hour, day, hour };
 }
 
-export function shinyOdds(source = 'spawn', now = new Date()) {
+/**
+ * Shiny chance for one roll. `shinyIncense` overrides everything else: it is a
+ * flat rate that deliberately does not stack with a Bonanza, so during an
+ * unlucky overlap it can even be lower than the doubled raid rate.
+ */
+export function shinyOdds(source = 'spawn', now = new Date(), { shinyIncense = false } = {}) {
+  if (shinyIncense) return SHINY_INCENSE_ODDS;
   const table = bonanzaState(now).active ? SHINY_ODDS.bonanza : SHINY_ODDS.normal;
   return table[source] ?? table.spawn;
 }
 
-export const rollShiny = (source = 'spawn', now = new Date()) => chance(shinyOdds(source, now));
+export const rollShiny = (source = 'spawn', now = new Date(), opts = {}) =>
+  chance(shinyOdds(source, now, opts));
 
 /* ===============================================================
    Relax and Good Night
@@ -1198,6 +1525,25 @@ export function rollRaid() {
   return {
     speciesId: sp.id,
     rarity,
+    level: randInt(tier.levels[0], tier.levels[1]),
+    xp: tier.xp,
+    dustRange: tier.dust
+  };
+}
+
+/**
+ * An Exclusive Raid: rarity 3, 4 or 5 only, boss drawn from the exclusive
+ * pool. Levels and payouts match the equivalent normal raid tier — only the
+ * rarity odds, the boss modifiers and the extra drops differ.
+ */
+export function rollExclusiveRaid() {
+  const sp = rollExclusiveSpecies();
+  const rarity = sp.rarity >= 3 && sp.rarity <= 5 ? sp.rarity : 3;
+  const tier = RAID_TIERS[rarity];
+  return {
+    speciesId: sp.id,
+    rarity,
+    exclusive: true,
     level: randInt(tier.levels[0], tier.levels[1]),
     xp: tier.xp,
     dustRange: tier.dust

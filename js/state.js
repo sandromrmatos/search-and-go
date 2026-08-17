@@ -13,10 +13,11 @@ import {
   BREEDING_CANDY_CAP, BREEDING_UNLOCK_LEVEL,
   dustInRange, weightedPick, GRUNT_REWARD, levelUpRewardsFor,
   buddyMetresPerCandy, stardustMultiplier, isStardustSunday, RAID_REWARD,
-  raidIncubatorChance, raidRareIncenseChance,
+  raidIncubatorChance, raidRareIncenseChance, EXCLUSIVE_RAID_REWARD,
   rollGruntItems, RARE_INCENSE_WEIGHTS,
   EGG_TYPES, MAX_EGGS, EGG_DROP_CHANCE, EGG_HATCH_LEVEL, INCUBATOR_ITEMS, REUSABLE_INCUBATOR,
-  eggDef, eggMetres, rollEggType, rollEggSpecies
+  eggDef, eggMetres, rollEggType, rollEggSpecies,
+  MAX_EXCLUSIVE_EGGS, EXCLUSIVE_EGG_TYPE, isExclusiveEgg
 } from './data.js';
 import { ITEMS, item as itemDef } from './items.js';
 
@@ -98,7 +99,9 @@ function blankState() {
       raidsWon: 0, gruntsBeaten: 0, itemsCollected: 0, shinies: 0,
       metresWalked: 0, steps: 0,
       eggsHatched: 0,
-      raidsByRarity: {}   // rarity -> raid bosses beaten, for the per-rarity missions
+      raidsByRarity: {},  // rarity -> raid bosses beaten, for the per-rarity missions
+      exclusiveRaidsWon: 0,
+      exclusiveRaidsByRarity: {}
     },
 
     lastScanAt: 0,
@@ -144,7 +147,11 @@ export const isHurt = c => hpOf(c) < maxHpOf(c);
 /* ---------------------------------------------------------------
    Migration
    --------------------------------------------------------------- */
-function migrate(raw) {
+/**
+ * Normalises a raw save into the current shape. Exported so save handling can
+ * be checked without writing anything to disk.
+ */
+export function migrate(raw) {
   const base = blankState();
   if (!raw || typeof raw !== 'object') return base;
 
@@ -157,7 +164,9 @@ function migrate(raw) {
     caughtCount: { ...(raw.caughtCount || {}) },
     stats: {
       ...base.stats, ...(raw.stats || {}),
-      raidsByRarity: { ...(raw.stats?.raidsByRarity || {}) }
+      raidsByRarity: { ...(raw.stats?.raidsByRarity || {}) },
+      exclusiveRaidsWon: Number(raw.stats?.exclusiveRaidsWon) || 0,
+      exclusiveRaidsByRarity: { ...(raw.stats?.exclusiveRaidsByRarity || {}) }
     },
     debug: { ...base.debug, ...(raw.debug || {}) },
     ui: { ...base.ui, ...(raw.ui || {}) },
@@ -231,9 +240,17 @@ function migrate(raw) {
   }
 
   // ---- eggs ----
+  // Capped per bucket: six normal eggs and three exclusive 15 km eggs. A flat
+  // slice would let a full normal storage push out an exclusive egg.
+  const eggRoom = { normal: MAX_EGGS, exclusive: MAX_EXCLUSIVE_EGGS };
   s.eggs = (Array.isArray(raw.eggs) ? raw.eggs : [])
     .filter(e => e && EGG_TYPES[e.type])
-    .slice(0, MAX_EGGS)
+    .filter(e => {
+      const bucket = isExclusiveEgg(e.type) ? 'exclusive' : 'normal';
+      if (eggRoom[bucket] <= 0) return false;
+      eggRoom[bucket]--;
+      return true;
+    })
     .map(e => ({
       id: e.id || `egg${Math.random().toString(36).slice(2, 8)}`,
       type: e.type,
@@ -571,8 +588,32 @@ class Store {
      =============================================================== */
 
   get eggs() { return this.s.eggs; }
-  get eggsFull() { return this.s.eggs.length >= MAX_EGGS; }
-  get eggSpaceLeft() { return Math.max(0, MAX_EGGS - this.s.eggs.length); }
+
+  /**
+   * Eggs live in two independent buckets: six normal slots and three exclusive
+   * slots for 15 km eggs. A full set of normal eggs never blocks an exclusive
+   * drop, and vice versa.
+   */
+  get normalEggs() { return this.s.eggs.filter(e => !isExclusiveEgg(e.type)); }
+  get exclusiveEggs() { return this.s.eggs.filter(e => isExclusiveEgg(e.type)); }
+
+  eggCapacityFor(type) { return isExclusiveEgg(type) ? MAX_EXCLUSIVE_EGGS : MAX_EGGS; }
+  eggsHeldFor(type) {
+    return isExclusiveEgg(type) ? this.exclusiveEggs.length : this.normalEggs.length;
+  }
+  eggsFullFor(type) { return this.eggsHeldFor(type) >= this.eggCapacityFor(type); }
+  eggSpaceLeftFor(type) {
+    return Math.max(0, this.eggCapacityFor(type) - this.eggsHeldFor(type));
+  }
+
+  /** The normal bucket, which is what the disc/item egg drop uses. */
+  get eggsFull() { return this.normalEggs.length >= MAX_EGGS; }
+  get eggSpaceLeft() { return Math.max(0, MAX_EGGS - this.normalEggs.length); }
+  get exclusiveEggsFull() { return this.exclusiveEggs.length >= MAX_EXCLUSIVE_EGGS; }
+  get exclusiveEggSpaceLeft() {
+    return Math.max(0, MAX_EXCLUSIVE_EGGS - this.exclusiveEggs.length);
+  }
+
   egg(id) { return this.s.eggs.find(e => e.id === id) || null; }
 
   /** Metres this egg still needs, and how far along it is. */
@@ -591,7 +632,7 @@ class Store {
   readyEggs() { return this.s.eggs.filter(e => this.isEggReady(e)); }
 
   addEgg(type) {
-    if (this.eggsFull) return { ok: false, reason: 'full' };
+    if (this.eggsFullFor(type)) return { ok: false, reason: 'full' };
     const egg = {
       id: `egg${this.s.nextEggId++}`,
       type,
@@ -686,8 +727,9 @@ class Store {
     const res = this.capture(sp.id, {
       origin: 'egg',
       level: EGG_HATCH_LEVEL,
-      // Eggs use the raid shiny rate.
-      shiny: rollShiny('raid'),
+      // Eggs use the raid shiny rate, or the flat Shiny Incense rate if one
+      // happens to be burning when the egg cracks.
+      shiny: rollShiny('raid', new Date(), this.shinyOpts()),
       dust: def.dust,
       xp: def.xp,
       bonusCandy: def.bonusCandy || 0,
@@ -920,6 +962,12 @@ class Store {
   /** True while the running incense is the Rare variety. */
   isRareIncense(now = Date.now()) { return !!this.effect('incense', now)?.rare; }
 
+  /** True while a Shiny Incense is burning, which pins shiny odds to 3%. */
+  isShinyIncense(now = Date.now()) { return !!this.effect('incense', now)?.shiny; }
+
+  /** The shiny-odds options for a roll made right now. */
+  shinyOpts(now = Date.now()) { return { shinyIncense: this.isShinyIncense(now) }; }
+
   /**
    * Starts incense or the stardust magnet. One of each at a time — both
    * incense types share the slot, so Rare Incense cannot stack with a plain
@@ -937,10 +985,16 @@ class Store {
       endsAt: now + duration,
       lastSpawnAt: kind === 'incense' ? 0 : null,
       itemId,
-      rare: itemId === 'rare_incense'
+      rare: itemId === 'rare_incense',
+      shiny: itemId === 'shiny_incense'
     };
     this.touch('effect', { immediate: true });
-    return { ok: true, endsAt: this.s.effects[kind].endsAt, rare: itemId === 'rare_incense' };
+    return {
+      ok: true,
+      endsAt: this.s.effects[kind].endsAt,
+      rare: itemId === 'rare_incense',
+      shiny: itemId === 'shiny_incense'
+    };
   }
 
   clearExpiredEffects(now = Date.now()) {
@@ -970,7 +1024,9 @@ class Store {
       evolvedAt: null,
       origin,
       shiny: shiny == null
-        ? (this.s.debug.shinyBoost ? chance(0.5) : rollShiny(origin === 'raid' ? 'raid' : 'spawn'))
+        ? (this.s.debug.shinyBoost
+          ? chance(0.5)
+          : rollShiny(origin === 'raid' ? 'raid' : 'spawn', new Date(), this.shinyOpts()))
         : !!shiny,
       statMod: rollStatModifier(),
       moveUnlock: unlock || rollMoveUnlock(),
@@ -1051,6 +1107,17 @@ class Store {
       byRarity[rarity] = (byRarity[rarity] || 0) + 1;
     }
 
+    // Exclusive raids count towards both the general raid tallies above and
+    // their own, so a normal "defeat 20 raids" mission still progresses.
+    const exclusive = !!raid.exclusive;
+    if (exclusive) {
+      this.s.stats.exclusiveRaidsWon = (this.s.stats.exclusiveRaidsWon || 0) + 1;
+      if (rarity) {
+        const exByRarity = this.s.stats.exclusiveRaidsByRarity;
+        exByRarity[rarity] = (exByRarity[rarity] || 0) + 1;
+      }
+    }
+
     // Guaranteed loot, then the rarity-dependent drops. Rarity 4 and 5 bosses
     // always hand over the incubator and can also drop a Rare Incense.
     const items = {};
@@ -1063,8 +1130,25 @@ class Store {
     if (chance(raidIncubatorChance(rarity))) drop(RAID_REWARD.incubatorItem);
     if (chance(raidRareIncenseChance(rarity))) drop(RAID_REWARD.rareIncenseItem);
 
+    // Exclusive raids add two independent bonus rolls on top of everything a
+    // normal raid pays. The egg can be lost to full exclusive storage.
+    let egg = null;
+    let eggBlocked = false;
+    if (exclusive) {
+      if (chance(EXCLUSIVE_RAID_REWARD.shinyIncenseChance)) {
+        drop(EXCLUSIVE_RAID_REWARD.shinyIncenseItem);
+      }
+      if (chance(EXCLUSIVE_RAID_REWARD.eggChance)) {
+        const r = this.addEgg(EXCLUSIVE_EGG_TYPE);
+        if (r.ok) egg = r.egg; else eggBlocked = true;
+      }
+    }
+
     this.touch('raid-win', { immediate: true });
-    return { xp, dust, levelUp, items, sunday: isStardustSunday() };
+    return {
+      xp, dust, levelUp, items, exclusive, egg, eggBlocked,
+      sunday: isStardustSunday()
+    };
   }
 
   /**
@@ -1421,6 +1505,9 @@ class Store {
       case 'gruntsBeaten': return this.s.stats.gruntsBeaten;
       case 'eggsHatched': return this.s.stats.eggsHatched;
       case 'raidRarity': return this.s.stats.raidsByRarity?.[m.rarity] || 0;
+      case 'exclusiveRaidsWon': return this.s.stats.exclusiveRaidsWon || 0;
+      case 'exclusiveRaidRarity':
+        return this.s.stats.exclusiveRaidsByRarity?.[m.rarity] || 0;
       // Counted live off storage rather than a stored tally, so releasing a
       // creature takes its contribution back with it.
       case 'creaturesAtLevel':
