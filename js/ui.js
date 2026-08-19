@@ -44,6 +44,43 @@ export function toast(msg, kind = '', ms = 2600) {
 export function openSheet(id) { $('#' + id)?.classList.remove('hidden'); }
 export function closeSheet(id) { $('#' + id)?.classList.add('hidden'); }
 
+/* ---------------------------------------------------------------
+   Image viewer
+   --------------------------------------------------------------- */
+
+/**
+ * Full-screen look at one image. Built on demand rather than living in
+ * index.html, because it holds no state worth keeping between openings.
+ * Tapping the backdrop, the ✕ or pressing Escape closes it.
+ */
+export function openImageViewer(src, alt = '') {
+  document.getElementById('img-viewer')?.remove();
+
+  const close = () => {
+    view.remove();
+    window.removeEventListener('keydown', onKey);
+  };
+  const onKey = e => { if (e.key === 'Escape') close(); };
+
+  const view = el('div', {
+    id: 'img-viewer',
+    class: 'img-viewer',
+    role: 'dialog',
+    'aria-modal': 'true',
+    'aria-label': alt ? `${alt}, enlarged` : 'Enlarged image',
+    onclick: close
+  },
+    // Stop a tap on the picture itself from closing, so it can be studied.
+    el('img', { src, alt, onclick: e => e.stopPropagation() }),
+    alt ? el('div', { class: 'img-viewer-cap', text: alt }) : null,
+    el('button', { class: 'img-viewer-close', 'aria-label': 'Close', onclick: close }, '✕')
+  );
+
+  document.body.append(view);
+  window.addEventListener('keydown', onKey);
+  return view;
+}
+
 export function wireSheetClosers() {
   document.addEventListener('click', e => {
     const target = e.target.closest('[data-close]');

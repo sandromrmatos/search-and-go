@@ -12,7 +12,7 @@
 
 import {
   MAX_EGGS, MAX_EXCLUSIVE_EGGS, INCUBATOR_ITEMS, REUSABLE_INCUBATOR,
-  eggDef, eggImage, eggLabel, isExclusiveEgg, RULES
+  eggDef, eggImage, eggLabel, isExclusiveEgg, incubatorDiscount, RULES
 } from './data.js';
 import { store } from './state.js';
 import { ITEMS, itemImage } from './items.js';
@@ -140,7 +140,11 @@ export function openIncubatorPicker(eggId) {
       el('span', { class: 'qty', text: String(n) }),
       el('img', { src: itemImage(id), alt: ITEMS[id].name, loading: 'lazy' }),
       el('span', { class: 'nm', text: ITEMS[id].name }),
-      el('span', { class: 'use-hint', text: id === REUSABLE_INCUBATOR ? 'Reusable' : 'Used up' })
+      el('span', { class: 'use-hint', text: id === REUSABLE_INCUBATOR
+        ? 'Reusable'
+        : incubatorDiscount(id)
+          ? `−${Math.round(incubatorDiscount(id) * 100)}% distance`
+          : 'Used up' })
     ));
   }
   openSheet('picker');

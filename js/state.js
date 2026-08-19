@@ -16,8 +16,10 @@ import {
   raidIncubatorChance, raidRareIncenseChance, EXCLUSIVE_RAID_REWARD,
   rollGruntItems, RARE_INCENSE_WEIGHTS,
   EGG_TYPES, MAX_EGGS, EGG_DROP_CHANCE, EGG_HATCH_LEVEL, INCUBATOR_ITEMS, REUSABLE_INCUBATOR,
-  eggDef, eggMetres, rollEggType, rollEggSpecies,
-  MAX_EXCLUSIVE_EGGS, EXCLUSIVE_EGG_TYPE, isExclusiveEgg
+  eggDef, eggMetres, eggMetresFor, rollEggType, rollEggSpecies,
+  MAX_EXCLUSIVE_EGGS, EXCLUSIVE_EGG_TYPE, isExclusiveEgg,
+  emptyBoosts, totalBoosts, boostsLeft, MAX_STAT_BOOSTS, STAT_BOOSTER_ITEM,
+  statBoosterCost, STAT_KEYS
 } from './data.js';
 import { ITEMS, item as itemDef } from './items.js';
 
@@ -80,6 +82,7 @@ function blankState() {
     points: [],         // live map points of every kind
     effects: { incense: null, magnet: null },
     breeding: null,     // { lat, lng, placedAt, slots: [...] }
+    researchLab: null,  // { lat, lng, placedAt }
     buddy: null,        // { uid, metres, candyEarned, since }
     eggs: [],           // { id, type, collectedAt, metres, incubator: itemId|null }
     nextEggId: 1,
@@ -125,11 +128,14 @@ function blankState() {
    Creature helpers
    --------------------------------------------------------------- */
 
-/** Full stat block for a stored creature, including its stat modifier. */
+/**
+ * Full stat block for a stored creature: base, stat modifier, level growth and
+ * finally any Stat Boosters it is carrying.
+ */
 export function creatureStats(c) {
   const sp = species(c.speciesId);
   if (!sp) return { hp: 1, attack: 1, defence: 1, speed: 1 };
-  return statsFor(sp, c.level, c.statMod);
+  return statsFor(sp, c.level, c.statMod, c.boosts);
 }
 
 export const maxHpOf = c => creatureStats(c).hp;
@@ -204,6 +210,7 @@ export function migrate(raw) {
         // Creatures caught before these systems existed get them assigned once.
         statMod: validStatMod(c.statMod) || rollStatModifier(),
         moveUnlock: validUnlock(c.moveUnlock) || { 3: 0, 4: 0 },
+        boosts: validBoosts(c.boosts),
         breeding: c.breeding ?? null,
         hp: c.hp == null ? null : Math.max(0, Number(c.hp) || 0),
         favourite: !!c.favourite
@@ -275,6 +282,11 @@ export function migrate(raw) {
     s.buddy = null;
   }
 
+  // ---- research lab: a pin with no slots, so coordinates are all it needs ----
+  if (s.researchLab && (!isFinite(s.researchLab.lat) || !isFinite(s.researchLab.lng))) {
+    s.researchLab = null;
+  }
+
   // ---- breeding ----
   if (s.breeding && (!isFinite(s.breeding.lat) || !isFinite(s.breeding.lng))) s.breeding = null;
   if (s.breeding) {
@@ -331,6 +343,26 @@ export function migrate(raw) {
 }
 
 const STATS = ['hp', 'attack', 'defence', 'speed'];
+
+/**
+ * Stat boosts from a save: whole numbers, never negative, and never more than
+ * MAX_STAT_BOOSTS in total. Older saves have no `boosts` at all, which is fine
+ * — they simply start with none.
+ */
+function validBoosts(b) {
+  const out = emptyBoosts();
+  if (!b || typeof b !== 'object') return out;
+  let total = 0;
+  for (const k of STATS) {
+    const n = Math.max(0, Math.floor(Number(b[k]) || 0));
+    // Trim rather than reject, so a tampered save cannot exceed the cap.
+    const allowed = Math.min(n, MAX_STAT_BOOSTS - total);
+    out[k] = allowed;
+    total += allowed;
+  }
+  return out;
+}
+
 function validStatMod(m) {
   if (!m || !STATS.includes(m.up) || !STATS.includes(m.down) || m.up === m.down) return null;
   return { up: m.up, down: m.down };
@@ -616,9 +648,12 @@ class Store {
 
   egg(id) { return this.s.eggs.find(e => e.id === id) || null; }
 
-  /** Metres this egg still needs, and how far along it is. */
+  /**
+   * Metres this egg still needs, and how far along it is. The requirement
+   * depends on the incubator: a Super Incubator takes 25% off.
+   */
   eggProgress(egg) {
-    const need = eggMetres(egg.type);
+    const need = eggMetresFor(egg.type, egg.incubator);
     const done = Math.max(0, Math.min(need, Number(egg.metres) || 0));
     return {
       done, need,
@@ -861,6 +896,29 @@ class Store {
     return { ok: true, before, after: hpOf(c), max, gained: hpOf(c) - before };
   }
 
+  /** A Full Heal works on anything a potion would, however badly hurt. */
+  canUseFullHeal(uid) {
+    const c = this.creature(uid);
+    if (!c) return { ok: false, reason: 'missing' };
+    if (!this.hasItem('full_heal')) return { ok: false, reason: 'noItem' };
+    if (isFainted(c)) return { ok: false, reason: 'fainted' };
+    if (!isHurt(c)) return { ok: false, reason: 'healthy' };
+    return { ok: true };
+  }
+
+  /** Straight to full HP, whatever the shortfall. */
+  useFullHeal(uid) {
+    const check = this.canUseFullHeal(uid);
+    if (!check.ok) return check;
+    const c = this.creature(uid);
+    const max = maxHpOf(c);
+    const before = hpOf(c);
+    c.hp = null;   // null means "full", so this survives later stat changes
+    this.spendItem('full_heal');
+    this.touch('full_heal', { immediate: true });
+    return { ok: true, before, after: max, max, gained: max - before };
+  }
+
   /** Creatures a potion could help right now: hurt, not fainted, not breeding. */
   healable() {
     return this.s.storage.filter(c => c.breeding == null && !isFainted(c) && isHurt(c));
@@ -903,6 +961,27 @@ class Store {
 
     if (used) this.touch('potion', { immediate: true });
     return { ok: used > 0, used, healed: touched.length, fullyHealed, creatures: touched };
+  }
+
+  /**
+   * One Full Heal per hurt creature, worst first so the most damaged benefit
+   * if there are not enough to go round.
+   */
+  fullHealAll() {
+    if (!this.hasItem('full_heal')) return { ok: false, reason: 'noItem' };
+    const order = this.healable().sort((a, b) => hpOf(a) / maxHpOf(a) - hpOf(b) / maxHpOf(b));
+    let used = 0;
+    const touched = [];
+    for (const c of order) {
+      if (!this.hasItem('full_heal')) break;
+      const before = hpOf(c), max = maxHpOf(c);
+      c.hp = null;
+      this.spendItem('full_heal');
+      used++;
+      touched.push({ uid: c.uid, speciesId: c.speciesId, before, after: max, max });
+    }
+    if (used) this.touch('full_heal', { immediate: true });
+    return { ok: used > 0, used, healed: used, creatures: touched };
   }
 
   /** Revives every fainted creature it has revives for. */
@@ -1030,6 +1109,7 @@ class Store {
         : !!shiny,
       statMod: rollStatModifier(),
       moveUnlock: unlock || rollMoveUnlock(),
+      boosts: emptyBoosts(),
       breeding: null,
       hp: null
     };
@@ -1175,6 +1255,13 @@ class Store {
 
     // Grunts always hand over healing supplies.
     const items = rollGruntItems();
+    // Plus the guaranteed drop, and the independent extra rolls on top.
+    for (const [id, n] of Object.entries(GRUNT_REWARD.always || {})) {
+      items[id] = (items[id] || 0) + n;
+    }
+    for (const extra of GRUNT_REWARD.extras || []) {
+      if (chance(extra.chance)) items[extra.item] = (items[extra.item] || 0) + 1;
+    }
     for (const [id, n] of Object.entries(items)) this.addItem(id, n);
 
     this.s.stats.gruntsBeaten++;
@@ -1395,6 +1482,116 @@ class Store {
     return { ok: true };
   }
 
+  /* ---------------- research lab ---------------- */
+
+  placeResearchLab(lat, lng) {
+    if (this.s.researchLab) return { ok: false, reason: 'placed' };
+    if (!this.hasItem('research_lab')) return { ok: false, reason: 'noItem' };
+    this.spendItem('research_lab');
+    this.s.researchLab = { lat, lng, placedAt: Date.now() };
+    this.touch('research-lab', { immediate: true });
+    return { ok: true };
+  }
+
+  /** Candy needed for one Stat Booster from this species' family. */
+  statBoosterCostFor(speciesId) {
+    const sp = species(speciesId);
+    if (!sp) return Infinity;
+    return statBoosterCost(sp.rarity || familyRarity(sp.id) || 1);
+  }
+
+  /**
+   * Every family whose candy could buy at least one Stat Booster, newest-first
+   * by how many it could make. Keyed on the family root, because candy is held
+   * per family rather than per species.
+   */
+  statBoosterOptions() {
+    const out = [];
+    for (const [rootId, candy] of Object.entries(this.s.candy)) {
+      const sp = species(rootId);
+      if (!sp || candy <= 0) continue;
+      const cost = this.statBoosterCostFor(rootId);
+      if (!isFinite(cost) || candy < cost) continue;
+      out.push({
+        speciesId: rootId,
+        species: sp,
+        candy,
+        cost,
+        max: Math.floor(candy / cost)
+      });
+    }
+    return out.sort((a, b) => b.max - a.max || a.species.order - b.species.order);
+  }
+
+  /** Turns family candy into Stat Boosters. */
+  craftStatBoosters(speciesId, qty = 1) {
+    const n = Math.max(1, Math.floor(Number(qty) || 1));
+    if (!this.s.researchLab) return { ok: false, reason: 'noLab' };
+    const sp = species(speciesId);
+    if (!sp) return { ok: false, reason: 'missing' };
+
+    const cost = this.statBoosterCostFor(speciesId);
+    const total = cost * n;
+    const have = this.candyFor(speciesId);
+    if (have < total) return { ok: false, reason: 'candy', cost, total, have, short: total - have };
+
+    this.spendCandy(speciesId, total);
+    this.addItem(STAT_BOOSTER_ITEM, n);
+    this.touch('craft', { immediate: true });
+    return {
+      ok: true, made: n, spent: total, cost,
+      candyLeft: this.candyFor(speciesId),
+      species: sp
+    };
+  }
+
+  /* ---------------- stat boosters ---------------- */
+
+  boostsOf(c) { return c?.boosts || emptyBoosts(); }
+  boostsUsed(c) { return totalBoosts(this.boostsOf(c)); }
+  boostsLeftOn(c) { return boostsLeft(this.boostsOf(c)); }
+
+  canBoostStat(uid) {
+    const c = this.creature(uid);
+    if (!c) return { ok: false, reason: 'missing' };
+    if (!this.hasItem(STAT_BOOSTER_ITEM)) return { ok: false, reason: 'noItem' };
+    if (c.breeding != null) return { ok: false, reason: 'breeding' };
+    if (this.boostsLeftOn(c) <= 0) return { ok: false, reason: 'maxed', max: MAX_STAT_BOOSTS };
+    return { ok: true, left: this.boostsLeftOn(c) };
+  }
+
+  /**
+   * Spends one Stat Booster to add a permanent +1 to `stat`. HP is the awkward
+   * one: raising the maximum should not silently leave the creature short of
+   * full, so a creature already at full HP stays at full.
+   */
+  useStatBooster(uid, stat) {
+    if (!STAT_KEYS.includes(stat)) return { ok: false, reason: 'badStat' };
+    const check = this.canBoostStat(uid);
+    if (!check.ok) return check;
+
+    const c = this.creature(uid);
+    const wasFull = c.hp == null || hpOf(c) >= maxHpOf(c);
+    const before = creatureStats(c);
+
+    if (!c.boosts) c.boosts = emptyBoosts();
+    c.boosts[stat] = (Number(c.boosts[stat]) || 0) + 1;
+    this.spendItem(STAT_BOOSTER_ITEM);
+
+    // A creature at full health stays at full when its max HP grows.
+    if (stat === 'hp' && wasFull) c.hp = null;
+
+    this.touch('stat-booster', { immediate: true });
+    return {
+      ok: true,
+      stat,
+      before: before[stat],
+      after: creatureStats(c)[stat],
+      used: this.boostsUsed(c),
+      left: this.boostsLeftOn(c)
+    };
+  }
+
   /** Two creatures of the exact same species start generating that family's candy. */
   addBreedingPair(uidA, uidB) {
     if (!this.s.breeding) return { ok: false, reason: 'noCentre' };
@@ -1528,13 +1725,19 @@ class Store {
     const claimed = scope === 'daily' ? !!this.s.daily.claimed?.[m.id]
       : scope === 'weekly' ? !!this.weekly.claimed?.[m.id]
       : !!this.s.missions[m.id];
+    // A mission can carry a second condition on top of its bar. `requireLevel`
+    // does not move the bar, it just holds the claim back until you get there.
+    const levelMet = !m.requireLevel || this.level >= m.requireLevel;
+    const hit = progress >= m.target;
     return {
       def: m, scope, daily: scope === 'daily', weekly: scope === 'weekly',
       progress,
       target: m.target,
-      complete: progress >= m.target,
+      levelMet,
+      levelNeeded: m.requireLevel || null,
+      complete: hit && levelMet,
       claimed,
-      claimable: progress >= m.target && !claimed
+      claimable: hit && levelMet && !claimed
     };
   }
 

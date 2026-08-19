@@ -425,6 +425,7 @@ function renderPickCare() {
   const fainted = store.revivable().length;
   const potions = store.itemCount('potion');
   const revives = store.itemCount('revive');
+  const fullHeals = store.itemCount('full_heal');
   if (!hurt && !fainted) return;
 
   const row = el('div', { class: 'btn-row' });
@@ -456,11 +457,29 @@ function renderPickCare() {
         renderPicker();
       }
     }, potions ? `Heal all · ${use} potion${use === 1 ? '' : 's'}` : `${hurt} hurt, no potions`));
+
+    // The player picks which to spend: potions go further, Full Heals are one
+    // creature each but finish the job however badly hurt it is.
+    if (fullHeals) {
+      const useFull = Math.min(fullHeals, hurt);
+      row.append(el('button', {
+        class: 'btn',
+        onclick: () => {
+          const r = store.fullHealAll();
+          if (!r.ok) { toast('No Full Heals left', 'bad'); return; }
+          toast(`Fully healed ${r.healed} creature${r.healed === 1 ? '' : 's'}`, 'good');
+          renderPicker();
+        }
+      }, `Full Heal · ${useFull}`));
+    }
   }
 
   host.append(
-    el('p', { class: 'hint', text: `${fainted} fainted · ${hurt} hurt · you hold ${potions} potion${potions === 1 ? '' : 's'} and ${revives} revive${revives === 1 ? '' : 's'}` }),
-    row
+    el('p', { class: 'hint', text: `${fainted} fainted · ${hurt} hurt · you hold ${potions} potion${potions === 1 ? '' : 's'}, ${fullHeals} full heal${fullHeals === 1 ? '' : 's'} and ${revives} revive${revives === 1 ? '' : 's'}` }),
+    row,
+    hurt && (potions || fullHeals)
+      ? el('p', { class: 'hint', text: 'Potions top up 50 HP at a time and stretch further. A Full Heal takes one creature straight to full, worst hurt first.' })
+      : null
   );
 }
 

@@ -10,17 +10,19 @@ import {
   breedingSlotsFor, BREEDING_UNLOCK_LEVEL, bonanzaState,
   isRelaxHour, relaxHourEndsIn, RELAX_HOUR_LABEL, RULES, BUDDY_KM_PER_CANDY,
   isStardustSunday, STARDUST_SUNDAY_LABEL, STARDUST_SUNDAY_MULTIPLIER,
-  MAX_EGGS, MAX_EXCLUSIVE_EGGS, INCUBATOR_ITEMS, poiEventState
+  MAX_EGGS, MAX_EXCLUSIVE_EGGS, INCUBATOR_ITEMS, poiEventState,
+  MAX_STAT_BOOSTS, STAT_BOOSTER_CANDY_COST, statBoosterCost
 } from './data.js';
 import { renderEggs, renderEggTabBadge, openEggPickerFor } from './eggs.js';
 import { store, creatureStats, maxHpOf, hpOf, isFainted, isHurt } from './state.js';
+
 import { Persist } from './persist.js';
 import { playEvolution } from './anim.js';
 import { ITEMS, itemImage, itemName, itemsInOrder, INCENSE_ITEMS } from './items.js';
 import { Weather, temperatureLabel } from './weather.js';
 import {
   $, $$, el, toast, openSheet, closeSheet, num, timeLeftLabel,
-  clampPage, pageSlice, pagerBar, pageOfIndex, wireSwipe, bumpEl
+  clampPage, pageSlice, pagerBar, pageOfIndex, wireSwipe, bumpEl, openImageViewer
 } from './ui.js';
 
 const CANDY_ICON = '🍬';
@@ -431,11 +433,17 @@ export function openItemSheet(itemId) {
 
   const actions = [];
   if (def.use === 'creature') {
+    const label = {
+      potion: 'Use on a creature',
+      full_heal: 'Fully heal a creature',
+      revive: 'Revive a creature',
+      stat_booster: 'Boost a creature'
+    }[itemId] || 'Use on a creature';
     actions.push(el('button', {
       class: 'btn primary',
       disabled: qty < 1,
       onclick: () => { closeSheet('sheet'); openCreaturePicker(itemId); }
-    }, itemId === 'potion' ? 'Use on a creature' : 'Revive a creature'));
+    }, label));
   }
   if (def.use === 'timed') {
     // Every incense type shares the one incense slot.
@@ -459,12 +467,14 @@ export function openItemSheet(itemId) {
     }, free < 1 ? 'Busy with an egg' : idle < 1 ? 'No egg waiting' : 'Incubate an egg'));
   }
   if (def.use === 'place') {
-    const placed = !!store.s.breeding;
-    const unlocked = store.breedingUnlocked;
+    // Two placeable buildings now, and only the breeding centre has a level gate.
+    const isLab = itemId === 'research_lab';
+    const placed = isLab ? !!store.s.researchLab : !!store.s.breeding;
+    const unlocked = isLab || store.breedingUnlocked;
     actions.push(el('button', {
       class: 'btn primary',
       disabled: qty < 1 || placed || !unlocked,
-      onclick: () => onPlaceBreeding?.()
+      onclick: () => (isLab ? onPlaceResearchLab?.() : onPlaceBreeding?.())
     }, placed ? 'Already placed on the map'
        : !unlocked ? `Unlocks at player level ${BREEDING_UNLOCK_LEVEL}`
        : 'Place at my location'));
@@ -506,33 +516,63 @@ function useTimedItem(kind, def) {
 
 /** main.js supplies these so views does not need to know about the map. */
 export let onPlaceBreeding = null;
+export let onPlaceResearchLab = null;
 export let onEffectsChanged = null;
-export function setViewHooks({ placeBreeding, effectsChanged }) {
+export function setViewHooks({ placeBreeding, placeResearchLab, effectsChanged }) {
   onPlaceBreeding = placeBreeding;
+  onPlaceResearchLab = placeResearchLab;
   onEffectsChanged = effectsChanged;
 }
 
 /* ===============================================================
    CREATURE PICKER (potions, revives, breeding pairs)
    =============================================================== */
+/**
+ * One picker for every item you point at a creature. Each entry says who is
+ * eligible, what the grid should say about them, and what happens on tap.
+ */
+const CREATURE_ITEM_PICKERS = {
+  potion: {
+    title: 'Heal which creature?',
+    hint: 'Potions restore 50 HP. Fainted creatures need a Revive instead.',
+    empty: 'None of your creatures are hurt.',
+    eligible: c => !isFainted(c) && isHurt(c)
+  },
+  full_heal: {
+    title: 'Fully heal which creature?',
+    hint: 'A Full Heal takes one creature straight back to full HP, however hurt it is. It cannot revive a fainted creature.',
+    empty: 'None of your creatures are hurt.',
+    eligible: c => !isFainted(c) && isHurt(c)
+  },
+  revive: {
+    title: 'Revive which creature?',
+    hint: 'Revives bring a fainted creature back to full HP.',
+    empty: 'None of your creatures have fainted.',
+    eligible: c => isFainted(c)
+  },
+  stat_booster: {
+    title: 'Boost which creature?',
+    hint: `Adds a permanent +1 to one stat. Each creature can take ${MAX_STAT_BOOSTS} boosts in total across all four stats.`,
+    empty: 'Every creature you own is already fully boosted.',
+    // Fainted creatures are fine to boost; only the cap and breeding block it.
+    eligible: c => store.boostsLeftOn(c) > 0
+  }
+};
+
 export function openCreaturePicker(itemId) {
-  const isPotion = itemId === 'potion';
+  const conf = CREATURE_ITEM_PICKERS[itemId] || CREATURE_ITEM_PICKERS.potion;
   const eligible = sortedForPicker(store.s.storage.filter(c => {
     if (c.breeding != null) return false;
-    return isPotion ? (!isFainted(c) && isHurt(c)) : isFainted(c);
+    return conf.eligible(c);
   }));
 
-  $('#picker-title').textContent = isPotion ? 'Heal which creature?' : 'Revive which creature?';
-  $('#picker-hint').textContent = isPotion
-    ? 'Potions restore 50 HP. Fainted creatures need a Revive instead.'
-    : 'Revives bring a fainted creature back to full HP.';
-  $('#picker-empty').textContent = isPotion
-    ? 'None of your creatures are hurt.'
-    : 'None of your creatures have fainted.';
+  $('#picker-title').textContent = conf.title;
+  $('#picker-hint').textContent = conf.hint;
+  $('#picker-empty').textContent = conf.empty;
   $('#picker-empty').classList.toggle('hidden', eligible.length > 0);
 
-  // ---- do-everything button ----
-  renderPickerBulkBar(isPotion, eligible.length, () => openCreaturePicker(itemId));
+  // ---- do-everything button: only the two bulk-healing items have one ----
+  renderPickerBulkBar(itemId, eligible.length, () => openCreaturePicker(itemId));
 
   const grid = $('#picker-grid');
   grid.innerHTML = '';
@@ -540,30 +580,107 @@ export function openCreaturePicker(itemId) {
     const s = sp(c);
     const max = maxHpOf(c), hp = hpOf(c);
     const pct = Math.round((hp / max) * 100);
+    const used = store.boostsUsed(c);
+
     grid.append(el('button', {
       class: 'cell',
-      onclick: () => {
-        const r = isPotion ? store.usePotion(c.uid) : store.useRevive(c.uid);
-        if (!r.ok) { toast('Could not use that item', 'bad'); return; }
-        toast(isPotion
-          ? `${s.name} healed ${r.gained} HP (${r.after}/${r.max})`
-          : `${s.name} revived to ${r.max} HP`, 'good');
-        closeSheet('picker');
-        refreshAll();
-      }
+      onclick: () => useItemOnCreature(itemId, c, s)
     },
       el('span', { class: 'lvl', text: 'Lv' + c.level }),
       c.shiny ? el('span', { class: 'shiny-star', text: '★' }) : null,
       c.favourite ? el('span', { class: 'fav-star', text: '♥' }) : null,
       el('img', { src: s.spritePath(c.shiny), alt: s.name, loading: 'lazy' }),
       el('span', { class: 'nm', text: s.name }),
-      el('span', { class: 'sub', text: `${hp} / ${max} HP` }),
-      el('span', { class: 'hp-wrap' },
-        el('span', { class: `hp-bar${pct <= 25 ? ' critical' : pct <= 60 ? ' low' : ''}` },
-          el('i', { style: { width: pct + '%' } })))
+      // Boosting cares about how many boosts are spent, not about HP.
+      itemId === 'stat_booster'
+        ? el('span', { class: 'sub', text: `${used} / ${MAX_STAT_BOOSTS} boosted` })
+        : el('span', { class: 'sub', text: `${hp} / ${max} HP` }),
+      itemId === 'stat_booster'
+        ? null
+        : el('span', { class: 'hp-wrap' },
+          el('span', { class: `hp-bar${pct <= 25 ? ' critical' : pct <= 60 ? ' low' : ''}` },
+            el('i', { style: { width: pct + '%' } })))
     ));
   }
   openSheet('picker');
+}
+
+/** Applies the picked item, or opens a second step when one is needed. */
+function useItemOnCreature(itemId, c, s) {
+  if (itemId === 'stat_booster') {
+    // Which stat is a separate decision, so it gets its own screen.
+    openStatBoostPicker(c.uid);
+    return;
+  }
+
+  const r = itemId === 'full_heal' ? store.useFullHeal(c.uid)
+    : itemId === 'revive' ? store.useRevive(c.uid)
+    : store.usePotion(c.uid);
+
+  if (!r.ok) { toast('Could not use that item', 'bad'); return; }
+  toast(itemId === 'revive'
+    ? `${s.name} revived to ${r.max} HP`
+    : `${s.name} healed ${r.gained} HP (${r.after}/${r.max})`, 'good');
+  closeSheet('picker');
+  refreshAll();
+}
+
+/**
+ * Second step of a Stat Booster: which of the four stats gets the +1. Shows the
+ * current figure and what it becomes, so the choice is never blind.
+ */
+export function openStatBoostPicker(uid) {
+  const c = store.creature(uid);
+  if (!c) return;
+  const s = sp(c);
+  const stats = creatureStats(c);
+  const boosts = store.boostsOf(c);
+  const left = store.boostsLeftOn(c);
+
+  const body = $('#sheet-body');
+  body.innerHTML = '';
+  body.append(
+    el('div', { class: 'det-head' },
+      el('img', { src: s.spritePath(c.shiny), alt: s.name }),
+      el('div', { class: 'det-title' },
+        el('h3', { text: c.nickname || s.name }),
+        el('div', { class: 'det-tags' },
+          el('span', { class: 'tag', text: `Lv ${c.level}` }),
+          el('span', { class: 'tag', text: `${store.boostsUsed(c)} / ${MAX_STAT_BOOSTS} boosted` }),
+          el('span', { class: 'tag', text: `${store.itemCount('stat_booster')} in the bag` })
+        )
+      )
+    ),
+    el('p', { class: 'hint', text: `Pick the stat to raise by 1. ${left} boost${left === 1 ? '' : 's'} left on this creature.` }),
+    el('div', { class: 'det-rows' }, ...STAT_KEYS.map(k =>
+      el('button', {
+        class: 'det-row boost-row',
+        onclick: () => {
+          const r = store.useStatBooster(uid, k);
+          if (!r.ok) {
+            toast(r.reason === 'maxed'
+              ? `That creature already has all ${MAX_STAT_BOOSTS} boosts`
+              : r.reason === 'noItem' ? 'No Stat Boosters left'
+              : 'Could not boost that creature', 'bad');
+            return;
+          }
+          toast(`${c.nickname || s.name} ${STAT_LABELS[k]} ${r.before} → ${r.after}`, 'good', 3200);
+          refreshAll();
+          // Straight back in if there are more to spend, otherwise close.
+          if (store.hasItem('stat_booster') && store.boostsLeftOn(c) > 0) openStatBoostPicker(uid);
+          else closeSheet('sheet');
+        }
+      },
+        el('span', { text: '⬆' }),
+        el('span', { text: STAT_LABELS[k] }),
+        el('b', { text: `${stats[k]} → ${stats[k] + 1}` }),
+        boosts[k] ? el('span', { class: 'tag', text: `+${boosts[k]} so far` }) : null
+      )
+    )),
+    el('p', { class: 'hint', text: 'A boost is permanent. It is added after levelling and the stat modifier, so it stays exactly +1 however strong the creature gets.' })
+  );
+  closeSheet('picker');
+  openSheet('sheet');
 }
 
 /**
@@ -582,11 +699,15 @@ export function sortedForPicker(list) {
  * "Heal all" / "Revive all" above the picker grid. Shows how many items it
  * would spend so the choice is never a surprise.
  */
-function renderPickerBulkBar(isPotion, eligibleCount, rerender) {
+function renderPickerBulkBar(itemId, eligibleCount, rerender) {
   const host = $('#picker-bulk');
   if (!host) return;
   host.innerHTML = '';
   if (!eligibleCount) return;
+  // Only potions and revives have a sensible "do the lot" action. A Full Heal is
+  // one creature by design, and a Stat Booster needs a stat chosen each time.
+  if (itemId !== 'potion' && itemId !== 'revive') return;
+  const isPotion = itemId === 'potion';
 
   const have = store.itemCount(isPotion ? 'potion' : 'revive');
   const need = isPotion ? store.potionsNeededForAll() : store.revivable().length;
@@ -662,7 +783,11 @@ function renderCreatureSheet() {
     ),
 
     el('div', { class: 'det-head' },
-      el('img', { src: s.spritePath(c.shiny), alt: s.name }),
+      el('img', {
+        src: s.spritePath(c.shiny), alt: s.name, class: 'zoomable',
+        title: 'Tap for a closer look',
+        onclick: () => openImageViewer(s.spritePath(c.shiny), c.nickname || s.name)
+      }),
       el('div', { class: 'det-title' },
         el('h3', { text: s.name }),
         el('div', { class: 'id', text: s.id }),
@@ -691,6 +816,9 @@ function renderCreatureSheet() {
     el('h4', { class: 'sheet-h4', text: 'Stats' }),
     el('div', { class: 'det-rows' }, ...statRows(c)),
     el('p', { class: 'hint', text: `Stat modifier: ${STAT_LABELS[c.statMod.up]} up 10%, ${STAT_LABELS[c.statMod.down]} down 10%. Each level adds ${Math.round(STAT_GROWTH_PER_LEVEL * 100)}% of the base stat.` }),
+    store.boostsUsed(c)
+      ? el('p', { class: 'hint', text: `Stat Boosters: ${store.boostsUsed(c)} of ${MAX_STAT_BOOSTS} used (${STAT_KEYS.filter(k => store.boostsOf(c)[k]).map(k => `${STAT_LABELS[k]} +${store.boostsOf(c)[k]}`).join(', ')}). ${store.boostsLeftOn(c)} left.` })
+      : null,
 
     // ---- moves ----
     el('h4', { class: 'sheet-h4', text: 'Moves' }),
@@ -819,6 +947,7 @@ function goToCreature(uid, host, dir) {
  */
 function statRows(c) {
   const stats = creatureStats(c);
+  const boosts = store.boostsOf(c);
   const rows = STAT_KEYS.map(k => {
     const arrow = c.statMod.up === k ? 'up' : c.statMod.down === k ? 'down' : '';
     return el('div', { class: 'stat-row' },
@@ -826,6 +955,8 @@ function statRows(c) {
       el('span', { class: 'bar' },
         el('i', { style: { width: Math.min(100, (stats[k] / STAT_BAR_MAX) * 100) + '%' } })),
       el('span', { class: 'val', text: num(stats[k]) }),
+      // How much of this figure came from Stat Boosters, if any.
+      boosts[k] ? el('span', { class: 'boost-tag', text: `+${boosts[k]}` }) : null,
       el('span', { class: `arrow ${arrow}`, text: arrow === 'up' ? '▲' : arrow === 'down' ? '▼' : '' })
     );
   });
@@ -1116,7 +1247,14 @@ function renderSpeciesSheet(speciesId) {
   const hasShiny = store.hasShinyCaught(s.id);
   let showingShiny = false;
 
-  const img = el('img', { src: s.imagePath, alt: s.name, class: known ? '' : 'locked' });
+  // Zoomable, and it opens whichever art is on screen — normal or shiny.
+  const img = el('img', {
+    src: s.imagePath,
+    alt: s.name,
+    class: 'zoomable' + (known ? '' : ' locked'),
+    title: 'Tap for a closer look',
+    onclick: () => openImageViewer(img.src, known ? s.name : '???')
+  });
   const shinyBtn = hasShiny
     ? el('button', {
         class: 'btn ghost shiny-toggle',

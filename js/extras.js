@@ -5,6 +5,8 @@
 import {
   species, familyName, familyRarity, RARITY_NAMES, RULES,
   BREEDING_UNLOCK_LEVEL, BREEDING_CANDY_CAP, BREEDING_SLOTS_BY_LEVEL,
+  STAT_BOOSTER_ITEM, MAX_STAT_BOOSTS, statBoosterCost, STAT_BOOSTER_CANDY_COST,
+  SUPER_INCUBATOR, incubatorDiscount, ITEM_DROP_FULL_HEAL_CHANCE,
   MAX_CREATURE_LEVEL, CREATURE_LEVEL_COST, POI_OUTCOMES, POI_OUTCOMES_WEEKEND, SHINY_ODDS,
   POI_OUTCOMES_RAID_INVASION, POI_OUTCOMES_TRAINING_DOJO,
   RAID_INVASION_LABEL, RAID_INVASION_DAY, RAID_INVASION_START, RAID_INVASION_END,
@@ -207,6 +209,10 @@ function missionRow(m) {
       el('div', { class: 'mission-bar' }, el('i', { style: { width: pct + '%' } })),
       el('div', { class: 'mission-meta' },
         el('span', { text: missionProgressLabel(m) }),
+        // A second condition the bar cannot show, e.g. "also needs level 7".
+        m.levelNeeded && !m.levelMet
+          ? el('span', { class: 'r bad', text: `needs Lv ${m.levelNeeded}` })
+          : null,
         el('span', { class: 'r', text: `⭐ ${m.def.xp} XP` }),
         el('span', { class: 'r', text: `${DUST_ICON} ${num(dust)}` }),
         m.def.discs ? el('span', { class: 'r', text: `◉ ${m.def.discs} disc${m.def.discs > 1 ? 's' : ''}` }) : null,
@@ -218,7 +224,10 @@ function missionRow(m) {
         ? el('span', { class: 'mission-tick', text: '✓' })
         : m.claimable
           ? el('button', { class: 'btn primary', onclick: () => claim(m.def.id) }, 'Claim')
-          : el('span', { class: 'muted', text: `${pct}%` })
+          // Once the bar is full but the level is not, say so instead of "100%".
+          : el('span', { class: 'muted', text: m.levelNeeded && !m.levelMet && m.progress >= m.target
+              ? `Lv ${m.levelNeeded}`
+              : `${pct}%` })
     )
   );
 }
@@ -248,6 +257,182 @@ export function renderMissionBadge() {
 /* ===============================================================
    BREEDING CENTRE
    =============================================================== */
+
+/* ===============================================================
+   RESEARCH LAB
+
+   One recipe for now, so the first screen is a list of one. It is still a list
+   rather than jumping straight to the exchange, because more recipes are the
+   whole point of the building.
+   =============================================================== */
+
+/** Opened by tapping the lab on the map. */
+export function openResearchLab({ inRange = true } = {}) {
+  renderResearchLab(inRange);
+  openSheet('research-lab');
+}
+
+function renderResearchLab(inRange) {
+  const hint = $('#lab-hint');
+  const body = $('#lab-body');
+  body.innerHTML = '';
+
+  if (!store.s.researchLab) {
+    hint.textContent = 'You have not placed a Research Lab yet.';
+    return;
+  }
+  hint.textContent = inRange
+    ? 'Turn spare candy into items. Anything you make goes to your Items storage.'
+    : `You need to be within ${RULES.CAPTURE_RANGE_M} m of the lab to use it.`;
+
+  const options = store.statBoosterOptions();
+  const held = store.itemCount(STAT_BOOSTER_ITEM);
+
+  body.append(
+    el('h4', { class: 'sheet-h4', text: 'Create items' }),
+    el('button', {
+      class: 'cell item-cell tappable lab-recipe',
+      disabled: !inRange,
+      onclick: () => openStatBoosterCraft()
+    },
+      held ? el('span', { class: 'qty', text: String(held) }) : null,
+      el('img', { src: itemImage(STAT_BOOSTER_ITEM), alt: '' }),
+      el('span', { class: 'nm', text: ITEMS[STAT_BOOSTER_ITEM].name }),
+      el('span', {
+        class: 'use-hint',
+        text: options.length
+          ? `${options.length} famil${options.length === 1 ? 'y' : 'ies'} ready`
+          : 'Not enough candy yet'
+      })
+    ),
+    el('p', { class: 'hint', html: `A <b>Stat Booster</b> adds a permanent <b>+1</b> to one stat of one creature, up to <b>${MAX_STAT_BOOSTS}</b> per creature. The candy price depends on the rarity of the family you spend from: ${
+      [1, 2, 3, 4].map(r => `<b>${RARITY_NAMES[r]}</b> ${statBoosterCost(r)}`).join(' · ')
+    } (rarity 5 also ${statBoosterCost(5)}).` }),
+    el('p', { class: 'hint', text: 'More recipes will appear here in future updates.' })
+  );
+}
+
+/* ---- the candy exchange ---- */
+
+let craftSpeciesId = null;
+let craftQty = 1;
+
+function openStatBoosterCraft() {
+  craftSpeciesId = null;
+  craftQty = 1;
+  renderStatBoosterCraft();
+  openSheet('lab-craft');
+}
+
+function renderStatBoosterCraft() {
+  const body = $('#lab-craft-body');
+  const hint = $('#lab-craft-hint');
+  body.innerHTML = '';
+
+  const options = store.statBoosterOptions();
+  $('#lab-craft-title').textContent = `${ITEMS[STAT_BOOSTER_ITEM].name} · ${store.itemCount(STAT_BOOSTER_ITEM)} held`;
+
+  if (!options.length) {
+    hint.textContent = 'No family has enough candy for a Stat Booster yet.';
+    body.append(el('p', { class: 'empty', html: `You need at least ${statBoosterCost(4)} candy from a rarity 4 or 5 family, or ${statBoosterCost(1)} from a common one. Keep catching and releasing to build candy up.` }));
+    return;
+  }
+
+  // Step 1: which family's candy to spend.
+  const chosen = craftSpeciesId ? options.find(o => o.speciesId === craftSpeciesId) : null;
+  if (!chosen) {
+    hint.textContent = 'Whose candy would you like to spend? Only families with enough for at least one are shown.';
+    const grid = el('div', { class: 'grid' });
+    for (const o of options) {
+      grid.append(el('button', {
+        class: 'cell tappable',
+        onclick: () => { craftSpeciesId = o.speciesId; craftQty = 1; renderStatBoosterCraft(); }
+      },
+        el('span', { class: `rar r-${o.species.rarity || familyRarity(o.species.id) || 1}`,
+                     text: String(o.species.rarity || familyRarity(o.species.id) || 1) }),
+        el('img', { src: o.species.imagePath, alt: o.species.name, loading: 'lazy' }),
+        el('span', { class: 'nm', text: familyName(o.species.id) }),
+        el('span', { class: 'sub', text: `${CANDY_ICON} ${num(o.candy)}` }),
+        el('span', { class: 'use-hint', text: `${o.cost} each · up to ${o.max}` })
+      ));
+    }
+    body.append(grid);
+    return;
+  }
+
+  // Step 2: how many.
+  craftQty = Math.max(1, Math.min(chosen.max, craftQty));
+  const spend = chosen.cost * craftQty;
+
+  hint.textContent = `Spending ${familyName(chosen.species.id)} candy at ${chosen.cost} per booster.`;
+  body.append(
+    el('div', { class: 'det-head' },
+      el('img', { src: chosen.species.imagePath, alt: chosen.species.name }),
+      el('div', { class: 'det-title' },
+        el('h3', { text: familyName(chosen.species.id) }),
+        el('div', { class: 'det-tags' },
+          el('span', { class: 'tag', text: `${CANDY_ICON} ${num(chosen.candy)} candy` }),
+          el('span', { class: 'tag', text: `${chosen.cost} per booster` }),
+          el('span', { class: 'tag', text: `max ${chosen.max}` })
+        )
+      )
+    ),
+    el('div', { class: 'qty-picker' },
+      el('button', {
+        class: 'btn ghost', disabled: craftQty <= 1,
+        'aria-label': 'One fewer',
+        onclick: () => { craftQty--; renderStatBoosterCraft(); }
+      }, '−'),
+      el('div', { class: 'qty-read' },
+        el('b', { text: String(craftQty) }),
+        el('span', { class: 'muted small', text: craftQty === 1 ? 'Stat Booster' : 'Stat Boosters' })
+      ),
+      el('button', {
+        class: 'btn ghost', disabled: craftQty >= chosen.max,
+        'aria-label': 'One more',
+        onclick: () => { craftQty++; renderStatBoosterCraft(); }
+      }, '+')
+    ),
+    el('div', { class: 'det-rows' },
+      el('div', { class: 'det-row' },
+        el('span', { text: CANDY_ICON }),
+        el('span', { text: 'Candy spent' }),
+        el('b', { text: num(spend) })
+      ),
+      el('div', { class: 'det-row' },
+        el('span', { text: CANDY_ICON }),
+        el('span', { text: 'Candy left after' }),
+        el('b', { text: num(chosen.candy - spend) })
+      )
+    ),
+    el('div', { class: 'btn-row' },
+      el('button', {
+        class: 'btn ghost',
+        onclick: () => { craftSpeciesId = null; renderStatBoosterCraft(); }
+      }, 'Pick another'),
+      el('button', {
+        class: 'btn primary',
+        onclick: () => {
+          const r = store.craftStatBoosters(chosen.speciesId, craftQty);
+          if (!r.ok) {
+            toast(r.reason === 'noLab' ? 'Place your Research Lab first' : 'Not enough candy', 'bad');
+            return;
+          }
+          toast(`Made ${r.made} Stat Booster${r.made === 1 ? '' : 's'} for ${r.spent} ${familyName(r.species.id)} candy`, 'good', 3600);
+          // Straight back to the family list, which re-reads the new balances.
+          craftSpeciesId = null;
+          craftQty = 1;
+          renderStatBoosterCraft();
+          renderResearchLab(true);
+          refresh?.();
+        }
+      }, `Exchange ${spend} candy`)
+    ),
+    el('p', { class: 'hint', text: 'Boosters work on any creature, whatever candy you used to make them.' })
+  );
+}
+
+
 
 /** Opened by tapping the flag on the map. */
 export function openBreeding({ inRange = true } = {}) {
@@ -723,9 +908,13 @@ function renderInfo(tab = 'basics') {
       el('ul', {},
         el('li', { html: 'No Capturing Disc means no catching — you will be told when you tap a creature.' }),
         el('li', { html: 'Potions cannot be used during a battle, or on a creature that has fainted.' }),
+        el('li', { html: `A <b>Full Heal</b> takes one creature straight to full HP however hurt it is, so it beats spending five potions on the same creature. It cannot revive a fainted one. Every <b>grunt</b> win gives one, and a potion or revive point carries one <b>${pct(ITEM_DROP_FULL_HEAL_CHANCE)}</b> of the time. In the battle team picker you get both buttons — <b>Heal all</b> spends potions, <b>Full Heal</b> spends these, worst hurt first — so you choose which to burn.` }),
+        el('li', { html: `A <b>Super Incubator</b> works like a Single Use Incubator but cuts the distance the egg needs by <b>${Math.round(incubatorDiscount(SUPER_INCUBATOR) * 100)}%</b>: a 10 km egg hatches after 7.5 km, a 5 km after 3.75 km, a 15 km after 11.25 km. The discount is fixed when you put the egg in. They come from <b>grunt</b> wins (<b>30%</b>) and a couple of daily missions.` }),
+        el('li', { html: `A <b>Stat Booster</b> adds a permanent <b>+1</b> to one stat of one creature. Tap one in your Items, pick the creature, then pick the stat — you see the current figure and what it becomes before confirming. It is applied <b>after everything else</b>, so +1 stays exactly +1 no matter how much the creature levels or evolves. One creature can hold <b>${MAX_STAT_BOOSTS}</b> boosts in total across all four stats. Make them at the <b>Research Lab</b>, or pick them up from <b>grunt</b> wins (<b>10%</b>).` }),
         el('li', { html: 'Only one incense and one Stardust Magnet can run at a time. <b>Rare Incense</b> and <b>Shiny Incense</b> share the incense slot, so no two incenses can ever stack.' }),
         el('li', { html: `<b>Rare Incense</b> spawns on the same 2-minute rhythm but with far better odds: ${rareIncenseLine()}. Compare that to a wild spawn at ${wildOddsLine()}.` }),
         el('li', { html: `<b>Incubators</b> let you hatch eggs by walking. The plain <b>Incubator</b> is reusable — it ties up until the egg hatches, then you can use it again. A <b>Single Use Incubator</b> is consumed the moment you start it. You get a plain incubator at player level 5, and single use incubators from raid wins (${pct(RAID_REWARD.incubatorChance)}, or <b>guaranteed</b> from a rarity ${RAID_BONUS_RARITIES.join(' or ')} boss) and several missions.` }),
+        el('li', { html: `The <b>Research Lab</b> is a building rather than a consumable. Pin it once, like a Breeding Centre, then visit it to trade spare candy for <b>Stat Boosters</b>. You earn it from the lifetime mission <b>Reach level 7 and register 70 creatures</b>.` }),
         el('li', { html: `<b>Rare Incense</b> is the hardest one to come by: a <b>${pct(raidRareIncenseChance(RAID_BONUS_RARITIES[0]))}</b> drop from rarity ${RAID_BONUS_RARITIES.join(' and ')} raids, a handful of missions, and one <b>every level from player level ${RARE_INCENSE_FROM_LEVEL}</b> onwards.` }),
         el('li', { html: `<b>Shiny Incense</b> spawns creatures on the same rhythm and at the same wild odds as a plain Incense, but pins the shiny rate to a flat <b>${pct(SHINY_INCENSE_ODDS)}</b> for everything you catch or hatch while it runs. Because it <b>replaces</b> the normal odds it does not stack with a <b>Shiny Bonanza</b>. It comes from <b>Exclusive Raids</b> (a <b>${pct(EXCLUSIVE_RAID_REWARD.shinyIncenseChance)}</b> chance per win) and a few missions.` })
       )
@@ -766,9 +955,10 @@ function renderInfo(tab = 'basics') {
       el('ul', {},
         el('li', { html: 'Damage is kept, including if you <b>leave part-way through</b> — you will be asked to confirm first. A hurt creature needs a <b>Potion</b>, a fainted one needs a <b>Revive</b>. You can heal and revive from the team picker without leaving the battle.' }),
         el('li', { html: `Every raid win always gives <b>${RAID_REWARD.always.revive} Revives</b>. Every grunt always gives healing supplies: ${GRUNT_ITEM_DROPS.map(d => `<b>${d.weight}%</b> ${Object.entries(d.items).map(([id, n]) => `${n} ${itemName(id, n)}`).join(' + ')}`).join(' · ')}.` }),
+        el('li', { html: `A grunt win also <b>always</b> hands over ${itemListLine(GRUNT_REWARD.always)}, and rolls separately for each of these: ${GRUNT_REWARD.extras.map(x => `<b>${pct(x.chance)}</b> a ${itemName(x.item)}`).join(' · ')}. The rolls are independent, so one win can pay both, either or neither.` }),
         el('li', { html: `Beat a raid boss and you can catch it with an <b>Ultra Capture Disc</b> — it arrives at level ${RAID_CAPTURE_LEVEL} with two bonus candy.` }),
         el('li', { html: `A raid boss is no ordinary creature: <b>×${RAID_BOSS_MODIFIERS.hp} HP</b>, and <b>+${Math.round((RAID_BOSS_MODIFIERS.attack - 1) * 100)}%</b> Attack, Defence and Speed.` }),
-        el('li', { html: `Most raid wins have a <b>${pct(RAID_REWARD.incubatorChance)}</b> chance of dropping a <b>Single Use Incubator</b>.` }),
+        el('li', { html: `A rarity ${[1, 2, 3].join(', ')} raid win has a <b>${pct(RAID_REWARD.incubatorChance)}</b> chance of dropping a <b>Single Use Incubator</b>.` }),
         el('li', { html: `Beat a <b>${RAID_BONUS_RARITIES.map(r => RARITY_NAMES[r]).join('</b> or <b>')}</b> raid (rarity ${RAID_BONUS_RARITIES.join(' and ')}) and that <b>Single Use Incubator is guaranteed</b> — no roll. Those two tiers also carry a <b>${pct(raidRareIncenseChance(RAID_BONUS_RARITIES[0]))}</b> chance of a <b>Rare Incense</b> on top, which no other raid drops.` }),
         el('li', { html: `Stardust from a raid scales hard with the boss rarity: ${Object.entries(RAID_TIERS).map(([r, t]) => `<b>${RARITY_NAMES[r]}</b> ${num(t.dust[0])}–${num(t.dust[1])}`).join(' · ')}. Your player level is added on top, and it doubles on ${STARDUST_SUNDAY_LABEL}.` }),
         el('li', { html: `A grunt pays <b>${num(GRUNT_REWARD.dust[0])}–${num(GRUNT_REWARD.dust[1])}</b> stardust, again plus your player level.` }),
@@ -791,6 +981,19 @@ function renderInfo(tab = 'basics') {
     out.push(
       el('h4', { text: 'Stats' }),
       el('p', { html: `Every creature has HP, Attack, Defence and Speed. Each level adds <b>${Math.round(STAT_GROWTH_PER_LEVEL * 100)}% of the base stat</b>, counted from the base rather than compounding, so a level 10 creature is nearly twice as strong as a level 1. Every creature you catch also gets a <b>stat modifier</b>: one stat is 10% higher (▲) and another 10% lower (▼).` }),
+      el('h4', { text: 'The Research Lab and Stat Boosters' }),
+      el('p', { html: `Spare candy from creatures you will never level up has somewhere to go. The <b>Research Lab</b> — earned from the lifetime mission <b>Reach level 7 and register 70 creatures</b> — is pinned to the map once, like a Breeding Centre, and turns candy into <b>Stat Boosters</b>.` }),
+      el('ul', {},
+        el('li', { html: `The price depends on the <b>rarity of the family whose candy you spend</b>, because commons are far easier to come by: ${
+          [1, 2, 3, 4, 5].map(r => `<b>${RARITY_NAMES[r]}</b> ${statBoosterCost(r)}`).join(' · ')
+        } candy per booster.` }),
+        el('li', { html: 'Tap the lab, choose <b>Stat Booster</b>, and you get every family you have enough candy for. Pick one, set how many with <b>−</b> and <b>+</b>, and confirm. The candy goes, the boosters land in your Items.' }),
+        el('li', { html: 'A booster is <b>not tied to the candy that made it</b>. Spend Common candy and use the booster on your Legendary if you like.' }),
+        el('li', { html: `Using one: tap it in Items, pick a creature, then pick <b>HP</b>, <b>Attack</b>, <b>Defence</b> or <b>Speed</b>. You see the stat now and what it becomes before you commit.` }),
+        el('li', { html: `The <b>+1 is permanent and flat</b>. It is added after the stat modifier and after level growth, so it never gets multiplied — +1 today is still +1 at level 10, and it survives evolving.` }),
+        el('li', { html: `One creature can take <b>${MAX_STAT_BOOSTS}</b> boosts in total across all four stats. Eight into Attack and twelve into Defence and that creature is finished; the sheet shows how many are left.` }),
+        el('li', { html: 'Grunt battles also drop them occasionally, so you can get started before the lab.' })
+      ),
       el('h4', { text: 'Levelling up' }),
       el('p', { html: `Costs stardust <i>and</i> candy of that creature's family — from ${CANDY_ICON} ${CREATURE_LEVEL_COST[2].candy} + ${DUST_ICON} ${num(CREATURE_LEVEL_COST[2].stardust)} for level 2 up to ${CANDY_ICON} ${CREATURE_LEVEL_COST[MAX_CREATURE_LEVEL].candy} + ${DUST_ICON} ${num(CREATURE_LEVEL_COST[MAX_CREATURE_LEVEL].stardust)} for level ${MAX_CREATURE_LEVEL}.` }),
       el('h4', { text: 'Moves' }),
@@ -822,14 +1025,10 @@ function renderInfo(tab = 'basics') {
   if (tab === 'soon') {
     out.push(
       el('p', { html: 'A lot of exciting new features are coming soon to the game!' }),
+      el('h4', { text: 'Creature abilities' }),
+      el('p', { html: 'Very soon, some of your creatures that might not seem as strong might get more useful than you think, as they gain an <b>exclusive ability</b> that will make them very strong or very resistant in certain circumstances.' }),
       el('h4', { text: 'A new creature set' }),
       el('p', { html: 'A brand-new creature set is releasing very soon. Make sure to collect as many Elemental Awakening creatures as you can — you’ll soon have <b>77 new ones</b> to discover!' }),
-      el('h4', { text: 'Raid-exclusive creatures' }),
-      el('p', { html: 'We’re also introducing some very special new creatures that will be <b>raid-exclusive</b>. You’ll only be able to encounter them in raids, so invest in a strong team and level up your creatures to be ready to battle them when they arrive. These raids won’t just be the way you can catch these creatures — they’ll also reward <b>unique new items</b>.' }),
-      el('h4', { text: 'Shiny Incense' }),
-      el('p', { html: 'One of those items is a completely new consumable: <b>Shiny Incense</b>! It works similarly to a regular incense, but increases the shiny probability of the encounters you get while it’s active.' }),
-      el('h4', { text: 'Stat Boosters and the Research Lab' }),
-      el('p', { html: 'Another new item coming soon is the <b>Stat Booster</b>! If you’ve been collecting candy from creatures you don’t plan to level up, and aren’t sure what to do with the extras, the new <b>Research Lab</b> building will let you convert that spare candy into Stat Boosters. More details on how these work will be revealed soon…' }),
       el('h4', { text: 'More candy' }),
       el('p', { html: 'Struggling to find enough candy to level up your strongest Epic and Legendary creatures? <b>New ways to obtain candy are on the way!</b> Hope you’ve got good precision…' }),
       el('h4', { text: 'Mythical rarity' }),

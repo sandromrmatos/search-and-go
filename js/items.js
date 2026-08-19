@@ -2,7 +2,10 @@
    items.js — every item, what it does and how it is used
    ============================================================ */
 
-import { ITEM_DIR, RULES, SHINY_INCENSE_ODDS } from './data.js';
+import {
+  ITEM_DIR, RULES, SHINY_INCENSE_ODDS,
+  SUPER_INCUBATOR, incubatorDiscount, MAX_STAT_BOOSTS
+} from './data.js';
 
 /**
  * `use` describes how the player triggers it from the Items tab:
@@ -48,6 +51,15 @@ export const ITEMS = {
     use: 'creature',
     order: 4,
     blurb: 'Brings a fainted creature back with full HP.'
+  },
+  full_heal: {
+    id: 'full_heal',
+    name: 'Full Heal',
+    plural: 'Full Heals',
+    image: 'full_heal.png',
+    use: 'creature',
+    order: 4.5,
+    blurb: 'Restores a creature to full HP in one go, however hurt it is. Handy when a Potion at a time would take half your bag. It cannot revive a fainted creature — that still needs a Revive.'
   },
   incense: {
     id: 'incense',
@@ -117,6 +129,35 @@ export const ITEMS = {
     use: 'egg',
     order: 9,
     blurb: 'Holds one egg and is used up the moment you start it. Dropped by raid wins and handed out by several missions.'
+  },
+  super_incubator: {
+    id: 'super_incubator',
+    name: 'Super Incubator',
+    plural: 'Super Incubators',
+    // The only item whose art lives outside the items folder.
+    image: 'images/incubator3.png',
+    use: 'egg',
+    order: 10,
+    blurb: `Single use like the one above, but it cuts the distance the egg needs by ${Math.round(incubatorDiscount(SUPER_INCUBATOR) * 100)}% — a 10 km egg hatches after 7.5 km. Dropped by grunt battles and some daily missions.`
+  },
+  stat_booster: {
+    id: 'stat_booster',
+    name: 'Stat Booster',
+    plural: 'Stat Boosters',
+    image: 'stat_booster.png',
+    use: 'creature',
+    order: 11,
+    blurb: `Permanently adds +1 to one stat of one creature — you pick which. It survives levelling up and evolving, and is applied after every other calculation. A creature can hold ${MAX_STAT_BOOSTS} boosts in total across all four stats. Made at the Research Lab from spare candy, and occasionally dropped by grunts.`
+  },
+  research_lab: {
+    id: 'research_lab',
+    name: 'Research Lab',
+    plural: 'Research Labs',
+    // The shipped filename is misspelled; kept as-is rather than renaming assets.
+    image: 'resarch_lab.png',
+    use: 'place',
+    order: 12,
+    blurb: 'Pin it to the map once, like a Breeding Centre. Visit it to turn spare candy into Stat Boosters.'
   }
 };
 
@@ -130,9 +171,17 @@ export const INCENSE_ITEMS = ['incense', 'rare_incense', 'shiny_incense'];
 
 export const item = id => ITEMS[id] || null;
 
+/**
+ * Item art lives in ITEM_DIR, but an `image` containing a slash is taken as a
+ * path from the project root — the Super Incubator's art ships in `images/`.
+ */
 export const itemImage = id => {
   const it = ITEMS[id];
-  return it ? `${ITEM_DIR}/${encodeURIComponent(it.image)}` : '';
+  if (!it) return '';
+  if (it.image.includes('/')) {
+    return it.image.split('/').map(encodeURIComponent).join('/');
+  }
+  return `${ITEM_DIR}/${encodeURIComponent(it.image)}`;
 };
 
 export const itemName = (id, qty = 1) => {

@@ -67,10 +67,12 @@ export const GameMap = {
   poiLayer: null,
   breedingLayer: null,
   breedingMarker: null,
+  labMarker: null,
   markers: new Map(),   // pointId -> { marker, el, timerEl, point }
   poiMarkers: new Map(),
   onSpawnClick: null,
   onBreedingClick: null,
+  onResearchLabClick: null,
   followMe: true,
   _lastPos: null,
   _paintedRange: null,  // interaction radius the green ring is currently drawn at
@@ -401,20 +403,27 @@ export const GameMap = {
         rec.el.classList.toggle('out-range', !inRange);
       }
     }
-    if (this.breedingMarker && (playerPos || unlimited)) {
-      const ll = this.breedingMarker.getLatLng();
-      const near = unlimited || distance(playerPos, { lat: ll.lat, lng: ll.lng }) <= range;
-      const el = this.breedingMarker.getElement?.()?.querySelector('.breed-flag');
-      if (el) el.classList.toggle('in-range', near);
+    // Both permanent pins light up when you are close enough to use them.
+    for (const marker of [this.breedingMarker, this.labMarker]) {
+      if (!marker || !(playerPos || unlimited)) continue;
+      const at = marker.getLatLng();
+      const inReach = unlimited || distance(playerPos, { lat: at.lat, lng: at.lng }) <= range;
+      marker.getElement?.()?.querySelector('.breed-flag')?.classList.toggle('in-range', inReach);
     }
   },
 
-  /** The breeding centre is a permanent pin, so it lives on its own layer. */
+  /**
+   * The breeding centre is a permanent pin, so it lives on its own layer —
+   * shared with the Research Lab, which is why this removes just its own
+   * marker rather than clearing the whole layer.
+   */
   syncBreeding(centre) {
     if (!this.map || !this.breedingLayer) return;
     if (!centre) {
-      this.breedingLayer.clearLayers();
-      this.breedingMarker = null;
+      if (this.breedingMarker) {
+        this.breedingLayer.removeLayer(this.breedingMarker);
+        this.breedingMarker = null;
+      }
       return;
     }
     if (this.breedingMarker) {
@@ -433,6 +442,32 @@ export const GameMap = {
       zIndexOffset: 400
     }).addTo(this.breedingLayer);
     this.breedingMarker.on('click', () => this.onBreedingClick?.(centre));
+  },
+
+  /** The Research Lab is the second permanent pin, and works the same way. */
+  syncResearchLab(lab) {
+    if (!this.map || !this.breedingLayer) return;
+    if (!lab) {
+      if (this.labMarker) {
+        this.breedingLayer.removeLayer(this.labMarker);
+        this.labMarker = null;
+      }
+      return;
+    }
+    if (this.labMarker) {
+      this.labMarker.setLatLng([lab.lat, lab.lng]);
+      return;
+    }
+    this.labMarker = L.marker([lab.lat, lab.lng], {
+      icon: L.divIcon({
+        className: '',
+        html: '<div class="breed-rot"><div class="breed-flag lab-flag"><span>🔬</span></div></div>',
+        iconSize: [40, 46],
+        iconAnchor: [20, 42]
+      }),
+      zIndexOffset: 400
+    }).addTo(this.breedingLayer);
+    this.labMarker.on('click', () => this.onResearchLabClick?.(lab));
   },
 
   /* ---------------- debug POI overlay ---------------- */

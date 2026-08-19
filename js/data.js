@@ -148,6 +148,9 @@ export const ITEM_DROPS = [
   { weight: 50, items: { revive: 1 } }
 ];
 
+/** On top of the payload above, an item point can also carry a Full Heal. */
+export const ITEM_DROP_FULL_HEAL_CHANCE = 0.10;
+
 /* ---------------------------------------------------------------
    Rarity
    --------------------------------------------------------------- */
@@ -199,6 +202,36 @@ export const MAX_CREATURE_LEVEL = 10;
 
 /** Every creature level adds 10% of the base stat (linear, not compounding). */
 export const STAT_GROWTH_PER_LEVEL = 0.10;
+
+/* ---------------------------------------------------------------
+   Stat Boosters — a flat, permanent +1 to one stat of one creature.
+
+   Deliberately applied *after* the stat modifier and the level growth, so +1
+   always shows up as exactly +1 on the number the player is looking at. If it
+   were folded into the base it would be multiplied by growth and drift.
+   --------------------------------------------------------------- */
+export const STAT_BOOSTER_ITEM = 'stat_booster';
+/** Total boosts one creature can ever hold, summed across all four stats. */
+export const MAX_STAT_BOOSTS = 20;
+
+/**
+ * Candy needed for one Stat Booster, by the rarity of the species whose candy
+ * you are spending. Commons are plentiful, so they cost far more.
+ */
+export const STAT_BOOSTER_CANDY_COST = { 1: 50, 2: 30, 3: 15, 4: 10, 5: 10 };
+
+/** Falls back to the rarity 1 price for anything with no rarity of its own. */
+export const statBoosterCost = rarity =>
+  STAT_BOOSTER_CANDY_COST[rarity] ?? STAT_BOOSTER_CANDY_COST[1];
+
+/** An empty boost record. */
+export const emptyBoosts = () => ({ hp: 0, attack: 0, defence: 0, speed: 0 });
+
+/** How many boosts a creature is carrying in total. */
+export const totalBoosts = boosts =>
+  STAT_KEYS.reduce((sum, k) => sum + (Number(boosts?.[k]) || 0), 0);
+
+export const boostsLeft = boosts => Math.max(0, MAX_STAT_BOOSTS - totalBoosts(boosts));
 
 /** Total XP needed to reach each player level. */
 export const PLAYER_LEVEL_XP = {
@@ -369,7 +402,7 @@ export const GRUNT_LEVEL_BANDS = [
  * Rare Incense. Anything else falls back to `incubatorChance` and no incense.
  */
 export const RAID_REWARD = {
-  incubatorChance: 0.5,
+  incubatorChance: 0.2,
   incubatorItem: 'single_use_incubator',
   incubatorChanceByRarity: { 4: 1, 5: 1 },
   rareIncenseItem: 'rare_incense',
@@ -402,10 +435,20 @@ export const EXCLUSIVE_RAID_REWARD = {
 
 export const GRUNT_REWARD = {
   dust: [70, 95],
+  /** Handed over on every win, on top of the healing supplies below. */
+  always: { full_heal: 1 },
   bonus: [
     { weight: 5,  item: 'incense' },
     { weight: 5,  item: 'stardust_magnet' },
     { weight: 90, item: null }
+  ],
+  /**
+   * Independent rolls, unlike `bonus` which picks at most one thing. Each is
+   * checked separately, so a single win can pay both, either or neither.
+   */
+  extras: [
+    { item: 'super_incubator', chance: 0.30 },
+    { item: 'stat_booster',    chance: 0.10 }
   ]
 };
 
@@ -524,13 +567,28 @@ export const EGG_TYPE_ROLL = [
 ];
 
 /** Items that can hold an egg. The reusable one is freed when the egg hatches. */
-export const INCUBATOR_ITEMS = ['incubator', 'single_use_incubator'];
+export const INCUBATOR_ITEMS = ['incubator', 'single_use_incubator', 'super_incubator'];
 export const REUSABLE_INCUBATOR = 'incubator';
+export const SUPER_INCUBATOR = 'super_incubator';
+
+/**
+ * How much an incubator cuts off the distance an egg needs. Only the Super
+ * Incubator does anything; everything else walks the full length.
+ */
+export const INCUBATOR_DISCOUNT = { [SUPER_INCUBATOR]: 0.25 };
+export const incubatorDiscount = itemId => INCUBATOR_DISCOUNT[itemId] || 0;
 
 export const eggDef = type => EGG_TYPES[type] || EGG_TYPES['5km'];
 export const eggImage = type => `${EGG_DIR}/${encodeURIComponent(eggDef(type).image)}`;
 export const eggLabel = type => `${eggDef(type).km} km egg`;
 export const eggMetres = type => eggDef(type).km * 1000;
+
+/**
+ * The distance this egg actually needs, given the incubator it is sitting in.
+ * A Super Incubator takes 25% off, so a 10 km egg hatches after 7.5 km.
+ */
+export const eggMetresFor = (type, incubatorId = null) =>
+  Math.round(eggMetres(type) * (1 - incubatorDiscount(incubatorId)));
 export const rollEggType = () => weightedPick(EGG_TYPE_ROLL).type;
 /** True for the 15 km egg, which uses the separate exclusive slots. */
 export const isExclusiveEgg = type => !!eggDef(type).exclusive;
@@ -578,6 +636,17 @@ export const MISSIONS = [
   { id: 'reg10',   kind: 'registered', target: 10,   xp: 20,  dust: 100, label: 'Register 10 unique creatures' },
   { id: 'reg20',   kind: 'registered', target: 20,   xp: 40,  dust: 150, label: 'Register 20 unique creatures' },
   { id: 'reg50',   kind: 'registered', target: 50,   xp: 50,  dust: 200, label: 'Register 50 unique creatures' },
+
+  /**
+   * The only mission with two conditions. `progress` counts registrations and
+   * `requireLevel` gates the claim, so the bar shows the part you are actually
+   * working on rather than sitting at 0 until you level up.
+   */
+  {
+    id: 'lab', kind: 'registered', target: 70, requireLevel: 7,
+    xp: 50, dust: 200, items: { incense: 1, research_lab: 1 },
+    label: 'Reach level 7 and register 70 creatures'
+  },
   { id: 'cat50',   kind: 'captures',   target: 50,   xp: 5,   dust: 20,  label: 'Catch 50 creatures' },
   { id: 'cat100',  kind: 'captures',   target: 100,  xp: 10,  dust: 50,  label: 'Catch 100 creatures' },
   { id: 'cat200',  kind: 'captures',   target: 200,  xp: 20,  dust: 100, label: 'Catch 200 creatures' },
@@ -719,7 +788,7 @@ export const DAILY_MISSIONS = [
   { id: 'daily20', kind: 'capturesToday', target: 20, xp: 10, dust: 30, discs: 2, label: 'Catch 20 creatures today' },
   {
     id: 'daily50', kind: 'capturesToday', target: 50, xp: 20, dust: 50, discs: 2,
-    items: { incense: 1, stardust_magnet: 1 },
+    items: { incense: 1, stardust_magnet: 1, super_incubator: 1 },
     label: 'Catch 50 creatures today'
   },
 
@@ -732,7 +801,7 @@ export const DAILY_MISSIONS = [
   },
   {
     id: 'dailyWalk10', kind: 'metresToday', target: 10_000, unit: 'km', xp: 15, dust: 150,
-    items: { ultra_disc: 2, incense: 1 },
+    items: { ultra_disc: 2, incense: 1, super_incubator: 1 },
     label: 'Walk 10 km'
   }
 ];
@@ -1317,7 +1386,15 @@ export const gruntsAreUncapped = (now = new Date()) => isTrainingDojo(now);
  * corrupt every later roll for the rest of the session.
  */
 export const rollDiscDrop = () => ({ ...weightedPick(DISC_DROPS).items });
-export const rollItemDrop = () => ({ ...weightedPick(ITEM_DROPS).items });
+
+/** A potion-or-revive point, plus an occasional Full Heal on top. */
+export function rollItemDrop() {
+  const drop = { ...weightedPick(ITEM_DROPS).items };
+  if (chance(ITEM_DROP_FULL_HEAL_CHANCE)) {
+    drop.full_heal = (drop.full_heal || 0) + 1;
+  }
+  return drop;
+}
 
 /** Adds the Raid Invasion bonus to a disc drop. No-op outside the window. */
 export function applyRaidInvasionBonus(drop, now = new Date()) {
@@ -1394,7 +1471,7 @@ export function playerProgress(xp) {
  * Effective stats for one stored creature.
  * base -> stat modifier (+/-10%) -> linear 5%-per-level growth.
  */
-export function statsFor(sp, level = 1, statMod = null) {
+export function statsFor(sp, level = 1, statMod = null, boosts = null) {
   const out = {};
   const growth = 1 + STAT_GROWTH_PER_LEVEL * (Math.max(1, level) - 1);
   for (const k of STAT_KEYS) {
@@ -1403,7 +1480,8 @@ export function statsFor(sp, level = 1, statMod = null) {
       if (statMod.up === k) v *= 1.1;
       if (statMod.down === k) v *= 0.9;
     }
-    out[k] = Math.max(1, Math.round(v * growth));
+    // Rounded first, then the flat boost, so a +1 booster reads as +1 on screen.
+    out[k] = Math.max(1, Math.round(v * growth)) + (Number(boosts?.[k]) || 0);
   }
   return out;
 }

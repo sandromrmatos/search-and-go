@@ -37,5 +37,18 @@
       "**\"Times caught\" now sorts properly.** Sorting your Collection by Times caught was reading how many of that creature you happen to be holding, not how many you have ever caught. It now uses the **lifetime total** shown as \"Total caught\" on the creature's page, so releasing one no longer shuffles the order.",
       "**New weekly mission: Walk 75 km.** Worth **75 XP**, **700 stardust** and **1 Shiny Incense**, on top of the existing 25 km and 50 km walks."
     ]
+  },
+  {
+    "at": "2026-08-19 13:35",
+    "title": "The Research Lab, Stat Boosters, Full Heals and Super Incubators",
+    "body": [
+      "**Stat Boosters.** A brand-new item that adds a permanent **+1** to one stat of one creature — you choose which. It is applied **after everything else**, so +1 stays exactly +1 no matter how much that creature levels up or evolves. Tap one in your Items, pick a creature, then pick HP, Attack, Defence or Speed; you see the stat as it is now and what it becomes before you confirm. Each creature can hold **20 boosts in total** across all four stats, so spending 8 on Attack and 12 on Defence finishes it.",
+      "**The Research Lab.** A new building, pinned to the map once just like a Breeding Centre. Visit it and choose **Create items** to turn spare candy into Stat Boosters. The price depends on the rarity of the family whose candy you spend: **Common 50**, **Uncommon 30**, **Rare 15**, **Epic and Legendary 10** candy per booster. Pick a family, set how many with − and +, and confirm. Boosters are **not tied to the candy that made them** — spend Common candy and use the booster on your Legendary if you like.",
+      "**How to get the lab.** A new lifetime mission: **Reach level 7 and register 70 creatures**, paying **50 XP**, **200 stardust**, **1 Incense** and **1 Research Lab**. Stat Boosters also turn up from grunt battles at **10%**, so you can start before the lab arrives.",
+      "**Full Heal.** Takes one creature straight back to full HP however badly hurt it is, instead of feeding it potions 50 HP at a time. It cannot revive a fainted creature — that still needs a Revive. **Every grunt win** gives one, and a potion or revive point carries one **10%** of the time. In the battle team picker you now get both options: **Heal all** spends potions, **Full Heal** spends these, worst hurt first, so you decide which to burn.",
+      "**Super Incubator.** Works like a Single Use Incubator but cuts the distance the egg needs by **25%** — a 10 km egg hatches after 7.5 km, a 5 km after 3.75 km, a 15 km after 11.25 km. Dropped by grunt battles at **30%**, and by a couple of daily missions.",
+      "**Single Use Incubators are rarer from raids.** Rarity 1 to 3 raid wins now drop one **20%** of the time instead of 50%. Rarity 4 and 5 bosses still hand one over **guaranteed**.",
+      "**See your creatures properly.** Tap the picture on any creature's page, in Storage or in your Collection, to open it full screen. It shows whichever art you are looking at, so shiny toggles carry through."
+    ]
   }
 ]

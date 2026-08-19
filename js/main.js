@@ -10,7 +10,7 @@ import { Weather } from './weather.js';
 import { Persist, progressOf } from './persist.js';
 import { store } from './state.js';
 import { Geo, distance, parseCoords, formatDistance, offsetMeters } from './geo.js';
-import { fetchPOIs, clearPOICache } from './osm.js';
+import { fetchPOIs, clearPOICache, lastPOIsWereStale } from './osm.js';
 import { describeDrop, itemImage, itemName } from './items.js';
 import {
   runScan, debugPointAt, tickIncense, spawnWindowGrunt, msUntilNextScan, formatCountdown, isScanning
@@ -25,7 +25,7 @@ import {
   renderWeatherChip
 } from './views.js';
 import {
-  initExtras, renderMissions, renderMissionBadge, openBreeding
+  initExtras, renderMissions, renderMissionBadge, openBreeding, openResearchLab
 } from './extras.js';
 import { setMissionsRenderer } from './views.js';
 import { renderNews, renderNewsBadge, loadNews } from './news.js';
@@ -51,6 +51,11 @@ function syncDebugButton() {
 let capturing = false;
 let lastPOIs = [];
 let scanCooldownUntil = 0; // backs off automatic retries after a failed lookup
+let scanFailures = 0;      // consecutive failures, for an escalating backoff
+let lastScanError = null;  // shown on the chip so a failure is not silent
+
+/** 15 s, 30 s, 60 s, then 2 min. A blip recovers fast; an outage is not hammered. */
+const scanBackoffMs = n => Math.min(15_000 * 2 ** Math.max(0, n - 1), 120_000);
 
 /* ===============================================================
    Debug log
@@ -385,11 +390,25 @@ async function doScan({ force = false, reason = 'auto', forceKind = null, always
     else toast(`Nothing appeared — next reset in ${mins} min`);
 
     scanCooldownUntil = 0;
+    scanFailures = 0;
+    lastScanError = null;
+
+    // The scan may have succeeded on cached POIs because every mirror was down.
+    // Say so, otherwise it looks like the map simply stopped finding new places.
+    const stale = lastPOIsWereStale();
+    if (stale) {
+      const mins = Math.round(stale.ageMs / 60_000);
+      dlog(`Used cached POIs (${mins} min old, ${stale.metresAway} m away): ${stale.reason}`);
+      toast(`Map servers are slow — using places found ${mins < 1 ? 'moments' : mins + ' min'} ago`, '', 4000);
+    }
     syncMap();
   } catch (e) {
-    scanCooldownUntil = Date.now() + 60_000; // don't hammer Overpass
-    dlog('Scan failed: ' + (e.message || e));
-    toast('POI lookup failed: ' + (e.message || 'network error'), 'bad', 4000);
+    scanFailures++;
+    scanCooldownUntil = Date.now() + scanBackoffMs(scanFailures);
+    lastScanError = e.message || 'network error';
+    const retryIn = Math.round((scanCooldownUntil - Date.now()) / 1000);
+    dlog(`Scan failed (${scanFailures} in a row): ${lastScanError} — retrying in ${retryIn} s`);
+    toast(`Map lookup failed — retrying in ${retryIn}s, or tap the timer to try now`, 'bad', 5000);
   } finally {
     onLocation(Geo.current);
     updateResetChip();
@@ -426,6 +445,26 @@ function showLevelUpPopup(levelUp) {
 /* ===============================================================
    Breeding centre placement
    =============================================================== */
+/** Same flow as the breeding centre: pin it once, where you are standing. */
+function placeResearchLab() {
+  const pos = Geo.current;
+  if (!pos) { toast('Waiting for your location…', 'bad'); return; }
+  if (store.s.researchLab) { toast('Your Research Lab is already on the map', 'bad'); return; }
+  if (!confirm('Pin your Research Lab here? It stays at these coordinates permanently.')) return;
+
+  const r = store.placeResearchLab(pos.lat, pos.lng);
+  if (!r.ok) {
+    toast(r.reason === 'noItem' ? 'You have no Research Lab' : 'Could not place it', 'bad');
+    return;
+  }
+  closeSheet('sheet');
+  syncMap();
+  GameMap.recenter();
+  dlog('Research Lab placed');
+  toast('Research Lab placed', 'good', 3200);
+  refreshAll();
+}
+
 function placeBreedingCentre() {
   const pos = Geo.current;
   if (!pos) { toast('Waiting for your location…', 'bad'); return; }
@@ -612,7 +651,21 @@ function updateResetChip(now = Date.now()) {
     return;
   }
 
+  // A failed lookup used to leave this reading "Spawns reset in 0:00" forever,
+  // because the scan interval only restarts on success. It looked frozen, and
+  // the only way to force another attempt was to restart the game. Now it says
+  // what happened, counts down to the automatic retry, and can be tapped.
+  if (lastScanError) {
+    const wait = Math.max(0, scanCooldownUntil - now);
+    chip.className = 'reset-chip failed tappable';
+    chip.querySelector('.reset-label').textContent = wait > 0 ? 'Retry in' : 'Tap to retry';
+    value.textContent = wait > 0 ? formatCountdown(wait) : '↻';
+    chip.title = `Map lookup failed: ${lastScanError}. Tap to try again now.`;
+    return;
+  }
+
   chip.querySelector('.reset-label').textContent = 'Spawns reset in';
+  chip.title = '';
 
   if (!store.s.lastScanAt) {
     chip.className = 'reset-chip due';
@@ -636,6 +689,7 @@ function syncMap() {
   const shown = store.s.ui.hideCollectedPoints ? active.filter(p => !p.collected) : active;
   GameMap.syncPoints(shown);
   GameMap.syncBreeding(store.s.breeding);
+  GameMap.syncResearchLab(store.s.researchLab);
   const open = active.filter(p => !p.collected).length;
   $('#spawn-count').textContent = open === 1 ? '1 point active' : `${open} points active`;
 }
@@ -730,6 +784,15 @@ function initUI() {
     compass.classList.toggle('hidden', deg === 0);
     compass.title = deg === 0 ? 'Face north' : `Rotated ${Math.round(deg)}° · tap to face north`;
   };
+  // Tapping the chip forces a scan, but only when one is already due or the last
+  // one failed — otherwise it would be a free way to re-roll spawns early.
+  $('#reset-chip').addEventListener('click', () => {
+    if (isScanning()) return;
+    if (!lastScanError && msUntilNextScan() > 0) return;
+    scanCooldownUntil = 0;
+    doScan({ force: true, reason: 'manual retry' });
+  });
+
   $('#btn-hide-chip').addEventListener('click', () => {
     const wrap = $('#reset-chip-wrap');
     const hidden = wrap.classList.toggle('chip-hidden');
@@ -763,6 +826,17 @@ function initUI() {
   });
 
   // Tapping the flag on the map opens the breeding centre, if you are close enough.
+  // Tapping the lab opens its workbench, again only from close enough.
+  GameMap.onResearchLabClick = lab => {
+    const pos = Geo.current;
+    const range = interactRange();
+    const near = !isFinite(range) || (pos && distance(pos, lab) <= range);
+    openResearchLab({ inRange: !!near });
+    if (!near) {
+      toast(`Get within ${range} m of your Research Lab to use it`, 'bad', 3400);
+    }
+  };
+
   GameMap.onBreedingClick = centre => {
     const pos = Geo.current;
     const range = interactRange();
@@ -776,6 +850,7 @@ function initUI() {
   // views needs a couple of map-aware actions
   setViewHooks({
     placeBreeding: placeBreedingCentre,
+    placeResearchLab,
     effectsChanged: () => { syncMap(); renderEffectChips(); }
   });
 

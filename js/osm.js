@@ -17,10 +17,17 @@ const ENDPOINTS = [
   'https://overpass.private.coffee/api/interpreter'
 ];
 
-/** Mirrors sometimes accept a connection and then never answer, so cap each try. */
-const PER_REQUEST_TIMEOUT_MS = 12_000;
+/** The mirror that answered most recently, tried first on the next scan. */
+let preferredEndpoint = null;
+
+/**
+ * Mirrors sometimes accept a connection and then never answer, so cap each try.
+ * Kept low enough that all four mirrors fit inside TOTAL_TIMEOUT_MS — at 12 s
+ * the budget ran out after three, so the last mirror was never reached.
+ */
+const PER_REQUEST_TIMEOUT_MS = 9_000;
 /** Total time we are willing to spend across all mirrors for one scan. */
-const TOTAL_TIMEOUT_MS = 35_000;
+const TOTAL_TIMEOUT_MS = 40_000;
 
 /** Cache POI results so repeated scans from the same spot are cheap. */
 const CACHE_TTL_MS = 30 * 60_000;
@@ -30,8 +37,22 @@ const CACHE_TTL_MS = 30 * 60_000;
  * standing still or wandering a few paces.
  */
 const CACHE_REUSE_M = 30;
+/**
+ * Last-resort reuse distance, used only when every mirror has failed. Far more
+ * generous than CACHE_REUSE_M and it ignores the TTL: shops and bus stops do
+ * not move, so spawning from POIs fetched a few streets back is much better
+ * than telling the player the scan failed and leaving the map empty.
+ */
+const STALE_FALLBACK_M = 600;
 const MAX_CACHE_ENTRIES = 40;
 const cache = new Map(); // key -> { at, pois, centre, radius }
+
+/**
+ * Whether the POIs handed back by the last fetchPOIs call came from the stale
+ * fallback above, and how old they were. Read by the scan so it can say so.
+ */
+let lastStale = null;
+export const lastPOIsWereStale = () => lastStale;
 
 function cacheKey(lat, lng, radius) {
   return `${lat.toFixed(4)},${lng.toFixed(4)},${radius}`;
@@ -46,6 +67,21 @@ function findReusable(lat, lng, radius) {
     if (now - entry.at >= CACHE_TTL_MS) continue;
     const d = distance({ lat, lng }, entry.centre);
     if (d <= CACHE_REUSE_M && d < bestDist) { best = entry; bestDist = d; }
+  }
+  return best;
+}
+
+/**
+ * Nearest cached result of any age, for the every-mirror-failed path. Ordered
+ * by distance so the player gets the most relevant list available.
+ */
+function findStale(lat, lng, radius) {
+  let best = null, bestDist = Infinity;
+  for (const entry of cache.values()) {
+    if (entry.radius !== radius) continue;
+    if (!entry.pois?.length) continue;
+    const d = distance({ lat, lng }, entry.centre);
+    if (d <= STALE_FALLBACK_M && d < bestDist) { best = entry; bestDist = d; }
   }
   return best;
 }
@@ -101,6 +137,7 @@ function prettify(v) {
  */
 export async function fetchPOIs(lat, lng, radius = 250, { force = false, signal } = {}) {
   const key = cacheKey(lat, lng, radius);
+  lastStale = null;
   const hit = force ? null : findReusable(lat, lng, radius);
   if (hit) return hit.pois;
 
@@ -108,7 +145,9 @@ export async function fetchPOIs(lat, lng, radius = 250, { force = false, signal 
   const giveUpAt = Date.now() + TOTAL_TIMEOUT_MS;
   let lastErr = null;
 
-  for (const url of ENDPOINTS) {
+  // Whichever mirror answered last time goes first: they fail in streaks, and
+  // a working one is far more likely to work again than a fixed running order.
+  for (const url of endpointsByPreference()) {
     if (Date.now() >= giveUpAt) {
       lastErr = lastErr || new Error('Overpass lookup timed out');
       break;
@@ -132,6 +171,7 @@ export async function fetchPOIs(lat, lng, radius = 250, { force = false, signal 
       const json = await res.json();
       const pois = normalise(json, { lat, lng }, radius);
       remember(key, lat, lng, radius, pois);
+      preferredEndpoint = url;
       return pois;
     } catch (e) {
       // An outer cancellation is fatal; our own timeout just means "try the next mirror".
@@ -145,10 +185,25 @@ export async function fetchPOIs(lat, lng, radius = 250, { force = false, signal 
     }
   }
 
-  // Every mirror failed — fall back to a stale nearby result if we have one.
-  const stale = cache.get(key);
-  if (stale) return stale.pois;
+  // Every mirror failed. Rather than dead-end the scan, reuse the nearest POIs
+  // we have at any age — this used to require an exact cache-key match, which
+  // while walking almost never hit, so a mirror outage meant no spawns at all.
+  const stale = cache.get(key) || findStale(lat, lng, radius);
+  if (stale) {
+    lastStale = {
+      ageMs: Date.now() - stale.at,
+      metresAway: Math.round(distance({ lat, lng }, stale.centre)),
+      reason: lastErr?.message || 'Overpass unreachable'
+    };
+    return stale.pois;
+  }
   throw lastErr || new Error('Could not reach any Overpass server');
+}
+
+/** Mirrors, best-known first. */
+function endpointsByPreference() {
+  if (!preferredEndpoint) return ENDPOINTS;
+  return [preferredEndpoint, ...ENDPOINTS.filter(u => u !== preferredEndpoint)];
 }
 
 function hostOf(u) { try { return new URL(u).host; } catch { return u; } }

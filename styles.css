@@ -219,6 +219,14 @@ a { color: var(--accent); }
 /* Final minute. Scoped like .due and .scanning above — a bare `.soon` here
    collided with the Coming Soon page placeholder further down this file. */
 .reset-chip.ending b { color: var(--accent2); }
+/* Failed lookup: red, and obviously pressable. */
+.reset-chip.failed { border-color: rgba(255, 107, 107, .55); }
+.reset-chip.failed .reset-ico,
+.reset-chip.failed b { color: var(--danger); }
+.reset-chip.failed .reset-ico { animation: none; }
+/* The wrap already re-enables pointer events; this just signals it is pressable. */
+.reset-chip.tappable { cursor: pointer; }
+.reset-chip.tappable:active { transform: scale(.96); }
 
 .chip-toggle {
   width: 26px; height: 26px; border-radius: 50%; flex: 0 0 auto;
@@ -385,6 +393,11 @@ a { color: var(--accent); }
   filter: drop-shadow(0 0 8px #ff8ec7) drop-shadow(0 2px 4px #0008);
 }
 .breed-flag.in-range { animation: gruntBob 1.4s ease-in-out infinite; color: #b9ffd0; filter: drop-shadow(0 0 10px #4ade80); }
+/* Research Lab shares the pin shape, in its own colour. */
+.breed-flag.lab-flag {
+  font-size: 23px; color: #cfe3ff;
+  filter: drop-shadow(0 0 8px #56b6ff) drop-shadow(0 2px 4px #0008);
+}
 
 /* ============================ GRID / CARDS ============================ */
 .toolbar { display: flex; align-items: flex-end; gap: 8px; padding: 6px 14px 10px; }
@@ -467,6 +480,26 @@ a { color: var(--accent); }
 .tag-exclusive {
   color: #9ad9ff; background: #3ca8ff22; border-color: #3ca8ff66;
 }
+/* How much of a stat came from Stat Boosters. */
+.boost-tag {
+  font-size: 10px; font-weight: 800; color: #7ef0a8;
+  background: #4ade8022; border: 1px solid #4ade8055;
+  border-radius: 99px; padding: 1px 5px; white-space: nowrap;
+}
+/* Rows in the stat-boost picker are buttons, so they need to look tappable. */
+.boost-row { width: 100%; text-align: left; cursor: pointer; }
+.boost-row:active { transform: scale(.99); }
+
+/* ---- Research Lab ---- */
+.lab-recipe { margin: 0 12px; max-width: 220px; }
+/* − [ 3 ] + row for choosing how many boosters to make */
+.qty-picker {
+  display: flex; align-items: center; justify-content: center; gap: 14px;
+  margin: 14px 0 4px;
+}
+.qty-picker .btn { min-width: 52px; font-size: 20px; line-height: 1; }
+.qty-read { display: grid; place-items: center; min-width: 96px; }
+.qty-read b { font-size: 26px; font-variant-numeric: tabular-nums; }
 .empty { text-align: center; color: var(--muted); padding: 28px 20px; }
 
 /* ---- storage tabs ---- */
@@ -570,6 +603,38 @@ a { color: var(--accent); }
   background: linear-gradient(135deg, rgba(72,44,120,.95), rgba(11,16,36,.95));
   box-shadow: 0 0 12px #b07cff44;
 }
+
+/* ---- full-screen image viewer ---- */
+/* Must clear the sheets (7000) and the battle screen (8200), since it is opened
+   from a sheet, but stay under the toasts (9500). */
+.img-viewer {
+  position: fixed; inset: 0; z-index: 8700;
+  display: grid; place-items: center; gap: 10px;
+  background: rgba(4, 7, 20, .93);
+  padding: 24px;
+  animation: viewerIn .16s ease-out;
+}
+@keyframes viewerIn { from { opacity: 0; } to { opacity: 1; } }
+.img-viewer img {
+  max-width: min(94vw, 620px); max-height: 76vh;
+  width: auto; height: auto; object-fit: contain;
+  /* Sprites are small PNGs, so keep the pixels crisp rather than smeared. */
+  image-rendering: -webkit-optimize-contrast;
+  filter: drop-shadow(0 10px 40px #000a);
+}
+.img-viewer-cap {
+  position: absolute; bottom: 26px; left: 0; right: 0; text-align: center;
+  font-size: 15px; font-weight: 700; color: var(--txt);
+  text-shadow: 0 2px 8px #000;
+}
+.img-viewer-close {
+  position: absolute; top: 14px; right: 14px;
+  width: 40px; height: 40px; border-radius: 50%;
+  background: rgba(255,255,255,.12); border: 1px solid var(--line);
+  color: var(--txt); font-size: 16px; cursor: pointer;
+}
+/* Hints that the picture on a detail sheet can be opened. */
+.zoomable { cursor: zoom-in; }
 
 /* ---- HP bar ---- */
 .hp-wrap { display: flex; align-items: center; gap: 7px; font-size: 12px; }
