@@ -5,12 +5,14 @@
 import {
   species, familyName, familyRarity, RARITY_NAMES, RULES,
   BREEDING_UNLOCK_LEVEL, BREEDING_CANDY_CAP, BREEDING_SLOTS_BY_LEVEL,
+  SET_NAME, GALACTIC_SET_NAME, MYTHICAL_RARITY, MYTHICAL_EGG_TYPE, SET_MISSIONS,
+  SHOP_ITEMS, COIN_ICON, shopFullSweepCoins,
   STAT_BOOSTER_ITEM, MAX_STAT_BOOSTS, statBoosterCost, STAT_BOOSTER_CANDY_COST,
   SUPER_INCUBATOR, incubatorDiscount, ITEM_DROP_FULL_HEAL_CHANCE,
   MAX_CREATURE_LEVEL, CREATURE_LEVEL_COST, POI_OUTCOMES, POI_OUTCOMES_WEEKEND, SHINY_ODDS,
   POI_OUTCOMES_RAID_INVASION, POI_OUTCOMES_TRAINING_DOJO,
   RAID_INVASION_LABEL, RAID_INVASION_DAY, RAID_INVASION_START, RAID_INVASION_END,
-  RAID_INVASION_DISC_BONUS,
+  RAID_INVASION_DISC_BONUS, RAID_INVASION_DOUBLE_CHANCE,
   TRAINING_DOJO_LABEL, TRAINING_DOJO_DAY, TRAINING_DOJO_START, TRAINING_DOJO_END,
   SHINY_INCENSE_ODDS, EXCLUSIVE_SET_NAME, EXCLUSIVE_RAID_BOSS_MODIFIERS,
   EXCLUSIVE_RAID_REWARD, EXCLUSIVE_RAID_WEIGHTS, MAX_EXCLUSIVE_EGGS, DB,
@@ -18,7 +20,7 @@ import {
   RELAX_HOUR_START, RELAX_HOUR_END, RELAX_HOUR_LABEL, dustBonusFor,
   BUDDY_KM_PER_CANDY, STARDUST_SUNDAY_LABEL, STARDUST_SUNDAY_MULTIPLIER,
   RAID_REWARD, RARE_INCENSE_WEIGHTS, RARITY_WEIGHTS, GRUNT_ITEM_DROPS,
-  RAID_BOSS_MODIFIERS, EGG_TYPES, EGG_DROP_CHANCE, MAX_EGGS, EGG_HATCH_LEVEL,
+  RAID_BOSS_MODIFIERS, EGG_TYPES, EGG_DROP_CHANCE, MAX_EGGS, EGG_HATCH_LEVEL, eggLabel,
   STAT_GROWTH_PER_LEVEL, RAID_TIERS, GRUNT_REWARD, RAID_CAPTURE_LEVEL,
   RAID_BONUS_RARITIES, raidRareIncenseChance, LEVEL_UP_REWARDS,
   levelUpRewardFromLevel, DUST_BONUS_PER_PLAYER_LEVEL, MAX_PLAYER_LEVEL,
@@ -74,6 +76,7 @@ const MISSION_ICON = {
   registered: '📖', captures: '🎯', capturesToday: '📅',
   raidsWon: '🔥', raidRarity: '💎', gruntsBeaten: '🧍',
   exclusiveRaidsWon: '💠', exclusiveRaidRarity: '💠',
+  registeredInSet: '🌌',
   capturesWeek: '🗓', daysCaughtThisWeek: '✅', eggsHatched: '🥚',
   metresToday: '👣', metresWeek: '👣', creaturesAtLevel: '⬆'
 };
@@ -159,6 +162,16 @@ export function renderMissions() {
     const nextMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
     nextMonday.setDate(nextMonday.getDate() + ((8 - (now.getDay() || 7)) % 7 || 7));
     timer.innerHTML = `Weekly missions reset Monday, in <b>${countdownLabel(nextMonday - now)}</b>`;
+  } else if (missionTab === 'set') {
+    // Not a countdown: this tab explains what the ladder is for and how far up
+    // it the player is, which is the only context these missions need.
+    timer.classList.remove('hidden');
+    const got = store.galacticUnlocked;
+    timer.innerHTML = got.length
+      ? `<b>${GALACTIC_SET_NAME}</b> unlocked: ${
+        got.map(r => `${RARITY_NAMES[r]}`).join(', ')}${
+        got.length < 5 ? ' — keep going for the rest.' : '. The whole set is in play.'}`
+      : `Fill in <b>${SET_NAME}</b> to unlock <b>${GALACTIC_SET_NAME}</b>, one rarity at a time.`;
   } else {
     timer.classList.add('hidden');
   }
@@ -216,7 +229,17 @@ function missionRow(m) {
         el('span', { class: 'r', text: `⭐ ${m.def.xp} XP` }),
         el('span', { class: 'r', text: `${DUST_ICON} ${num(dust)}` }),
         m.def.discs ? el('span', { class: 'r', text: `◉ ${m.def.discs} disc${m.def.discs > 1 ? 's' : ''}` }) : null,
-        ...itemChips
+        ...itemChips,
+        // The real prize on a Set mission is the unlock, not the stardust.
+        m.def.unlockGalacticRarity
+          ? el('span', {
+              class: 'r reward-unlock',
+              text: `🌌 Unlocks ${GALACTIC_SET_NAME} rarity ${m.def.unlockGalacticRarity} (${RARITY_NAMES[m.def.unlockGalacticRarity]})`
+            })
+          : null,
+        m.def.grantEgg
+          ? el('span', { class: 'r reward-unlock', text: `🥚 ${eggLabel(m.def.grantEgg)}` })
+          : null
       )
     ),
     el('div', { class: 'mission-act' },
@@ -239,6 +262,12 @@ function claim(id) {
   if (r.discs) msg += `, +${r.discs} Capturing Disc${r.discs > 1 ? 's' : ''}`;
   for (const [id, n] of Object.entries(r.items || {})) msg += `, +${n} ${itemName(id, n)}`;
   toast(msg, 'good', 3400);
+  // The unlock deserves its own shout: it changes what the whole map can spawn.
+  if (r.unlockedRarity) {
+    toast(`${RARITY_NAMES[r.unlockedRarity]} ${GALACTIC_SET_NAME} creatures can now appear!`,
+      'good', 5000);
+  }
+  if (r.egg) toast(`A ${eggLabel(r.egg.type)} was added to your Eggs`, 'good', 4200);
   if (r.levelUp.levelledUp) toast(`Player level ${r.levelUp.to}!`, 'good', 3200);
   renderMissions();
   refresh?.();
@@ -800,15 +829,39 @@ function renderInfo(tab = 'basics') {
     out.push(
       el('h4', { text: 'Creatures' }),
       el('p', { html: `There are <b>5 types</b> of creatures: <b>Mystic</b>, <b>Wind</b>, <b>Neutral</b>, <b>Celestial</b> and <b>Mechanic</b>.` }),
-      el('p', { html: `Creatures come in <b>5 rarities</b>: <b>Common</b> or rarity 1, <b>Uncommon</b> or rarity 2, <b>Rare</b> or rarity 3, <b>Epic</b> or rarity 4, and <b>Legendary</b> or rarity 5.` }),
+      el('p', { html: `Creatures come in <b>5 rarities</b>: <b>Common</b> or rarity 1, <b>Uncommon</b> or rarity 2, <b>Rare</b> or rarity 3, <b>Epic</b> or rarity 4, and <b>Legendary</b> or rarity 5. Above all of those sits <b>${RARITY_NAMES[MYTHICAL_RARITY]}</b>, rarity ${MYTHICAL_RARITY} — see Mythicals below.` }),
       el('p', { html: `Each species has <b>3 possible stages</b>: <b>Stage 1</b>, <b>Stage 2</b>, and <b>Stage 3</b>. You can only catch <b>Stage 1 creatures</b> in the wild — you need to <b>evolve</b> them to get their Stage 2 and Stage 3 forms.` }),
-      el('p', { html: `Your Collection has a second tab, <b>${EXCLUSIVE_SET_NAME}</b>, holding <b>${DB.exclusive.length} creatures</b> that never appear in the wild, from an incense, or from a normal egg. <b>Exclusive Raids</b> and the <b>15 km eggs</b> they drop are the only way to get them, and they only come in rarities <b>3, 4 and 5</b>.` }),
+      el('h4', { text: 'Sets' }),
+      el('p', { html: `Every creature belongs to a <b>set</b>, and your Collection has a tab for each one.` }),
+      el('ul', {},
+        el('li', { html: `<b>${SET_NAME}</b> — the ${DB.species.filter(s => s.set === SET_NAME).length} creatures you start the game with. These are what spawn on the map from the very first scan.` }),
+        el('li', { html: `<b>${GALACTIC_SET_NAME}</b> — ${DB.galactic.length} more creatures, <b>locked to begin with</b>. You open them one rarity at a time through the <b>Set</b> missions, and each rarity you open joins the ordinary pools for good: wild spawns, incense, eggs, raids and grunt teams alike. See Set missions below.` }),
+        el('li', { html: `<b>${EXCLUSIVE_SET_NAME}</b> — <b>${DB.exclusive.length} creatures</b> that never appear in the wild, from an incense, or from a normal egg. <b>Exclusive Raids</b> and the <b>15 km eggs</b> they drop are the only way to get them, and they only come in rarities <b>3, 4 and 5</b>.` }),
+        el('li', { html: `<b>${RARITY_NAMES[MYTHICAL_RARITY]}</b> — ${DB.mythical.length === 1 ? 'one creature' : `${DB.mythical.length} creatures`} so far, rarity ${MYTHICAL_RARITY}, each with its own single way of being found. See Mythicals below.` })
+      ),
+      el('h4', { text: 'Set missions' }),
+      el('p', { html: `The <b>Set</b> tab in Missions is a ladder that opens <b>${GALACTIC_SET_NAME}</b>. Each rung asks you to <b>register</b> a number of <b>${SET_NAME}</b> creatures — registering means having caught, hatched or evolved it at least once, so releasing it later does not undo it — and to have reached a <b>player level</b>. They never reset.` }),
+      el('ul', {},
+        ...SET_MISSIONS.map(m => el('li', {
+          html: `<b>${m.label}</b> (player level ${m.requireLevel}) — opens <b>rarity ${m.unlockGalacticRarity}</b> ${GALACTIC_SET_NAME} creatures${
+            m.id === 'ga5' ? ', plus a <b>Breeding Centre</b> and a <b>50 km egg</b>' : ''
+          }.`
+        })),
+        el('li', { html: 'The bar fills as you register creatures, but the <b>Claim</b> button waits for the player level as well — you will be told which one is missing.' }),
+        el('li', { html: 'Nothing appears until you actually <b>claim</b> the mission. Completing it is not enough.' }),
+        el('li', { html: `Opening a rarity does not change the <b>odds</b> of anything. A wild spawn is still ${pct(RARITY_WEIGHTS[1] / 100)} likely to be a rarity 1 creature — there are simply more rarity 1 creatures it can pick from, ${SET_NAME} and ${GALACTIC_SET_NAME} together.` }),
+        el('li', { html: 'Grunts build their teams from the same pool, so once you are a few rungs in you will meet <b>mixed teams</b> from both sets.' })
+      ),
+      el('h4', { text: 'Mythicals' }),
+      el('p', { html: `<b>${RARITY_NAMES[MYTHICAL_RARITY]}</b> creatures are rarity ${MYTHICAL_RARITY} and sit outside all the usual pools — they never spawn, never appear in a raid, and never hatch from an ordinary egg. Each one has a single specific way of being obtained. <b>Astralyon</b> is the first, and it comes from the <b>50 km egg</b> paid out by the last Set mission.` }),
+      el('p', { html: `Their <b>buff move</b> is what sets them apart: instead of raising one stat it raises <b>several at once</b>, and the battle log names each one. Astralyon's raises <b>Attack, Defence and Speed</b> together.` }),
       el('h4', { text: 'The map' }),
       el('p', { html: `Real places around you become points on the map: <b>shops</b>, <b>cafes and other amenities</b>, <b>tourist spots</b>, <b>bus stops</b>, and <b>industrial and service buildings</b>. Everything within <b>${RULES.SCAN_RADIUS_M} m</b> is checked, and the whole map re-rolls every <b>${RULES.SCAN_INTERVAL_MS / 60000} minutes</b>. <b>Parks and gardens</b> are the exception — they produce battle grunts instead of loot.` }),
       el('p', { html: `You must be within <b>${RULES.CAPTURE_RANGE_M} m</b> of a point to interact with it — creatures, items, raids, grunts and the breeding centre all use the same rule. The green circle around you shows that reach. It widens to <b>${RULES.RELAX_RANGE_M} m</b> during <b>${RELAX_HOUR_LABEL}</b>, see Daily events below.` }),
       el('p', { html: 'Your position is <b>never shown as numbers</b> anywhere in the game, so a screenshot gives nothing away. The blue dot and the green circle are all you get. If a point looks close but will not open, your GPS fix is probably just loose — walking a few steps into the open usually fixes it.' }),
       el('h4', { text: 'Temperature' }),
-      el('p', { html: 'The 🌡 chip in the top bar shows the real temperature in <b>°C</b> where you are, from <b>Open-Meteo</b>. It refreshes every 15 minutes, which is as often as they recalculate, and again if you travel more than a couple of kilometres. Your position is rounded to about a kilometre before being sent, so the exact spot never leaves your device. It is decoration for now — nothing in the game depends on the weather. Offline it keeps the last reading it had, and shows <b>—</b> if it never got one.' }),
+      el('p', { html: 'The 🌡 chip in the top bar shows the real temperature in <b>°C</b> where you are, from <b>Open-Meteo</b>. It refreshes every 15 minutes, which is as often as they recalculate, and again if you travel more than a couple of kilometres. Your position is rounded to about a kilometre before being sent, so the exact spot never leaves your device. Offline it keeps the last reading it had, and shows <b>—</b> if it never got one.' }),
+      el('p', { html: '<b>Tap the chip</b> for the rest of the reading: conditions, cloud cover, humidity, precipitation, wind speed and direction, and whether it is currently day or night. Only the temperature gets permanent space in the HUD.' }),
       el('h4', { text: 'What each icon means' }),
       keyline('✦', 'Flickering stars — a wild creature. You only see which one after you catch it.'),
       keyline('◉', `Spinning disc — Capturing Discs, and occasionally an Ultra Capture Disc. During a <b>${RAID_INVASION_LABEL}</b> every one of these also carries an Ultra Capture Disc.`),
@@ -835,7 +888,7 @@ function renderInfo(tab = 'basics') {
       el('h4', { text: 'Weekly events' }),
       el('p', { html: 'Two events take over the map for a short window each week. While one is running its odds <b>replace</b> the usual table rather than adding to it, and a chip on the map counts down the time left. Remember the map only re-rolls every few minutes, so points that appeared before the event started keep whatever they were.' }),
       el('ul', {},
-        el('li', { html: `<b>${RAID_INVASION_LABEL}</b> — ${weeklyWindowLabel(RAID_INVASION_DAY, RAID_INVASION_START, RAID_INVASION_END)}. Every <b>disc point</b> hands over <b>${itemListLine(RAID_INVASION_DISC_BONUS)}</b> on top of its usual drop, and the odds become: ${poiOddsLine(POI_OUTCOMES_RAID_INVASION)}. There is <b>no "nothing"</b> slice, so every point in range turns into something, and <b>${POI_OUTCOMES_RAID_INVASION.filter(x => x.kind === 'raid' || x.kind === 'exraid').reduce((a, b) => a + b.weight, 0)}%</b> of them are raids.` }),
+        el('li', { html: `<b>${RAID_INVASION_LABEL}</b> — ${weeklyWindowLabel(RAID_INVASION_DAY, RAID_INVASION_START, RAID_INVASION_END)}. Every <b>disc point</b> hands over <b>${itemListLine(RAID_INVASION_DISC_BONUS)}</b> on top of its usual drop, and <b>${pct(RAID_INVASION_DOUBLE_CHANCE)}</b> of the time it gives <b>two</b> instead. The odds become: ${poiOddsLine(POI_OUTCOMES_RAID_INVASION)}. There is <b>no "nothing"</b> slice, so every point in range turns into something, and <b>${POI_OUTCOMES_RAID_INVASION.filter(x => x.kind === 'raid' || x.kind === 'exraid').reduce((a, b) => a + b.weight, 0)}%</b> of them are raids.` }),
         el('li', { html: `<b>${TRAINING_DOJO_LABEL}</b> — ${weeklyWindowLabel(TRAINING_DOJO_DAY, TRAINING_DOJO_START, TRAINING_DOJO_END)}. Grunts take over the ordinary map points: this is the only time a shop or amenity becomes a grunt instead of loot, and they stand right at the point rather than being scattered like park grunts. The odds become: ${poiOddsLine(POI_OUTCOMES_TRAINING_DOJO)}. The usual <b>cap of ${RULES.MAX_ACTIVE_GRUNTS} grunts</b> on the map does not apply for these 30 minutes — there is <b>no limit</b>, so the map holds as many as there are places to put them. Parks and gardens keep rolling on top.` })
       ),
       el('h4', { text: 'Daily events' }),
@@ -856,13 +909,13 @@ function renderInfo(tab = 'basics') {
       el('h4', { text: 'Steps' }),
       el('p', { html: `Your walking is tracked while the game is open and shown in your Profile. One step is counted per <b>${RULES.METRES_PER_STEP} m</b> of real movement; jumps over <b>${RULES.MAX_WALK_JUMP_M} m</b> are ignored as GPS noise, and a fake debug location never counts. The same distance feeds your <b>eggs</b>, your <b>buddy</b> and the <b>walking missions</b> together — you never have to choose.` }),
       el('h4', { text: 'Missions' }),
-      el('p', { html: 'Missions sit in three tabs. <b>Lifetime</b> never resets. <b>Weekly</b> resets every <b>Monday</b> at midnight local time. <b>Daily</b> resets at midnight. Each timed tab shows its countdown at the bottom.' }),
+      el('p', { html: 'Missions sit in four tabs. <b>Lifetime</b> never resets. <b>Weekly</b> resets every <b>Monday</b> at midnight local time. <b>Daily</b> resets at midnight. <b>Set</b> never resets either, and is the ladder that opens new creature sets — see Set missions above. Each timed tab shows its countdown at the bottom.' }),
       el('ul', {},
         el('li', { html: 'Some missions are for <b>walking</b> rather than catching: 1, 5 and 10 km each day, and 25 and 50 km across the week. They read the same step counter as your Profile, so the same walk feeds your eggs, your buddy and these all at once.' }),
         el('li', { html: 'A walking mission can finish mid-stride — you get a nudge as soon as it does, and the Missions tab lights up.' }),
         el('li', { html: 'Lifetime missions also track <b>how many creatures you have raised</b> to level 5, level 7 and level 10. They count everything at or above that level, so taking one creature to 10 credits the level 5 and level 7 missions too.' }),
         el('li', { html: 'Those level missions are counted from your storage as it stands, so <b>releasing</b> a levelled creature takes it back off the total.' }),
-        el('li', { html: 'Whichever tab has something waiting turns <b>green and carries a count</b>, so you can see where to look without opening all three.' })
+        el('li', { html: 'Whichever tab has something waiting turns <b>green and carries a count</b>, so you can see where to look without opening them all.' })
       ),
       el('h4', { text: 'Pages' }),
       el('p', { html: `Once you hold more than <b>${PAGE_SIZE}</b> creatures, Storage, the battle team picker and the breeding picker all split into pages of ${PAGE_SIZE}. Swipe the grid left or right, or use the arrows: <b>‹</b> and <b>›</b> step one page, <b>«</b> and <b>»</b> jump straight to the first and last page. Sorting always reorders your <b>whole</b> collection first and then re-cuts the pages, so page 1 is always the true top of the order.` }),
@@ -871,6 +924,7 @@ function renderInfo(tab = 'basics') {
       el('ul', {},
         el('li', { html: `You can hold <b>${MAX_EGGS}</b> ordinary eggs at once. While you are full no more will drop, so hatch some to make room.` }),
         el('li', { html: `<b>15 km eggs are separate.</b> They have their own <b>${MAX_EXCLUSIVE_EGGS} slots</b>, so a full set of ${MAX_EGGS} ordinary eggs never blocks one, and ${MAX_EXCLUSIVE_EGGS} exclusive eggs never block an ordinary one.` }),
+        el('li', { html: `<b>50 km eggs have no limit at all.</b> They are one-off mission rewards, so they land in your Eggs tab even if every ordinary and 15 km slot is full. Nothing is ever lost.` }),
         el('li', { html: 'An egg does nothing until it is in an <b>incubator</b>. Tap the egg to pick one, or tap an incubator in your Items and pick an egg.' }),
         el('li', { html: 'A <b>Single Use Incubator</b> is used up the moment you start. The plain <b>Incubator</b> is reusable, but it is tied up until its egg hatches.' }),
         el('li', { html: 'Then walk. The tile shows the kilometres done and the incubator it is in, top-left.' }),
@@ -878,8 +932,9 @@ function renderInfo(tab = 'basics') {
         el('li', { html: `A <b>5 km</b> egg pays <b>${EGG_TYPES['5km'].dust} stardust</b>, <b>${EGG_TYPES['5km'].xp} XP</b> and <b>+${EGG_TYPES['5km'].bonusCandy} candy</b> on top of the usual catch candy: ${weightLine(EGG_TYPES['5km'].weights)}.` }),
         el('li', { html: `A <b>10 km</b> egg pays <b>${EGG_TYPES['10km'].dust} stardust</b>, <b>${EGG_TYPES['10km'].xp} XP</b> and <b>+${EGG_TYPES['10km'].bonusCandy} candy</b> on top of the usual catch candy: ${weightLine(EGG_TYPES['10km'].weights)}.` }),
         el('li', { html: `A <b>15 km</b> egg only ever comes from an <b>Exclusive Raid</b> (a <b>${pct(EXCLUSIVE_RAID_REWARD.eggChance)}</b> chance per win) and only hatches <b>${EXCLUSIVE_SET_NAME}</b> creatures: ${weightLine(EGG_TYPES['15km'].weights)}. It pays <b>${EGG_TYPES['15km'].dust} stardust</b>, <b>${EGG_TYPES['15km'].xp} XP</b> and <b>+${EGG_TYPES['15km'].bonusCandy} candy</b> — that is <b>${EGG_TYPES['15km'].dust - EGG_TYPES['10km'].dust} more stardust</b> and <b>${EGG_TYPES['15km'].bonusCandy - EGG_TYPES['10km'].bonusCandy} more candy</b> than a 10 km egg.` }),
+        el('li', { html: `A <b>50 km</b> egg is the rarest thing in the game. The only one so far comes from the last <b>Set</b> mission, and it holds <b>Astralyon</b> — the first <b>${RARITY_NAMES[MYTHICAL_RARITY]}</b>, rarity ${MYTHICAL_RARITY}. It is <b>guaranteed</b>: no roll, no weights, nothing else can come out of it, not even when more mythicals arrive. It pays <b>${EGG_TYPES[MYTHICAL_EGG_TYPE].dust} stardust</b>, <b>${EGG_TYPES[MYTHICAL_EGG_TYPE].xp} XP</b> and <b>+${EGG_TYPES[MYTHICAL_EGG_TYPE].bonusCandy} candy</b>. It <b>cannot</b> hatch a shiny.` }),
         el('li', { html: `Hatchlings arrive at <b>level ${EGG_HATCH_LEVEL}</b>, not level 1, so they are worth battling with straight away.` }),
-        el('li', { html: `Stardust from an egg grows with your player level like every other reward, and shinies hatch at the <b>raid</b> rate of ${pct(SHINY_ODDS.normal.raid)} — doubled during a Bonanza.` }),
+        el('li', { html: `Stardust from an egg grows with your player level like every other reward, and shinies hatch at the <b>raid</b> rate of ${pct(SHINY_ODDS.normal.raid)} — doubled during a Bonanza. The <b>50 km</b> egg is the exception: it never rolls a shiny.` }),
         el('li', { html: 'Hatching is not catching, so it does not count towards the "catch" missions. There are separate <b>Hatch</b> missions for that.' })
       ),
       el('h4', { text: 'Buddy' }),
@@ -897,6 +952,17 @@ function renderInfo(tab = 'basics') {
 
   if (tab === 'items') {
     out.push(el('p', { text: 'Items live in the Items tab of your Storage. Tap one to use it.' }));
+    out.push(
+      el('h4', { text: 'The Shop' }),
+      el('p', { html: `The <b>Shop</b> tab trades <b>${COIN_ICON} coins</b> for consumables. You earn a coin by <b>watching a short video</b> — one coin per video, and there is no limit on how many you watch. Coins never expire, so an unspent one is still there tomorrow.` }),
+      el('ul', {},
+        ...SHOP_ITEMS.map(s => el('li', {
+          html: `<b>${s.qty > 1 ? s.qty + ' ' : ''}${itemName(s.item, s.qty)}</b> — ${COIN_ICON} ${s.coins} coin${s.coins === 1 ? '' : 's'}, up to <b>${s.limit}</b> a day.`
+        })),
+        el('li', { html: `The limits are <b>per item, per day</b>, and they all reset at <b>midnight</b> local time along with the daily missions. Buying every row to its limit costs <b>${COIN_ICON} ${shopFullSweepCoins()}</b>, so that is the most a single day's watching can be worth.` }),
+        el('li', { html: 'Nothing in the game is locked behind the Shop — everything it sells also drops from points, raids, grunts and missions. It is a shortcut, not a gate.' })
+      )
+    );
     for (const def of itemsInOrder()) {
       out.push(el('div', { class: 'keyline' },
         el('img', { src: itemImage(def.id), alt: '', style: { width: '26px', height: '26px', objectFit: 'contain' } }),
@@ -908,7 +974,7 @@ function renderInfo(tab = 'basics') {
       el('ul', {},
         el('li', { html: 'No Capturing Disc means no catching — you will be told when you tap a creature.' }),
         el('li', { html: 'Potions cannot be used during a battle, or on a creature that has fainted.' }),
-        el('li', { html: `A <b>Full Heal</b> takes one creature straight to full HP however hurt it is, so it beats spending five potions on the same creature. It cannot revive a fainted one. Every <b>grunt</b> win gives one, and a potion or revive point carries one <b>${pct(ITEM_DROP_FULL_HEAL_CHANCE)}</b> of the time. In the battle team picker you get both buttons — <b>Heal all</b> spends potions, <b>Full Heal</b> spends these, worst hurt first — so you choose which to burn.` }),
+        el('li', { html: `A <b>Full Heal</b> takes one creature straight to full HP however hurt it is, so it beats spending five potions on the same creature. It cannot revive a fainted one. Every <b>raid</b> and every <b>grunt</b> win gives one, and a potion or revive point carries one <b>${pct(ITEM_DROP_FULL_HEAL_CHANCE)}</b> of the time. In the battle team picker you get both buttons — <b>Heal all</b> spends potions, <b>Full Heal</b> spends these, worst hurt first — so you choose which to burn.` }),
         el('li', { html: `A <b>Super Incubator</b> works like a Single Use Incubator but cuts the distance the egg needs by <b>${Math.round(incubatorDiscount(SUPER_INCUBATOR) * 100)}%</b>: a 10 km egg hatches after 7.5 km, a 5 km after 3.75 km, a 15 km after 11.25 km. The discount is fixed when you put the egg in. They come from <b>grunt</b> wins (<b>30%</b>) and a couple of daily missions.` }),
         el('li', { html: `A <b>Stat Booster</b> adds a permanent <b>+1</b> to one stat of one creature. Tap one in your Items, pick the creature, then pick the stat — you see the current figure and what it becomes before confirming. It is applied <b>after everything else</b>, so +1 stays exactly +1 no matter how much the creature levels or evolves. One creature can hold <b>${MAX_STAT_BOOSTS}</b> boosts in total across all four stats. Make them at the <b>Research Lab</b>, or pick them up from <b>grunt</b> wins (<b>10%</b>).` }),
         el('li', { html: 'Only one incense and one Stardust Magnet can run at a time. <b>Rare Incense</b> and <b>Shiny Incense</b> share the incense slot, so no two incenses can ever stack.' }),
@@ -929,7 +995,7 @@ function renderInfo(tab = 'basics') {
         el('li', { html: 'The creature with the higher <b>Speed</b> attacks first; a tie is random.' }),
         el('li', { html: 'If the first attack knocks the target out, it does not get to strike back.' }),
         el('li', { html: 'Damage is <b>move power × Attack ÷ Defence</b>, rounded.' }),
-        el('li', { html: 'Buff moves raise one of your own stats immediately, and stack if you use them again.' }),
+        el('li', { html: `Buff moves raise one of your own stats immediately, and stack if you use them again. A <b>${RARITY_NAMES[MYTHICAL_RARITY]}</b>'s buff move raises <b>several stats at once</b> — the log names each one and the total it is now up by.` }),
         el('li', { html: 'When a creature faints the next one you chose comes in. Run out and you lose.' })
       ),
       el('h4', { text: `Super effective (+${Math.round((SUPER_EFFECTIVE_MULTIPLIER - 1) * 100)}% damage)` }),
@@ -954,7 +1020,7 @@ function renderInfo(tab = 'basics') {
       el('h4', { text: 'After the battle' }),
       el('ul', {},
         el('li', { html: 'Damage is kept, including if you <b>leave part-way through</b> — you will be asked to confirm first. A hurt creature needs a <b>Potion</b>, a fainted one needs a <b>Revive</b>. You can heal and revive from the team picker without leaving the battle.' }),
-        el('li', { html: `Every raid win always gives <b>${RAID_REWARD.always.revive} Revives</b>. Every grunt always gives healing supplies: ${GRUNT_ITEM_DROPS.map(d => `<b>${d.weight}%</b> ${Object.entries(d.items).map(([id, n]) => `${n} ${itemName(id, n)}`).join(' + ')}`).join(' · ')}.` }),
+        el('li', { html: `Every raid win always gives ${itemListLine(RAID_REWARD.always)}. Every grunt always gives healing supplies: ${GRUNT_ITEM_DROPS.map(d => `<b>${d.weight}%</b> ${Object.entries(d.items).map(([id, n]) => `${n} ${itemName(id, n)}`).join(' + ')}`).join(' · ')}.` }),
         el('li', { html: `A grunt win also <b>always</b> hands over ${itemListLine(GRUNT_REWARD.always)}, and rolls separately for each of these: ${GRUNT_REWARD.extras.map(x => `<b>${pct(x.chance)}</b> a ${itemName(x.item)}`).join(' · ')}. The rolls are independent, so one win can pay both, either or neither.` }),
         el('li', { html: `Beat a raid boss and you can catch it with an <b>Ultra Capture Disc</b> — it arrives at level ${RAID_CAPTURE_LEVEL} with two bonus candy.` }),
         el('li', { html: `A raid boss is no ordinary creature: <b>×${RAID_BOSS_MODIFIERS.hp} HP</b>, and <b>+${Math.round((RAID_BOSS_MODIFIERS.attack - 1) * 100)}%</b> Attack, Defence and Speed.` }),
@@ -985,7 +1051,9 @@ function renderInfo(tab = 'basics') {
       el('p', { html: `Spare candy from creatures you will never level up has somewhere to go. The <b>Research Lab</b> — earned from the lifetime mission <b>Reach level 7 and register 70 creatures</b> — is pinned to the map once, like a Breeding Centre, and turns candy into <b>Stat Boosters</b>.` }),
       el('ul', {},
         el('li', { html: `The price depends on the <b>rarity of the family whose candy you spend</b>, because commons are far easier to come by: ${
-          [1, 2, 3, 4, 5].map(r => `<b>${RARITY_NAMES[r]}</b> ${statBoosterCost(r)}`).join(' · ')
+          Object.keys(STAT_BOOSTER_CANDY_COST)
+            .map(Number).sort((a, b) => a - b)
+            .map(r => `<b>${RARITY_NAMES[r]}</b> ${statBoosterCost(r)}`).join(' · ')
         } candy per booster.` }),
         el('li', { html: 'Tap the lab, choose <b>Stat Booster</b>, and you get every family you have enough candy for. Pick one, set how many with <b>−</b> and <b>+</b>, and confirm. The candy goes, the boosters land in your Items.' }),
         el('li', { html: 'A booster is <b>not tied to the candy that made it</b>. Spend Common candy and use the booster on your Legendary if you like.' }),
@@ -998,6 +1066,7 @@ function renderInfo(tab = 'basics') {
       el('p', { html: `Costs stardust <i>and</i> candy of that creature's family — from ${CANDY_ICON} ${CREATURE_LEVEL_COST[2].candy} + ${DUST_ICON} ${num(CREATURE_LEVEL_COST[2].stardust)} for level 2 up to ${CANDY_ICON} ${CREATURE_LEVEL_COST[MAX_CREATURE_LEVEL].candy} + ${DUST_ICON} ${num(CREATURE_LEVEL_COST[MAX_CREATURE_LEVEL].stardust)} for level ${MAX_CREATURE_LEVEL}.` }),
       el('h4', { text: 'Moves' }),
       el('p', { html: `Creatures learn up to four moves as they level. When you catch one there is a chance it learns its third or fourth move <b>one or two levels early</b> — your storage spells out exactly when. Some moves only arrive after evolving.` }),
+      el('p', { html: `Most <b>buff</b> moves raise a single stat. A <b>${RARITY_NAMES[MYTHICAL_RARITY]}</b>'s raises <b>more than one at the same time</b>, for the same percentage each — Astralyon's <b>Extreme Growth</b> lifts Attack, Defence and Speed together. The move list on a creature spells out which stats a buff touches.` }),
       el('h4', { text: 'Candy and evolving' }),
       el('p', { html: `Candy belongs to a <b>family</b>, not a single creature, so catching the Stage 1 form feeds every evolution. Releasing a creature returns 1 candy to its family. Evolving keeps the level, the shiny status and the early-move luck.` }),
       el('h4', { text: 'Stardust' }),
@@ -1027,12 +1096,14 @@ function renderInfo(tab = 'basics') {
       el('p', { html: 'A lot of exciting new features are coming soon to the game!' }),
       el('h4', { text: 'Creature abilities' }),
       el('p', { html: 'Very soon, some of your creatures that might not seem as strong might get more useful than you think, as they gain an <b>exclusive ability</b> that will make them very strong or very resistant in certain circumstances.' }),
-      el('h4', { text: 'A new creature set' }),
-      el('p', { html: 'A brand-new creature set is releasing very soon. Make sure to collect as many Elemental Awakening creatures as you can — you’ll soon have <b>77 new ones</b> to discover!' }),
+      el('h4', { text: 'More mythicals' }),
+      el('p', { html: `<b>Astralyon</b> is the first <b>Mythical</b>, rarity ${MYTHICAL_RARITY}, and more will follow. Each will have its own way of being found, and like Astralyon their buff moves raise several stats at once.` }),
       el('h4', { text: 'More candy' }),
       el('p', { html: 'Struggling to find enough candy to level up your strongest Epic and Legendary creatures? <b>New ways to obtain candy are on the way!</b> Hope you’ve got good precision…' }),
-      el('h4', { text: 'Mythical rarity' }),
-      el('p', { html: 'A new rarity, <b>rarity 6</b> or <b>mythical</b>, is planned to come in the future. You won&apos;t be able to catch more than one and they are extremely powerful.' })
+      el('h4', { text: 'Held items' }),
+      el('p', { html: 'Soon, some rare items will be added to the game. You can give them to a creature so they can hold them. These can have effects in battle or on the field.' }),
+      el('h4', { text: 'The next set' }),
+      el('p', { html: `With <b>${SET_NAME}</b> and <b>${GALACTIC_SET_NAME}</b> both in play, work has started on what comes after. Filling in a set is what opens the next one, so a full Collection is never wasted effort.` })
     );
   }
 

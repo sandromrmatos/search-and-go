@@ -104,9 +104,10 @@ function makeRaidPoint(poi, now, exclusive = false) {
 /** A grunt brings three creatures scaled to the player's level. */
 export function buildGruntTeam(playerLevel) {
   const [lo, hi] = gruntLevelRange(playerLevel);
-  // Grunts never field exclusive creatures — an Exclusive Raid is the only
-  // place you should ever see one.
-  const pool = DB.species.filter(s => !s.exclusive);
+  // Whatever is currently in circulation: the main set plus any unlocked
+  // Galactic rarities. Exclusives and mythicals are never in here, so a grunt
+  // can field a mixed-set team but never something you cannot otherwise meet.
+  const pool = DB.available.length ? DB.available : DB.species.filter(s => !s.exclusive);
   const team = [];
   const used = new Set();
   while (team.length < BATTLE_TEAM_SIZE && used.size < pool.length) {

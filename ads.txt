@@ -1,0 +1,7 @@
+# ads.txt — authorised digital sellers (IAB Tech Lab)
+# Google AdSense for HTML5 games, publisher pub-3087746799420474.
+#
+# IMPORTANT: this file only counts when it is served from the ROOT of the
+# domain, e.g. https://example.com/ads.txt. Serving it from a subdirectory
+# (https://example.com/game/ads.txt) does nothing — crawlers never look there.
+google.com, pub-3087746799420474, DIRECT, f08c47fec0942fa0

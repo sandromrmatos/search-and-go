@@ -9,7 +9,9 @@ import {
   XP_ON_EVOLVE, CANDY_ON_DELETE, levelUpCost, MAX_CREATURE_LEVEL,
   playerProgress, playerLevelFor, statsFor, rollStatModifier, rollMoveUnlock,
   rollShiny, chance, RULES, RAID_CAPTURE_LEVEL, RAID_CAPTURE_BONUS_CANDY,
-  MISSIONS, DAILY_MISSIONS, WEEKLY_MISSIONS, breedingSlotsFor, breedingIntervalMs,
+  MISSIONS, DAILY_MISSIONS, WEEKLY_MISSIONS, SET_MISSIONS,
+  setGalacticUnlocked, isMythicalEgg, eggCanBeShiny, MYTHICAL_EGG_TYPE,
+  breedingSlotsFor, breedingIntervalMs,
   BREEDING_CANDY_CAP, BREEDING_UNLOCK_LEVEL,
   dustInRange, weightedPick, GRUNT_REWARD, levelUpRewardsFor,
   buddyMetresPerCandy, stardustMultiplier, isStardustSunday, RAID_REWARD,
@@ -19,7 +21,8 @@ import {
   eggDef, eggMetres, eggMetresFor, rollEggType, rollEggSpecies,
   MAX_EXCLUSIVE_EGGS, EXCLUSIVE_EGG_TYPE, isExclusiveEgg,
   emptyBoosts, totalBoosts, boostsLeft, MAX_STAT_BOOSTS, STAT_BOOSTER_ITEM,
-  statBoosterCost, STAT_KEYS
+  statBoosterCost, STAT_KEYS,
+  SHOP_ITEMS, shopItem, COINS_PER_AD
 } from './data.js';
 import { ITEMS, item as itemDef } from './items.js';
 
@@ -61,7 +64,9 @@ const blankWeekly = () => ({
  * unless every copy was updated.
  */
 const blankDaily = () => ({
-  date: dayKey(), capturesToday: 0, metresToday: 0, claimed: {}
+  date: dayKey(), capturesToday: 0, metresToday: 0, claimed: {},
+  /** shopItemId -> how many bought today. Enforces the per-day shop caps. */
+  shop: {}
 });
 
 function blankState() {
@@ -72,6 +77,8 @@ function blankState() {
 
     xp: 0,
     stardust: 0,
+    /** Shop coins, one per rewarded video watched. Never resets. */
+    coins: 0,
     candy: {},          // familyRootId -> candy
     inventory: { capture_disc: 5 },      // start with 5 capturing discs
     storage: [],        // individual creatures
@@ -83,6 +90,8 @@ function blankState() {
     effects: { incense: null, magnet: null },
     breeding: null,     // { lat, lng, placedAt, slots: [...] }
     researchLab: null,  // { lat, lng, placedAt }
+    /** Galactic Adventures rarities opened by the Set missions. Never resets. */
+    galacticUnlocked: [],
     buddy: null,        // { uid, metres, candyEarned, since }
     eggs: [],           // { id, type, collectedAt, metres, incubator: itemId|null }
     nextEggId: 1,
@@ -104,7 +113,8 @@ function blankState() {
       eggsHatched: 0,
       raidsByRarity: {},  // rarity -> raid bosses beaten, for the per-rarity missions
       exclusiveRaidsWon: 0,
-      exclusiveRaidsByRarity: {}
+      exclusiveRaidsByRarity: {},
+      adsWatched: 0, shopBuys: 0
     },
 
     lastScanAt: 0,
@@ -191,6 +201,7 @@ export function migrate(raw) {
   s.version = SAVE_VERSION;
   s.xp = Number(s.xp) || 0;
   s.stardust = Number(s.stardust) || 0;
+  s.coins = Math.max(0, Math.floor(Number(s.coins) || 0));
   s.nickname = typeof s.nickname === 'string' && s.nickname.trim() ? s.nickname.trim() : null;
 
   // ---- creatures ----
@@ -282,6 +293,13 @@ export function migrate(raw) {
     s.buddy = null;
   }
 
+  // ---- galactic unlocks: whole numbers 1-5, no duplicates ----
+  s.galacticUnlocked = [...new Set(
+    (Array.isArray(raw.galacticUnlocked) ? raw.galacticUnlocked : [])
+      .map(Number)
+      .filter(r => Number.isInteger(r) && r >= 1 && r <= 5)
+  )].sort((a, b) => a - b);
+
   // ---- research lab: a pin with no slots, so coordinates are all it needs ----
   if (s.researchLab && (!isFinite(s.researchLab.lat) || !isFinite(s.researchLab.lng))) {
     s.researchLab = null;
@@ -297,6 +315,14 @@ export function migrate(raw) {
   // ---- daily reset ----
   s.daily.capturesToday = Math.max(0, Math.floor(Number(s.daily.capturesToday) || 0));
   s.daily.metresToday = Math.max(0, Number(s.daily.metresToday) || 0);
+  // Shop tallies are clamped to that row's own cap, so a tampered save cannot
+  // hand out more than a day's worth and cannot go negative either.
+  const rawShop = (s.daily.shop && typeof s.daily.shop === 'object') ? s.daily.shop : {};
+  s.daily.shop = {};
+  for (const row of SHOP_ITEMS) {
+    const n = Math.max(0, Math.floor(Number(rawShop[row.id]) || 0));
+    if (n > 0) s.daily.shop[row.id] = Math.min(n, row.limit);
+  }
   if (s.daily.date !== dayKey()) s.daily = blankDaily();
 
   // ---- weekly reset (Monday) ----
@@ -443,6 +469,9 @@ class Store {
   async load() {
     const { data, source, readFailed, recoverable } = await Persist.load();
     this.s = migrate(data);
+    // The spawn pools depend on saved progress, so they have to be rebuilt
+    // before anything can roll a creature.
+    this.syncGalacticUnlocks();
     this.loadedFrom = source;
     this.loadReadFailed = !!readFailed;
     this.loadRecoverable = recoverable || null;
@@ -452,12 +481,14 @@ class Store {
 
   async replace(raw) {
     this.s = migrate(raw);
+    this.syncGalacticUnlocks();
     await this.flush({ force: true });
     this.emit('load');
   }
 
   async reset() {
     this.s = blankState();
+    this.syncGalacticUnlocks();
     await this.flush({ force: true });
     this.emit('load');
   }
@@ -626,11 +657,19 @@ class Store {
    * slots for 15 km eggs. A full set of normal eggs never blocks an exclusive
    * drop, and vice versa.
    */
-  get normalEggs() { return this.s.eggs.filter(e => !isExclusiveEgg(e.type)); }
+  // Mythical eggs sit outside both buckets and have no cap of their own.
+  get normalEggs() {
+    return this.s.eggs.filter(e => !isExclusiveEgg(e.type) && !isMythicalEgg(e.type));
+  }
   get exclusiveEggs() { return this.s.eggs.filter(e => isExclusiveEgg(e.type)); }
+  get mythicalEggs() { return this.s.eggs.filter(e => isMythicalEgg(e.type)); }
 
-  eggCapacityFor(type) { return isExclusiveEgg(type) ? MAX_EXCLUSIVE_EGGS : MAX_EGGS; }
+  eggCapacityFor(type) {
+    if (isMythicalEgg(type)) return Infinity;
+    return isExclusiveEgg(type) ? MAX_EXCLUSIVE_EGGS : MAX_EGGS;
+  }
   eggsHeldFor(type) {
+    if (isMythicalEgg(type)) return this.mythicalEggs.length;
     return isExclusiveEgg(type) ? this.exclusiveEggs.length : this.normalEggs.length;
   }
   eggsFullFor(type) { return this.eggsHeldFor(type) >= this.eggCapacityFor(type); }
@@ -666,8 +705,13 @@ class Store {
   isEggReady(egg) { return !!egg && !!egg.incubator && this.eggProgress(egg).ready; }
   readyEggs() { return this.s.eggs.filter(e => this.isEggReady(e)); }
 
-  addEgg(type) {
-    if (this.eggsFullFor(type)) return { ok: false, reason: 'full' };
+  /**
+   * `ignoreLimit` is for one-off rewards that must never be lost to a full bag,
+   * like the mythical egg from the final Set mission.
+   */
+  addEgg(type, { ignoreLimit = false } = {}) {
+    const capped = !ignoreLimit && !isMythicalEgg(type);
+    if (capped && this.eggsFullFor(type)) return { ok: false, reason: 'full' };
     const egg = {
       id: `egg${this.s.nextEggId++}`,
       type,
@@ -763,8 +807,9 @@ class Store {
       origin: 'egg',
       level: EGG_HATCH_LEVEL,
       // Eggs use the raid shiny rate, or the flat Shiny Incense rate if one
-      // happens to be burning when the egg cracks.
-      shiny: rollShiny('raid', new Date(), this.shinyOpts()),
+      // happens to be burning when the egg cracks. Some eggs — the mythical one
+      // — can never produce a shiny at all.
+      shiny: eggCanBeShiny(egg.type) && rollShiny('raid', new Date(), this.shinyOpts()),
       dust: def.dust,
       xp: def.xp,
       bonusCandy: def.bonusCandy || 0,
@@ -862,6 +907,88 @@ class Store {
     this.s.inventory[id] -= n;
     if (this.s.inventory[id] <= 0) delete this.s.inventory[id];
     return true;
+  }
+
+  /* ---------------- shop ---------------- */
+
+  get coins() { return Math.max(0, Math.floor(Number(this.s.coins) || 0)); }
+
+  /** Paid out when a rewarded video completes. */
+  addCoins(n = COINS_PER_AD) {
+    const add = Math.max(0, Math.floor(Number(n) || 0));
+    if (!add) return this.coins;
+    this.s.coins = this.coins + add;
+    this.s.stats.adsWatched = (this.s.stats.adsWatched || 0) + 1;
+    this.touch('coins', { immediate: true });
+    return this.s.coins;
+  }
+
+  /**
+   * How many of one shop row were bought today. A stale day reads as zero even
+   * before anything writes, so the caps genuinely reset at local midnight
+   * rather than at the next purchase.
+   */
+  shopBoughtToday(id) {
+    if (this.s.daily.date !== dayKey()) return 0;
+    return Math.max(0, Math.floor(Number(this.s.daily.shop?.[id]) || 0));
+  }
+
+  /** One row of the shop, with everything the UI needs to draw it. */
+  shopRow(def) {
+    const bought = this.shopBoughtToday(def.id);
+    const left = Math.max(0, def.limit - bought);
+    const affordable = this.coins >= def.coins;
+    return {
+      def,
+      item: ITEMS[def.item],
+      held: this.itemCount(def.item),
+      bought,
+      left,
+      soldOut: left <= 0,
+      affordable,
+      canBuy: left > 0 && affordable
+    };
+  }
+
+  shopRows() { return SHOP_ITEMS.map(def => this.shopRow(def)); }
+
+  /** True when at least one row could be bought right now. */
+  get canBuyAnything() { return this.shopRows().some(r => r.canBuy); }
+
+  /**
+   * Spends coins on one shop row. Checks the day, the cap and the balance in
+   * that order, and only ever moves one row at a time.
+   */
+  buyShopItem(id) {
+    const def = shopItem(id);
+    if (!def) return { ok: false, reason: 'missing' };
+
+    // Roll the day first so a purchase made just after midnight is counted
+    // against the new day, not the old one.
+    if (this.s.daily.date !== dayKey()) this.s.daily = blankDaily();
+    this.s.daily.shop = this.s.daily.shop || {};
+
+    const bought = Math.max(0, Math.floor(Number(this.s.daily.shop[id]) || 0));
+    if (bought >= def.limit) return { ok: false, reason: 'limit', limit: def.limit };
+    if (this.coins < def.coins) {
+      return { ok: false, reason: 'coins', need: def.coins, have: this.coins };
+    }
+
+    this.s.coins = this.coins - def.coins;
+    this.s.daily.shop[id] = bought + 1;
+    this.addItem(def.item, def.qty);
+    this.s.stats.itemsCollected += def.qty;
+    this.s.stats.shopBuys = (this.s.stats.shopBuys || 0) + 1;
+    this.touch('shop', { immediate: true });
+
+    return {
+      ok: true,
+      item: def.item,
+      qty: def.qty,
+      spent: def.coins,
+      coins: this.coins,
+      left: def.limit - (bought + 1)
+    };
   }
 
   /** Every item the player actually holds, plus its quantity. */
@@ -1702,6 +1829,15 @@ class Store {
       case 'gruntsBeaten': return this.s.stats.gruntsBeaten;
       case 'eggsHatched': return this.s.stats.eggsHatched;
       case 'raidRarity': return this.s.stats.raidsByRarity?.[m.rarity] || 0;
+      // How many creatures of one set are registered. Counted off the registry
+      // rather than a tally, so it always matches the Collection.
+      case 'registeredInSet': {
+        let n = 0;
+        for (const id of Object.keys(this.s.registered)) {
+          if (species(id)?.set === m.set) n++;
+        }
+        return n;
+      }
       case 'exclusiveRaidsWon': return this.s.stats.exclusiveRaidsWon || 0;
       case 'exclusiveRaidRarity':
         return this.s.stats.exclusiveRaidsByRarity?.[m.rarity] || 0;
@@ -1724,6 +1860,7 @@ class Store {
     const progress = this.missionProgress(m);
     const claimed = scope === 'daily' ? !!this.s.daily.claimed?.[m.id]
       : scope === 'weekly' ? !!this.weekly.claimed?.[m.id]
+      // 'lifetime' and 'set' share the permanent store.
       : !!this.s.missions[m.id];
     // A mission can carry a second condition on top of its bar. `requireLevel`
     // does not move the bar, it just holds the claim back until you get there.
@@ -1744,6 +1881,8 @@ class Store {
   allMissions() {
     return [
       ...MISSIONS.map(m => this.missionState(m, 'lifetime')),
+      // Set missions never reset, so they claim into the same store as lifetime.
+      ...SET_MISSIONS.map(m => this.missionState(m, 'set')),
       ...WEEKLY_MISSIONS.map(m => this.missionState(m, 'weekly')),
       ...DAILY_MISSIONS.map(m => this.missionState(m, 'daily'))
     ];
@@ -1775,6 +1914,27 @@ class Store {
       bonusItems[itemId] = n;
     }
 
+    // A Set mission opens a Galactic Adventures rarity. This is what actually
+    // puts those creatures into circulation, so it happens before the pools are
+    // rebuilt below.
+    let unlockedRarity = null;
+    if (m.def.unlockGalacticRarity) {
+      unlockedRarity = m.def.unlockGalacticRarity;
+      if (!this.s.galacticUnlocked.includes(unlockedRarity)) {
+        this.s.galacticUnlocked.push(unlockedRarity);
+        this.s.galacticUnlocked.sort((a, b) => a - b);
+      }
+      this.syncGalacticUnlocks();
+    }
+
+    // Some missions hand over an egg. The mythical egg ignores storage limits,
+    // so a full bag can never cost the player a one-off reward.
+    let egg = null;
+    if (m.def.grantEgg) {
+      const r = this.addEgg(m.def.grantEgg, { ignoreLimit: true });
+      if (r.ok) egg = r.egg;
+    }
+
     if (m.scope === 'daily') {
       this.s.daily.claimed = this.s.daily.claimed || {};
       this.s.daily.claimed[id] = Date.now();
@@ -1782,10 +1942,25 @@ class Store {
       if (this.s.weekly.week !== weekKey()) this.s.weekly = blankWeekly();
       this.s.weekly.claimed[id] = Date.now();
     } else {
+      // 'lifetime' and 'set' both live here: neither ever resets.
       this.s.missions[id] = { claimedAt: Date.now() };
     }
     this.touch('mission', { immediate: true });
-    return { ok: true, xp: m.def.xp, dust, levelUp, label: m.def.label, discs: bonusDiscs, items: bonusItems };
+    return {
+      ok: true, xp: m.def.xp, dust, levelUp, label: m.def.label,
+      discs: bonusDiscs, items: bonusItems,
+      unlockedRarity, egg
+    };
+  }
+
+  /* ---------------- Galactic Adventures unlocks ---------------- */
+
+  get galacticUnlocked() { return [...this.s.galacticUnlocked]; }
+  isGalacticUnlocked(rarity) { return this.s.galacticUnlocked.includes(Number(rarity)); }
+
+  /** Pushes the unlocked rarities into data.js, which rebuilds the spawn pools. */
+  syncGalacticUnlocks() {
+    setGalacticUnlocked(this.s.galacticUnlocked);
   }
 
   /* ---------------- debug / ui ---------------- */

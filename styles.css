@@ -107,8 +107,62 @@ a { color: var(--accent); }
 .xp-bar i { display: block; height: 100%; width: 0%; border-radius: 99px; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width .4s ease; }
 /* Temperature chip: tabular digits so it does not jitter as the reading moves,
    and dimmed until the first one arrives. */
-.hud-chip.weather { font-variant-numeric: tabular-nums; }
+.hud-chip.weather { font-variant-numeric: tabular-nums; cursor: pointer; }
 .hud-chip.weather.pending { color: var(--muted); opacity: .7; }
+.hud-chip.weather:active { transform: scale(.96); }
+
+/* ---- event calendar ---- */
+.cal-day { padding: 10px 0 8px; border-bottom: 1px solid var(--line); }
+.cal-day:last-child { border-bottom: 0; }
+.cal-date { font-size: 13px; margin-bottom: 6px; }
+.cal-day.today .cal-date b { color: var(--accent2); }
+.cal-events { display: flex; flex-direction: column; gap: 6px; }
+.cal-event {
+  display: flex; align-items: center; gap: 9px;
+  background: #ffffff0a; border: 1px solid var(--line);
+  border-radius: 11px; padding: 7px 10px;
+}
+.cal-event.all-day { border-color: #ffd16644; background: #ffd16610; }
+.cal-ico { font-size: 18px; flex: 0 0 auto; }
+.cal-main { flex: 1; min-width: 0; }
+.cal-main b { font-size: 13.5px; }
+.cal-when {
+  flex: 0 0 auto; font-size: 11.5px; font-weight: 700; color: var(--muted);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.cal-none { margin: 0; padding-left: 2px; }
+/* Keep the Calendar button and the count on one line in the News header. */
+.view-news .view-head-right { display: flex; align-items: center; gap: 8px; }
+
+/* ---- weather detail panel, behind the temperature chip ---- */
+/* Sits above the sheets (7000) since it opens from the HUD, below toasts. */
+.weather-wrap {
+  position: fixed; inset: 0; z-index: 8600;
+  display: grid; place-items: start center;
+  padding: calc(var(--safe-t) + 58px) 16px 16px;
+  background: #05070fb0;
+  animation: viewerIn .16s ease-out;
+}
+.weather-card {
+  position: relative; width: 100%; max-width: 340px;
+  background: var(--panel-solid); border: 1px solid var(--line);
+  border-radius: 16px; padding: 16px 14px 10px;
+  box-shadow: 0 12px 40px #000a;
+}
+.weather-close {
+  position: absolute; top: 8px; right: 8px; width: 30px; height: 30px;
+  border-radius: 50%; background: #ffffff14; border: 1px solid var(--line);
+  color: var(--txt); font-size: 13px; cursor: pointer;
+}
+.weather-head {
+  display: flex; align-items: center; gap: 12px; margin: 0 0 12px; padding-right: 30px;
+}
+.weather-icon { font-size: 40px; line-height: 1; }
+.weather-temp {
+  font-size: 30px; font-weight: 800; line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+.weather-foot { margin-top: 10px; }
 .hud-chip {
   display: flex; align-items: center; gap: 5px; font-weight: 600; font-size: 13.5px;
   background: #ffffff12; border: 1px solid var(--line); border-radius: 99px; padding: 5px 11px;
@@ -480,6 +534,13 @@ a { color: var(--accent); }
 .tag-exclusive {
   color: #9ad9ff; background: #3ca8ff22; border-color: #3ca8ff66;
 }
+/* Abilities, in the same purple as their battle-log lines. */
+.tag-ability {
+  color: #d9b3ff; background: #b07cff22; border-color: #b07cff66;
+}
+.ability-btn { color: #d9b3ff; border-color: #b07cff66; }
+.ability-clause b { color: #d9b3ff; font-weight: 700; }
+
 /* How much of a stat came from Stat Boosters. */
 .boost-tag {
   font-size: 10px; font-weight: 800; color: #7ef0a8;
@@ -1048,6 +1109,20 @@ a { color: var(--accent); }
 .bt-log .resist { color: #9aa3bd; font-weight: 700; }
 .bt-log .ko { color: #ffb3b3; font-weight: 700; }
 .bt-log .buff { color: #b9ffd0; }
+/* Abilities get their own colour so they read as a different kind of event to
+   the blow by blow, and a pill saying whether they fired. */
+.bt-log .ability {
+  display: block; color: #d9b3ff; font-weight: 600;
+  background: #b07cff14; border-left: 2px solid #b07cff88;
+  border-radius: 0 8px 8px 0; padding: 3px 8px; margin: 2px 0;
+}
+.bt-log .ability b { color: #f0e0ff; }
+.bt-log .ability-state {
+  margin-left: 6px; font-size: 10px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: .5px;
+  padding: 1px 6px; border-radius: 99px;
+  background: #ffffff1a; color: #cbb6e8;
+}
 
 .bt-moves {
   flex: 0 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 7px;
@@ -1087,6 +1162,81 @@ a { color: var(--accent); }
 .nav.nav-6 { grid-template-columns: repeat(6, 1fr); }
 .nav.nav-6 .nav-btn { font-size: 8.5px; }
 .nav.nav-6 .nav-btn span { font-size: 17px; }
+/* Seven is as many as fits on a narrow phone. The labels are clipped rather
+   than wrapped, so a long one shortens instead of pushing the row taller. */
+.nav.nav-7 { grid-template-columns: repeat(7, 1fr); }
+.nav.nav-7 .nav-btn { font-size: 7.5px; letter-spacing: -.1px; }
+.nav.nav-7 .nav-btn span { font-size: 16px; }
+.nav.nav-7 .nav-btn { padding: 0 1px; overflow: hidden; white-space: nowrap; }
+.nav.nav-7 .nav-btn .claim-dot { right: 8%; }
+
+/* ============================================================
+   SHOP
+   ============================================================ */
+.shop-coin-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 14px; font-weight: 700; color: #ffe9a8;
+  background: #ffd16618; border: 1px solid #ffd16655;
+  border-radius: 99px; padding: 4px 12px;
+  font-variant-numeric: tabular-nums;
+}
+.shop-earn { text-align: center; }
+.shop-earn h3 { margin-bottom: 4px; }
+.shop-earn p { margin: 0 auto; max-width: 34em; }
+
+.shop-list { display: flex; flex-direction: column; gap: 8px; padding: 0 12px 4px; }
+.shop-row {
+  display: flex; align-items: center; gap: 11px;
+  padding: 10px 12px; border-radius: 14px;
+  background: var(--panel-solid); border: 1px solid var(--line);
+}
+/* A row bought out for today stays readable — it still has to show the cap. */
+.shop-row.capped { opacity: .58; }
+.shop-art { position: relative; flex: 0 0 auto; width: 44px; height: 44px; }
+.shop-art img { width: 100%; height: 100%; object-fit: contain; }
+.shop-art .qty {
+  top: -7px; right: -7px; min-width: 20px; height: 20px;
+  font-size: 10.5px; border-width: 2px;
+}
+.shop-main { flex: 1; min-width: 0; }
+.shop-main b { display: block; font-size: 13.5px; margin-bottom: 3px; }
+.shop-meta { display: flex; flex-wrap: wrap; gap: 3px 10px; font-size: 11px; color: var(--muted); }
+.shop-price { color: #ffe9a8; font-weight: 700; }
+.shop-limit { font-variant-numeric: tabular-nums; }
+.shop-limit.done { color: var(--good); }
+.shop-act { flex: 0 0 auto; }
+.shop-act .btn { padding: 8px 14px; font-size: 12.5px; }
+
+/* ---- the placeholder that stands in for a real rewarded ad ---- */
+.ad-sim {
+  position: fixed; inset: 0; z-index: 9400;
+  display: grid; place-items: center; padding: 22px;
+  background: #05070fe8; backdrop-filter: blur(3px);
+}
+.ad-sim-inner {
+  position: relative; width: 100%; max-width: 330px; text-align: center;
+  background: var(--panel-solid); border: 1px solid var(--line);
+  border-radius: 18px; padding: 20px 16px 16px;
+  box-shadow: 0 12px 40px #000a; animation: up .22s ease;
+}
+.ad-sim-tag {
+  position: absolute; top: -9px; left: 50%; transform: translateX(-50%);
+  font-size: 9px; font-weight: 800; letter-spacing: .8px;
+  padding: 3px 9px; border-radius: 99px;
+  background: var(--accent2); color: #241c00;
+}
+.ad-sim-ico { font-size: 44px; line-height: 1; }
+.ad-sim-inner h3 { margin: 6px 0 6px; font-size: 17px; }
+.ad-sim-bar {
+  height: 6px; border-radius: 99px; background: #ffffff1f;
+  overflow: hidden; margin: 14px 0 0;
+}
+.ad-sim-bar i {
+  display: block; height: 100%; width: 0;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  transition: width .1s linear;
+}
+.ad-sim-inner .btn { margin-top: 12px; }
 
 /* ============================================================
    NEWS
@@ -1150,6 +1300,10 @@ a { color: var(--accent); }
 .mission-meta .r { color: #ffe9a8; }
 .mission-meta .reward-item { display: inline-flex; align-items: center; gap: 3px; }
 .mission-meta .reward-item-img { width: 14px; height: 14px; object-fit: contain; flex: 0 0 auto; }
+/* A Set mission's unlock matters far more than its stardust, so it stands out. */
+.mission-meta .reward-unlock { color: #c9b8ff; font-weight: 700; }
+/* The Set tab's caption is prose, not a countdown, so let it wrap. */
+#daily-timer { white-space: normal; }
 .mission-act { flex: 0 0 auto; }
 .mission-act .btn { padding: 8px 12px; font-size: 12.5px; }
 .mission-tick { font-size: 20px; color: var(--good); }

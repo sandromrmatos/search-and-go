@@ -12,7 +12,8 @@
 
 import {
   MAX_EGGS, MAX_EXCLUSIVE_EGGS, INCUBATOR_ITEMS, REUSABLE_INCUBATOR,
-  eggDef, eggImage, eggLabel, isExclusiveEgg, incubatorDiscount, RULES
+  eggDef, eggImage, eggLabel, isExclusiveEgg, isMythicalEgg,
+  incubatorDiscount, RULES
 } from './data.js';
 import { store } from './state.js';
 import { ITEMS, itemImage } from './items.js';

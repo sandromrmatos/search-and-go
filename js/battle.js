@@ -15,8 +15,10 @@
 
 import {
   damageOf, effectivenessOf, statsFor, raidBossStats, species,
+  evaluateAbility, clauseEffectText, clauseConditionText, buffStatsLabel,
   STAT_KEYS, STAT_LABELS, BATTLE_TEAM_SIZE, moveLevelFor
 } from './data.js';
+import { Weather } from './weather.js';
 import { creatureStats, maxHpOf, hpOf } from './state.js';
 
 /* ---------------------------------------------------------------
@@ -173,7 +175,7 @@ export class Battle {
    * @param {string} [opts.kind]     'raid' | 'grunt'
    * @param {function} [opts.rng]
    */
-  constructor({ player, enemy, kind = 'raid', rng = Math.random }) {
+  constructor({ player, enemy, kind = 'raid', rng = Math.random, env = null }) {
     this.kind = kind;
     this.rng = rng;
     this.player = player;
@@ -184,6 +186,74 @@ export class Battle {
     this.over = false;
     this.winner = null;      // 'player' | 'enemy'
     this.log = [];
+
+    /**
+     * The world the abilities are judged against. Captured once so a battle
+     * that straddles midnight, or an incoming weather reading, cannot change
+     * the rules underneath the player mid-fight. Opponent-based clauses are
+     * still re-checked on every matchup, which is the point of `abilityLines`.
+     */
+    this.env = env || { now: new Date(), weather: {} };
+
+    /** The pairing the last ability read was made for, so it is not repeated. */
+    this._abilityPairing = null;
+  }
+
+  /* ---- abilities ---- */
+
+  /**
+   * Evaluates the ability of whichever creature is on `side`, against whoever
+   * is currently facing it.
+   */
+  abilityFor(side) {
+    const self = side === 'player' ? this.playerActive : this.enemyActive;
+    const foe = side === 'player' ? this.enemyActive : this.playerActive;
+    if (!self?.species?.ability) return null;
+    return evaluateAbility(self.species.ability, {
+      opponent: foe?.species || null,
+      now: this.env.now,
+      weather: this.env.weather
+    });
+  }
+
+  /**
+   * Ability log lines for the current pairing, one per creature that has an
+   * ability. Returns [] when the pairing has not changed since the last call,
+   * so the log does not repeat itself every turn.
+   *
+   * Because both sides' opponent-based clauses depend on who is opposite them,
+   * a change on either side re-reads both.
+   */
+  abilityLines({ force = false } = {}) {
+    const pairing = `${this.playerActive?.key || '-'}|${this.enemyActive?.key || '-'}`;
+    if (!force && pairing === this._abilityPairing) return [];
+    this._abilityPairing = pairing;
+
+    const events = [];
+    for (const side of ['player', 'enemy']) {
+      const self = side === 'player' ? this.playerActive : this.enemyActive;
+      const read = this.abilityFor(side);
+      if (!self || !read) continue;
+      events.push({
+        type: 'ability',
+        side,
+        actor: self.key,
+        actorLabel: self.label,
+        ability: read.ability.name,
+        active: read.anyActive,
+        // Only the clauses that fired are worth reading out; when none did, the
+        // reasons explain why, which is the "not triggered" case.
+        parts: read.clauses.map(c => ({
+          active: c.active,
+          reason: c.reason,
+          effect: clauseEffectText(c.clause),
+          condition: clauseConditionText(c.clause)
+        })),
+        dealMultiplier: read.dealMultiplier,
+        takeMultiplier: read.takeMultiplier
+      });
+    }
+    return events;
   }
 
   get playerActive() { return this.player[this.playerIndex] || null; }
@@ -213,6 +283,10 @@ export class Battle {
 
     this.turn++;
     const events = [{ type: 'turn', turn: this.turn }];
+
+    // On the first turn, and after any switch, say what the abilities are doing
+    // before anything swings. Returns nothing when the pairing is unchanged.
+    events.push(...this.abilityLines());
 
     // Speed decides who swings first; equal speed is a coin flip.
     let first = 'player';
@@ -266,19 +340,44 @@ export class Battle {
     }];
 
     if (move.isBuff) {
-      const r = actor.applyBuff(move.buffStat, move.buffPct);
+      // A mythical's buff raises several stats at once, so this is a list.
+      const stats = move.buffStats?.length ? move.buffStats : [move.buffStat];
+      const applied = stats.filter(Boolean).map(stat => {
+        const r = actor.applyBuff(stat, move.buffPct);
+        return {
+          stat, statLabel: STAT_LABELS[stat],
+          before: r.before, after: r.after,
+          totalPct: actor.buffPercent(stat)
+        };
+      });
       events.push({
         type: 'buff', side, actor: actor.key,
-        stat: move.buffStat, statLabel: STAT_LABELS[move.buffStat],
         pct: Math.round(move.buffPct * 100),
-        before: r.before, after: r.after,
-        totalPct: actor.buffPercent(move.buffStat)
+        stats: applied,
+        // The first stat is repeated at the top level so older readers of this
+        // event still see something sensible.
+        stat: applied[0]?.stat ?? null,
+        statLabel: applied[0]?.statLabel ?? '',
+        before: applied[0]?.before ?? null,
+        after: applied[0]?.after ?? null,
+        totalPct: applied[0]?.totalPct ?? null
       });
       return events;
     }
 
     const eff = effectivenessOf(actor.type, target.type);
-    const dmg = damageOf(move, actor.type, actor.stats.attack, target.type, target.stats.defence);
+
+    // The attacker's "deal" side and the defender's "take" side both apply, so
+    // a hard hitter swinging into something fragile compounds.
+    const attackerRead = this.abilityFor(side);
+    const defenderRead = this.abilityFor(side === 'player' ? 'enemy' : 'player');
+    const dealMultiplier = attackerRead?.dealMultiplier ?? 1;
+    const takeMultiplier = defenderRead?.takeMultiplier ?? 1;
+
+    const dmg = damageOf(
+      move, actor.type, actor.stats.attack, target.type, target.stats.defence,
+      { dealMultiplier, takeMultiplier }
+    );
     const hpBefore = target.hp;
     target.takeDamage(dmg);
 
@@ -288,6 +387,9 @@ export class Battle {
       amount: dmg,
       superEffective: eff.superEffective,
       notVeryEffective: eff.notVeryEffective,
+      // Named so the UI can say why a number looked surprising.
+      abilityDeal: dealMultiplier !== 1 ? attackerRead.ability.name : null,
+      abilityTake: takeMultiplier !== 1 ? defenderRead.ability.name : null,
       hpBefore, hpAfter: target.hp, maxHp: target.maxHp
     });
 
@@ -304,10 +406,12 @@ export class Battle {
   /** Advances each side past any fainted active creature. */
   handleFaints() {
     const events = [];
+    let switched = false;
     if (this.playerActive?.fainted) {
       const next = this.player.findIndex((b, i) => i > this.playerIndex && !b.fainted);
       if (next !== -1) {
         this.playerIndex = next;
+        switched = true;
         events.push({ type: 'switch', side: 'player', actor: this.playerActive.key, label: this.playerActive.label });
       }
     }
@@ -315,9 +419,13 @@ export class Battle {
       const next = this.enemy.findIndex((b, i) => i > this.enemyIndex && !b.fainted);
       if (next !== -1) {
         this.enemyIndex = next;
+        switched = true;
         events.push({ type: 'switch', side: 'enemy', actor: this.enemyActive.key, label: this.enemyActive.label });
       }
     }
+    // A new creature on either side means every opponent-based clause has to be
+    // read again — for both of them, not just the one that changed.
+    if (switched) events.push(...this.abilityLines());
     return events;
   }
 
@@ -332,7 +440,7 @@ export class Battle {
   static describeMove(move) {
     if (!move) return '';
     return move.isBuff
-      ? `Raises your ${STAT_LABELS[move.buffStat]} by ${Math.round(move.buffPct * 100)}%`
+      ? `Raises your ${buffStatsLabel(move)} by ${Math.round(move.buffPct * 100)}%`
       : `${move.power} power`;
   }
 }
@@ -341,12 +449,31 @@ export class Battle {
    Convenience builders
    --------------------------------------------------------------- */
 
+/**
+ * The world abilities are judged against. Read once when a battle starts: the
+ * temperature comes from the same reading the HUD chip shows, and is null when
+ * that is unknown, which switches temperature clauses off entirely.
+ */
+export function battleEnv() {
+  const r = Weather.current;
+  return {
+    now: new Date(),
+    weather: {
+      temperature: r ? r.celsius : null,
+      cloudCover: r ? r.cloudCover : null,
+      humidity: r ? r.humidity : null,
+      wind: r ? r.windSpeed : null
+    }
+  };
+}
+
 export function buildRaidBattle(creatures, raid, rng = Math.random) {
   return new Battle({
     player: creatures.map(battlerFromCreature),
     enemy: [battlerFromRaid(raid)],
     kind: 'raid',
-    rng
+    rng,
+    env: battleEnv()
   });
 }
 
@@ -355,7 +482,8 @@ export function buildGruntBattle(creatures, team, rng = Math.random) {
     player: creatures.map(battlerFromCreature),
     enemy: team.map(battlerFromEnemySpec),
     kind: 'grunt',
-    rng
+    rng,
+    env: battleEnv()
   });
 }
 

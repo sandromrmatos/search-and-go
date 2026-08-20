@@ -11,7 +11,9 @@ import {
   isRelaxHour, relaxHourEndsIn, RELAX_HOUR_LABEL, RULES, BUDDY_KM_PER_CANDY,
   isStardustSunday, STARDUST_SUNDAY_LABEL, STARDUST_SUNDAY_MULTIPLIER,
   MAX_EGGS, MAX_EXCLUSIVE_EGGS, INCUBATOR_ITEMS, poiEventState,
-  MAX_STAT_BOOSTS, STAT_BOOSTER_CANDY_COST, statBoosterCost
+  MAX_STAT_BOOSTS, STAT_BOOSTER_CANDY_COST, statBoosterCost,
+  abilityText, clauseConditionText, clauseEffectText, buffMoveText,
+  GALACTIC_SET_NAME, MYTHICAL_RARITY, unlockedGalacticRarities
 } from './data.js';
 import { renderEggs, renderEggTabBadge, openEggPickerFor } from './eggs.js';
 import { store, creatureStats, maxHpOf, hpOf, isFainted, isHurt } from './state.js';
@@ -19,7 +21,7 @@ import { store, creatureStats, maxHpOf, hpOf, isFainted, isHurt } from './state.
 import { Persist } from './persist.js';
 import { playEvolution } from './anim.js';
 import { ITEMS, itemImage, itemName, itemsInOrder, INCENSE_ITEMS } from './items.js';
-import { Weather, temperatureLabel } from './weather.js';
+import { Weather, temperatureLabel, weatherRows, conditionOf } from './weather.js';
 import {
   $, $$, el, toast, openSheet, closeSheet, num, timeLeftLabel,
   clampPage, pageSlice, pagerBar, pageOfIndex, wireSwipe, bumpEl, openImageViewer
@@ -57,8 +59,91 @@ export function renderWeatherChip() {
   value.textContent = temperatureLabel();
   chip.classList.toggle('pending', !Weather.known);
   chip.title = Weather.known
-    ? 'Temperature where you are · Open-Meteo'
+    ? 'Tap for the full conditions · Open-Meteo'
     : (Weather.error || 'Waiting for the temperature…');
+
+  // Wired once. The chip is rebuilt in place rather than replaced, so a flag on
+  // the element is enough to stop the listener stacking up on every repaint.
+  if (!chip._wired) {
+    chip._wired = true;
+    chip.addEventListener('click', openWeatherPanel);
+  }
+}
+
+/**
+ * The rest of the reading, behind the temperature chip. Only the temperature is
+ * worth permanent space in the HUD; everything else lives here.
+ */
+export function openWeatherPanel() {
+  document.getElementById('weather-panel')?.remove();
+
+  const close = () => {
+    panel.remove();
+    window.removeEventListener('keydown', onKey);
+  };
+  const onKey = e => { if (e.key === 'Escape') close(); };
+
+  const r = Weather.current;
+  const cond = conditionOf(r);
+  const rows = weatherRows(r);
+  const age = Weather.ageMs;
+
+  const card = el('div', {
+    class: 'weather-card',
+    // Tapping the card itself must not dismiss it.
+    onclick: e => e.stopPropagation()
+  },
+    el('button', { class: 'weather-close', 'aria-label': 'Close', onclick: close }, '✕'),
+    r
+      ? el('div', { class: 'weather-head' },
+        el('div', { class: 'weather-icon', text: cond.icon }),
+        el('div', {},
+          el('div', { class: 'weather-temp', text: `${Math.round(r.celsius)}°C` }),
+          el('div', { class: 'muted small', text: cond.label })
+        )
+      )
+      : el('div', { class: 'weather-head' },
+        el('div', { class: 'weather-icon', text: '❓' }),
+        el('div', {},
+          el('div', { class: 'weather-temp', text: '—' }),
+          el('div', { class: 'muted small', text: Weather.error || 'No reading yet' })
+        )
+      ),
+    rows.length
+      ? el('div', { class: 'det-rows' }, ...rows.map(row =>
+        el('div', { class: 'det-row' },
+          el('span', { text: row.icon }),
+          el('span', { text: row.label }),
+          el('b', { text: row.value })
+        )))
+      : el('p', { class: 'hint', text: 'The weather could not be read. It retries on its own as you move.' }),
+    el('p', { class: 'hint weather-foot', text: r
+      ? `Open-Meteo · updated ${ageLabel(age)}. Your position is rounded to about a kilometre before being sent.`
+      : 'Open-Meteo · nothing sent until a location is known.' })
+  );
+
+  const panel = el('div', {
+    class: 'weather-wrap',
+    role: 'dialog',
+    'aria-modal': 'true',
+    'aria-label': 'Current weather',
+    onclick: close
+  }, card);
+
+  document.body.append(panel);
+  window.addEventListener('keydown', onKey);
+  return panel;
+}
+
+/** "just now" / "6 min ago", for the reading's age. */
+function ageLabel(ms) {
+  if (ms == null) return 'never';
+  const mins = Math.floor(ms / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins === 1) return '1 min ago';
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.floor(mins / 60);
+  return hrs === 1 ? '1 hour ago' : `${hrs} hours ago`;
 }
 
 /* ===============================================================
@@ -813,6 +898,8 @@ function renderCreatureSheet() {
     })(),
 
     // ---- stats with the +10% / -10% arrows ----
+    abilityButton(s),
+
     el('h4', { class: 'sheet-h4', text: 'Stats' }),
     el('div', { class: 'det-rows' }, ...statRows(c)),
     el('p', { class: 'hint', text: `Stat modifier: ${STAT_LABELS[c.statMod.up]} up 10%, ${STAT_LABELS[c.statMod.down]} down 10%. Each level adds ${Math.round(STAT_GROWTH_PER_LEVEL * 100)}% of the base stat.` }),
@@ -941,6 +1028,56 @@ function goToCreature(uid, host, dir) {
 }
 
 /**
+ * The ✦ Ability button, or nothing when the species has none. Shared by the
+ * storage sheet and the collection sheet, so both describe an ability the same
+ * way. Returns null so it can be dropped straight into an el() child list.
+ */
+export function abilityButton(sp) {
+  const ability = sp?.ability;
+  if (!ability) return null;
+  return el('div', { class: 'btn-row' },
+    el('button', {
+      class: 'btn ghost ability-btn',
+      onclick: () => openAbilitySheet(sp.id)
+    }, `✦ ${ability.name}`)
+  );
+}
+
+/** What the ability does, in words, plus a clause-by-clause breakdown. */
+export function openAbilitySheet(speciesId) {
+  const sp = species(speciesId);
+  const ability = sp?.ability;
+  if (!ability) return;
+
+  const body = $('#sheet-body');
+  body.innerHTML = '';
+  body.append(
+    el('div', { class: 'det-head' },
+      el('img', { src: sp.imagePath, alt: sp.name }),
+      el('div', { class: 'det-title' },
+        el('h3', { text: ability.name }),
+        el('div', { class: 'det-tags' },
+          el('span', { class: 'tag tag-ability', text: '✦ Ability' }),
+          el('span', { class: 'tag', text: sp.name })
+        )
+      )
+    ),
+    el('p', { text: abilityText(ability) }),
+    // One row per clause, so a multi-condition ability is readable at a glance.
+    ability.clauses.length > 1
+      ? el('div', { class: 'det-rows' }, ...ability.clauses.map(cl =>
+        el('div', { class: 'det-row ability-clause' },
+          el('span', { text: '✦' }),
+          el('span', { text: clauseConditionText(cl).replace(/^./, ch => ch.toUpperCase()) }),
+          el('b', { text: clauseEffectText(cl) })
+        )))
+      : null,
+    el('p', { class: 'hint', text: 'An ability is checked when the creature takes the field and again whenever a new opponent steps up. The battle log says whether it triggered.' })
+  );
+  openSheet('sheet');
+}
+
+/**
  * One row per stat, with a bar and the modifier arrow, then a total row.
  * The total is the plain sum of the four displayed figures, so it always
  * matches what is on screen above it.
@@ -1002,7 +1139,7 @@ function movesBlock(c, s) {
       ),
       el('div', { class: 'move-meta' },
         m.isBuff
-          ? el('span', { class: 'bf', text: `Raises ${STAT_LABELS[m.buffStat]} by ${Math.round(m.buffPct * 100)}%` })
+          ? el('span', { class: 'bf', text: buffMoveText(m) })
           : el('span', { class: 'pw', text: `${m.power} power` }),
         notes.length ? el('span', { text: ' · ' + notes.join(' · ') }) : null
       )
@@ -1167,6 +1304,29 @@ export function renderCollection() {
   // Cached so the species sheet's arrows and swipe can walk this exact order,
   // filters and all, the way the storage sheet walks sortedStorage.
   sortedCollection = list;
+
+  // Galactic Adventures arrives in stages, so say which rarities are in play.
+  // The Mythical tab gets a line of its own explaining it is not a pool.
+  const note = $('#collection-note');
+  if (note) {
+    let text = '';
+    if (set.id === 'galactic-adventures') {
+      const got = unlockedGalacticRarities();
+      text = got.length === 5
+        ? `Every rarity is unlocked — the whole set is in circulation.`
+        : got.length
+          ? `Unlocked so far: <b>${got.map(r => RARITY_NAMES[r]).join(', ')}</b>. `
+            + `The rest arrive through the <b>Set</b> missions.`
+          : `None unlocked yet. Fill in <b>${SETS[0].title}</b> and the <b>Set</b> missions open these up one rarity at a time.`;
+    } else if (set.id === 'mythical') {
+      text = shinyMode
+        ? `Mythicals have <b>no shiny form</b> — the eggs they come from never roll one, so there is nothing to complete here.`
+        : `Rarity ${MYTHICAL_RARITY}. These never spawn, never appear in a raid and never hatch from an ordinary egg — `
+          + `each one has its own single way of being found.`;
+    }
+    note.classList.toggle('hidden', !text);
+    note.innerHTML = text;
+  }
 
   const have = s => (shinyMode ? store.hasShinyCaught(s.id) : store.isRegistered(s.id));
   const haveHere = list.filter(have).length;
@@ -1345,6 +1505,8 @@ function renderSpeciesSheet(speciesId) {
       )
     ),
 
+    abilityButton(s),
+
     // ---- base stats at level 1 ----
     el('h4', { class: 'sheet-h4', text: 'Base stats (level 1)' }),
     el('div', { class: 'det-rows' },
@@ -1376,7 +1538,7 @@ function renderSpeciesSheet(speciesId) {
         ),
         el('div', { class: 'move-meta' },
           m.isBuff
-            ? el('span', { class: 'bf', text: `Raises ${STAT_LABELS[m.buffStat]} by ${Math.round(m.buffPct * 100)}%` })
+            ? el('span', { class: 'bf', text: buffMoveText(m) })
             : el('span', { class: 'pw', text: `${m.power} power` }),
           hasSlot ? null : el('span', { text: ` · needs ${m.fromName}` })
         )
@@ -1700,17 +1862,21 @@ export function refreshAll() {
   if (active === 'view-collection') renderCollection();
   if (active === 'view-profile') renderProfile();
   if (active === 'view-missions') missionsRenderer?.();
+  if (active === 'view-shop') shopRenderer?.();
 }
 
-/** main.js registers the Missions renderer here to avoid a circular import. */
+/** main.js registers these here to avoid a circular import. */
 let missionsRenderer = null;
 export function setMissionsRenderer(fn) { missionsRenderer = fn; }
+let shopRenderer = null;
+export function setShopRenderer(fn) { shopRenderer = fn; }
 
 export function renderView(name) {
   if (name === 'storage') renderStorage();
   else if (name === 'collection') renderCollection();
   else if (name === 'profile') renderProfile();
   else if (name === 'missions') missionsRenderer?.();
+  else if (name === 'shop') shopRenderer?.();
 }
 
 /* ===============================================================
