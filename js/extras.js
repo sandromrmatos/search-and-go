@@ -7,6 +7,12 @@ import {
   BREEDING_UNLOCK_LEVEL, BREEDING_CANDY_CAP, BREEDING_SLOTS_BY_LEVEL,
   SET_NAME, GALACTIC_SET_NAME, MYTHICAL_RARITY, MYTHICAL_EGG_TYPE, SET_MISSIONS,
   SHOP_ITEMS, COIN_ICON, shopFullSweepCoins,
+  SPOTLIGHT_LABEL, SPOTLIGHT_DAY, SPOTLIGHT_START, SPOTLIGHT_END,
+  SPOTLIGHT_SUBSTITUTE_CHANCE, SPOTLIGHT_BONUS_CANDY, SPOTLIGHT_SPAWN_MS,
+  spotlightOffsetsFor,
+  ESSENCE_MIN_LEVEL, ESSENCE_WINDOW_HOURS, ESSENCE_SPAWN_MS,
+  ESSENCE_RING_CANDY, ESSENCE_PIN_BANDS, ESSENCE_SEEKER_CHANCE,
+  ESSENCE_MAX_RARITY, essenceDifficulty,
   STAT_BOOSTER_ITEM, MAX_STAT_BOOSTS, statBoosterCost, STAT_BOOSTER_CANDY_COST,
   SUPER_INCUBATOR, incubatorDiscount, ITEM_DROP_FULL_HEAL_CHANCE,
   MAX_CREATURE_LEVEL, CREATURE_LEVEL_COST, POI_OUTCOMES, POI_OUTCOMES_WEEKEND, SHINY_ODDS,
@@ -38,10 +44,12 @@ import {
 const DUST_ICON = '✨';
 const CANDY_ICON = '🍬';
 
-let refresh = null;   // supplied by main.js so we can repaint after changes
+let refresh = null;     // supplied by main.js so we can repaint after changes
+let mapChanged = null;  // redraws the map pins — picking a building up moves one
 
-export function initExtras({ onChange } = {}) {
+export function initExtras({ onChange, onMapChange } = {}) {
   refresh = onChange;
+  mapChanged = onMapChange;
   $('#btn-info').addEventListener('click', () => { renderInfo('basics'); openSheet('info'); });
   $$('#info-tabs .tab').forEach(b => b.addEventListener('click', () => {
     $$('#info-tabs .tab').forEach(x => x.classList.toggle('active', x === b));
@@ -77,6 +85,7 @@ const MISSION_ICON = {
   raidsWon: '🔥', raidRarity: '💎', gruntsBeaten: '🧍',
   exclusiveRaidsWon: '💠', exclusiveRaidRarity: '💠',
   registeredInSet: '🌌',
+  essenceHarvests: '🔮', essenceToday: '🔮', essenceWeek: '🔮',
   capturesWeek: '🗓', daysCaughtThisWeek: '✅', eggsHatched: '🥚',
   metresToday: '👣', metresWeek: '👣', creaturesAtLevel: '⬆'
 };
@@ -222,10 +231,13 @@ function missionRow(m) {
       el('div', { class: 'mission-bar' }, el('i', { style: { width: pct + '%' } })),
       el('div', { class: 'mission-meta' },
         el('span', { text: missionProgressLabel(m) }),
-        // A second condition the bar cannot show, e.g. "also needs level 7".
-        m.levelNeeded && !m.levelMet
-          ? el('span', { class: 'r bad', text: `needs Lv ${m.levelNeeded}` })
-          : null,
+        // A second condition the bar cannot show: a player level (the Research
+        // Lab mission) or total XP (the Set ladder). Only one is ever set.
+        m.xpNeeded && !m.xpMet
+          ? el('span', { class: 'r bad', text: `needs ${num(m.xpNeeded)} XP · ${num(m.xpShort)} to go` })
+          : m.levelNeeded && !m.levelMet
+            ? el('span', { class: 'r bad', text: `needs Lv ${m.levelNeeded}` })
+            : null,
         el('span', { class: 'r', text: `⭐ ${m.def.xp} XP` }),
         el('span', { class: 'r', text: `${DUST_ICON} ${num(dust)}` }),
         m.def.discs ? el('span', { class: 'r', text: `◉ ${m.def.discs} disc${m.def.discs > 1 ? 's' : ''}` }) : null,
@@ -247,9 +259,12 @@ function missionRow(m) {
         ? el('span', { class: 'mission-tick', text: '✓' })
         : m.claimable
           ? el('button', { class: 'btn primary', onclick: () => claim(m.def.id) }, 'Claim')
-          // Once the bar is full but the level is not, say so instead of "100%".
-          : el('span', { class: 'muted', text: m.levelNeeded && !m.levelMet && m.progress >= m.target
-              ? `Lv ${m.levelNeeded}`
+          // Once the bar is full but the other gate is not, say which one is
+          // holding it rather than showing a misleading "100%".
+          : el('span', { class: 'muted', text: m.progress < m.target
+              ? `${pct}%`
+              : m.xpNeeded && !m.xpMet ? `${num(m.xpNeeded)} XP`
+              : m.levelNeeded && !m.levelMet ? `Lv ${m.levelNeeded}`
               : `${pct}%` })
     )
   );
@@ -337,8 +352,24 @@ function renderResearchLab(inRange) {
     el('p', { class: 'hint', html: `A <b>Stat Booster</b> adds a permanent <b>+1</b> to one stat of one creature, up to <b>${MAX_STAT_BOOSTS}</b> per creature. The candy price depends on the rarity of the family you spend from: ${
       [1, 2, 3, 4].map(r => `<b>${RARITY_NAMES[r]}</b> ${statBoosterCost(r)}`).join(' · ')
     } (rarity 5 also ${statBoosterCost(5)}).` }),
-    el('p', { class: 'hint', text: 'More recipes will appear here in future updates.' })
+    el('p', { class: 'hint', text: 'More recipes will appear here in future updates.' }),
+    el('div', { class: 'btn-row' },
+      el('button', { class: 'btn ghost', disabled: !inRange, onclick: moveLab }, '🔬 Move lab')
+    ),
+    el('p', { class: 'hint', text: 'Moving puts the lab back in your Items so you can pin it somewhere else. It holds nothing, so there is never anything to collect first.' })
   );
+}
+
+function moveLab() {
+  if (!store.s.researchLab) return;
+  if (!confirm('Pick your Research Lab up? It goes back to your Items and you can pin it somewhere else.')) return;
+
+  const r = store.moveResearchLab();
+  if (!r.ok) { toast('Could not move it', 'bad'); return; }
+  closeSheet('research-lab');
+  toast('Research Lab packed up — place it wherever you like', 'good', 3600);
+  mapChanged?.();
+  refresh?.();
 }
 
 /* ---- the candy exchange ---- */
@@ -498,6 +529,40 @@ function renderBreeding(inRange) {
   if (!slots) {
     host.append(el('p', { class: 'empty', text: `Slots unlock at player level ${BREEDING_UNLOCK_LEVEL}.` }));
   }
+
+  // ---- move it somewhere else ----
+  const occupied = centre.slots.length;
+  host.append(
+    el('div', { class: 'btn-row' },
+      el('button', {
+        class: 'btn ghost',
+        disabled: !inRange || occupied > 0,
+        onclick: moveCentre
+      }, occupied ? `Collect ${occupied} pair${occupied === 1 ? '' : 's'} first` : '⚑ Move centre')
+    ),
+    el('p', { class: 'hint', text: occupied
+      ? 'Moving puts the centre back in your Items so you can pin it somewhere else. Collect every pair first — creatures left inside would have nowhere to come back to.'
+      : 'Moving puts the centre back in your Items so you can pin it somewhere else. Nothing is lost.' })
+  );
+}
+
+function moveCentre() {
+  const held = store.s.breeding;
+  if (!held) return;
+  if (!confirm('Pick your breeding centre up? It goes back to your Items and you can pin it somewhere else.')) return;
+
+  const r = store.moveBreedingCentre();
+  if (!r.ok) {
+    toast(r.reason === 'occupied'
+      ? `Collect your ${r.slots} pair${r.slots === 1 ? '' : 's'} before moving the centre`
+      : 'Could not move it', 'bad', 3600);
+    renderBreeding(true);
+    return;
+  }
+  closeSheet('breeding');
+  toast('Breeding centre packed up — place it wherever you like', 'good', 3600);
+  mapChanged?.();
+  refresh?.();
 }
 
 function filledSlot(slot, index, inRange) {
@@ -505,14 +570,15 @@ function filledSlot(slot, index, inRange) {
   const p = store.breedingProgress(slot);
   const full = p.earned >= p.cap;
 
-  return el('div', { class: 'breed-slot' },
+  return el('div', { class: 'breed-slot' + (full ? ' full' : '') },
     el('div', { class: 'breed-slot-top' },
       el('div', { class: 'breed-pair' },
         el('img', { src: sp.imagePath, alt: sp.name }),
         el('img', { src: sp.imagePath, alt: '' })
       ),
       el('b', { text: sp.name }),
-      el('span', { class: 'breed-candy', text: `${CANDY_ICON} ${p.earned}/${p.cap}` })
+      full ? el('span', { class: 'breed-full-tag', text: 'FULL' }) : null,
+      el('span', { class: `breed-candy${full ? ' done' : ''}`, text: `${CANDY_ICON} ${p.earned}/${p.cap}` })
     ),
     el('div', { class: 'breed-next', text: full
       ? 'Full — collect them to bank the candy.'
@@ -840,14 +906,14 @@ function renderInfo(tab = 'basics') {
         el('li', { html: `<b>${RARITY_NAMES[MYTHICAL_RARITY]}</b> — ${DB.mythical.length === 1 ? 'one creature' : `${DB.mythical.length} creatures`} so far, rarity ${MYTHICAL_RARITY}, each with its own single way of being found. See Mythicals below.` })
       ),
       el('h4', { text: 'Set missions' }),
-      el('p', { html: `The <b>Set</b> tab in Missions is a ladder that opens <b>${GALACTIC_SET_NAME}</b>. Each rung asks you to <b>register</b> a number of <b>${SET_NAME}</b> creatures — registering means having caught, hatched or evolved it at least once, so releasing it later does not undo it — and to have reached a <b>player level</b>. They never reset.` }),
+      el('p', { html: `The <b>Set</b> tab in Missions is a ladder that opens <b>${GALACTIC_SET_NAME}</b>. Each rung asks you to <b>register</b> a number of <b>${SET_NAME}</b> creatures — registering means having caught, hatched or evolved it at least once, so releasing it later does not undo it — and to have earned an amount of <b>total XP</b>. They never reset.` }),
       el('ul', {},
         ...SET_MISSIONS.map(m => el('li', {
-          html: `<b>${m.label}</b> (player level ${m.requireLevel}) — opens <b>rarity ${m.unlockGalacticRarity}</b> ${GALACTIC_SET_NAME} creatures${
+          html: `<b>${m.label}</b> (${num(m.requireXp)} total XP) — opens <b>rarity ${m.unlockGalacticRarity}</b> ${GALACTIC_SET_NAME} creatures${
             m.id === 'ga5' ? ', plus a <b>Breeding Centre</b> and a <b>50 km egg</b>' : ''
           }.`
         })),
-        el('li', { html: 'The bar fills as you register creatures, but the <b>Claim</b> button waits for the player level as well — you will be told which one is missing.' }),
+        el('li', { html: 'The bar fills as you register creatures, but the <b>Claim</b> button waits for the XP as well — the row tells you how much you still need.' }),
         el('li', { html: 'Nothing appears until you actually <b>claim</b> the mission. Completing it is not enough.' }),
         el('li', { html: `Opening a rarity does not change the <b>odds</b> of anything. A wild spawn is still ${pct(RARITY_WEIGHTS[1] / 100)} likely to be a rarity 1 creature — there are simply more rarity 1 creatures it can pick from, ${SET_NAME} and ${GALACTIC_SET_NAME} together.` }),
         el('li', { html: 'Grunts build their teams from the same pool, so once you are a few rungs in you will meet <b>mixed teams</b> from both sets.' })
@@ -890,6 +956,36 @@ function renderInfo(tab = 'basics') {
       el('ul', {},
         el('li', { html: `<b>${RAID_INVASION_LABEL}</b> — ${weeklyWindowLabel(RAID_INVASION_DAY, RAID_INVASION_START, RAID_INVASION_END)}. Every <b>disc point</b> hands over <b>${itemListLine(RAID_INVASION_DISC_BONUS)}</b> on top of its usual drop, and <b>${pct(RAID_INVASION_DOUBLE_CHANCE)}</b> of the time it gives <b>two</b> instead. The odds become: ${poiOddsLine(POI_OUTCOMES_RAID_INVASION)}. There is <b>no "nothing"</b> slice, so every point in range turns into something, and <b>${POI_OUTCOMES_RAID_INVASION.filter(x => x.kind === 'raid' || x.kind === 'exraid').reduce((a, b) => a + b.weight, 0)}%</b> of them are raids.` }),
         el('li', { html: `<b>${TRAINING_DOJO_LABEL}</b> — ${weeklyWindowLabel(TRAINING_DOJO_DAY, TRAINING_DOJO_START, TRAINING_DOJO_END)}. Grunts take over the ordinary map points: this is the only time a shop or amenity becomes a grunt instead of loot, and they stand right at the point rather than being scattered like park grunts. The odds become: ${poiOddsLine(POI_OUTCOMES_TRAINING_DOJO)}. The usual <b>cap of ${RULES.MAX_ACTIVE_GRUNTS} grunts</b> on the map does not apply for these 30 minutes — there is <b>no limit</b>, so the map holds as many as there are places to put them. Parks and gardens keep rolling on top.` })
+      ),
+      el('h4', { text: SPOTLIGHT_LABEL }),
+      el('p', { html: `Every <b>${weeklyWindowLabel(SPOTLIGHT_DAY, SPOTLIGHT_START, SPOTLIGHT_END)}</b> one creature takes over the map. Which one rotates weekly — the <b>📅 Calendar</b> button in the News tab always shows the next few and who is featured.` }),
+      el('ul', {},
+        el('li', { html: `While it runs, a wild spawn or an incense spawn that draws the <b>featured creature's rarity</b> has a <b>${pct(SPOTLIGHT_SUBSTITUTE_CHANCE)}</b> chance of being that creature instead of a normal pick from the tier. Draw any other rarity and nothing changes.` }),
+        el('li', { html: `The <b>rarity odds themselves never move</b> — a rarity 1 spawn is still ${pct(RARITY_WEIGHTS[1] / 100)} likely. Only <i>which</i> rarity-N creature you meet changes, and only half the time.` }),
+        el('li', { html: `On top of that, the featured creature <b>walks up to you</b> on a fixed schedule, guaranteed, and stands there for <b>${Math.round(SPOTLIGHT_SPAWN_MS / 60_000)} minutes</b>. How often depends on its rarity: ${
+          [1, 2, 3, 5].map(r => `<b>${RARITY_NAMES[r]}</b> ${spotlightOffsetsFor(r).length}×`).join(' · ')
+        } (rarity 4 matches rarity 3).` }),
+        el('li', { html: `Those visits land at <b>${spotlightOffsetsFor(1).map(m => clockLabel(SPOTLIGHT_START + m / 60)).join(', ')}</b> for a Common, thinning out to <b>${spotlightOffsetsFor(5).map(m => clockLabel(SPOTLIGHT_START + m / 60)).join(' and ')}</b> for a Legendary.` }),
+        el('li', { html: `Catching the <b>featured creature</b> during the hour pays <b>+${SPOTLIGHT_BONUS_CANDY} candy</b>. Anything else you catch is unaffected.` }),
+        el('li', { html: 'Eggs and raids are left alone — the spotlight is about what you meet on the map.' })
+      ),
+      el('h4', { text: 'Essence Harvesting' }),
+      el('p', { html: `From player level <b>${ESSENCE_MIN_LEVEL}</b>, once you have registered anything, a creature you already know leaves an <b>essence</b> somewhere within your <b>${RULES.SCAN_RADIUS_M} m</b> scan radius. It shows on the map as that creature's own picture and lasts <b>${Math.round(ESSENCE_SPAWN_MS / 60_000)} minutes</b>.` }),
+      el('ul', {},
+        el('li', { html: `One appears per <b>${ESSENCE_WINDOW_HOURS}-hour block</b> — midnight to 2am, 2 to 4, and so on — the first time you open the game during it. Twelve chances a day if you keep dipping in.` }),
+        el('li', { html: `It is drawn <b>evenly from everything you have registered</b> up to <b>${RARITY_NAMES[ESSENCE_MAX_RARITY]}</b>, so a Legendary is exactly as likely to turn up as your first Common. <b>Mythicals never leave an essence</b>, registered or not.` }),
+        el('li', { html: `Tap it and the creature drifts around inside <b>three rings</b>. Tap the rings to draw its essence out: <b>${ESSENCE_RING_CANDY.inner} candy</b> for the bullseye, <b>${ESSENCE_RING_CANDY.mid}</b> for the middle ring, <b>${ESSENCE_RING_CANDY.outer}</b> for the outer one. Miss entirely and you get nothing.` }),
+        el('li', { html: 'You can play it from <b>any distance</b> — no walking, no disc, and you are not catching it. What distance changes is how many <b>pins</b> you get, meaning how many taps you have:' }),
+        el('li', { html: ESSENCE_PIN_BANDS.map(b => b.over < 0
+          ? `<b>within ${ESSENCE_PIN_BANDS[ESSENCE_PIN_BANDS.length - 2].over} m</b> ${b.pins} pins`
+          : `<b>over ${b.over} m</b> ${b.pins} pin${b.pins === 1 ? '' : 's'}`).join(' · ') }),
+        el('li', { html: 'Every pin is one tap, hit or miss, so walking closer is worth it. Six taps on a Common within 25 m is 18 candy.' }),
+        el('li', { html: `<b>Rarer essences are much harder</b>. The drift speed is a straight multiple of a Common's — ${
+          [2, 3, 4, 5].map(r => `<b>${RARITY_NAMES[r]} ${essenceDifficulty(r).multiple}×</b>`).join(' · ')
+        } — and the rings tighten at the same time, until a <b>${RARITY_NAMES[ESSENCE_MAX_RARITY]}</b> target is <b>half the size</b> of a Common's. A bullseye on one is a genuinely hard shot.` }),
+        el('li', { html: `Come away with at least <b>1 candy</b> and there is a <b>${pct(ESSENCE_SEEKER_CHANCE)}</b> chance of a <b>${itemName('molten_seeker')}</b> as well.` }),
+        el('li', { html: 'Backing out part-way still banks whatever you have won, but the essence is spent either way — it cannot be reopened for a better run.' }),
+        el('li', { html: 'There are <b>lifetime, daily and weekly missions</b> for it. Only a harvest that actually paid candy counts, so a run of pure misses does not tick them along.' })
       ),
       el('h4', { text: 'Daily events' }),
       el('ul', {},
@@ -976,11 +1072,12 @@ function renderInfo(tab = 'basics') {
         el('li', { html: 'Potions cannot be used during a battle, or on a creature that has fainted.' }),
         el('li', { html: `A <b>Full Heal</b> takes one creature straight to full HP however hurt it is, so it beats spending five potions on the same creature. It cannot revive a fainted one. Every <b>raid</b> and every <b>grunt</b> win gives one, and a potion or revive point carries one <b>${pct(ITEM_DROP_FULL_HEAL_CHANCE)}</b> of the time. In the battle team picker you get both buttons — <b>Heal all</b> spends potions, <b>Full Heal</b> spends these, worst hurt first — so you choose which to burn.` }),
         el('li', { html: `A <b>Super Incubator</b> works like a Single Use Incubator but cuts the distance the egg needs by <b>${Math.round(incubatorDiscount(SUPER_INCUBATOR) * 100)}%</b>: a 10 km egg hatches after 7.5 km, a 5 km after 3.75 km, a 15 km after 11.25 km. The discount is fixed when you put the egg in. They come from <b>grunt</b> wins (<b>30%</b>) and a couple of daily missions.` }),
+        el('li', { html: `A <b>${itemName('molten_seeker')}</b> widens how far you can reach from <b>${RULES.CAPTURE_RANGE_M} m</b> to <b>${RULES.SEEKER_RANGE_M} m</b> for <b>${Math.round(RULES.SEEKER_DURATION_MS / 60_000)} minutes</b> — creatures, discs, raids, grunts and your buildings all become tappable from twice as far. It has its <b>own effect slot</b>, so it runs happily alongside an incense and a Stardust Magnet, and if it overlaps <b>${RELAX_HOUR_LABEL}</b> the wider of the two wins. It comes from <b>Essence Harvesting</b> (a <b>${pct(ESSENCE_SEEKER_CHANCE)}</b> chance whenever you win candy) and a few missions.` }),
         el('li', { html: `A <b>Stat Booster</b> adds a permanent <b>+1</b> to one stat of one creature. Tap one in your Items, pick the creature, then pick the stat — you see the current figure and what it becomes before confirming. It is applied <b>after everything else</b>, so +1 stays exactly +1 no matter how much the creature levels or evolves. One creature can hold <b>${MAX_STAT_BOOSTS}</b> boosts in total across all four stats. Make them at the <b>Research Lab</b>, or pick them up from <b>grunt</b> wins (<b>10%</b>).` }),
         el('li', { html: 'Only one incense and one Stardust Magnet can run at a time. <b>Rare Incense</b> and <b>Shiny Incense</b> share the incense slot, so no two incenses can ever stack.' }),
         el('li', { html: `<b>Rare Incense</b> spawns on the same 2-minute rhythm but with far better odds: ${rareIncenseLine()}. Compare that to a wild spawn at ${wildOddsLine()}.` }),
         el('li', { html: `<b>Incubators</b> let you hatch eggs by walking. The plain <b>Incubator</b> is reusable — it ties up until the egg hatches, then you can use it again. A <b>Single Use Incubator</b> is consumed the moment you start it. You get a plain incubator at player level 5, and single use incubators from raid wins (${pct(RAID_REWARD.incubatorChance)}, or <b>guaranteed</b> from a rarity ${RAID_BONUS_RARITIES.join(' or ')} boss) and several missions.` }),
-        el('li', { html: `The <b>Research Lab</b> is a building rather than a consumable. Pin it once, like a Breeding Centre, then visit it to trade spare candy for <b>Stat Boosters</b>. You earn it from the lifetime mission <b>Reach level 7 and register 70 creatures</b>.` }),
+        el('li', { html: `The <b>Research Lab</b> is a building rather than a consumable. Pin it to the map, like a Breeding Centre, then visit it to trade spare candy for <b>Stat Boosters</b>. <b>Move lab</b> picks it back up if you want it elsewhere. You earn it from the lifetime mission <b>Reach level 7 and register 70 creatures</b>.` }),
         el('li', { html: `<b>Rare Incense</b> is the hardest one to come by: a <b>${pct(raidRareIncenseChance(RAID_BONUS_RARITIES[0]))}</b> drop from rarity ${RAID_BONUS_RARITIES.join(' and ')} raids, a handful of missions, and one <b>every level from player level ${RARE_INCENSE_FROM_LEVEL}</b> onwards.` }),
         el('li', { html: `<b>Shiny Incense</b> spawns creatures on the same rhythm and at the same wild odds as a plain Incense, but pins the shiny rate to a flat <b>${pct(SHINY_INCENSE_ODDS)}</b> for everything you catch or hatch while it runs. Because it <b>replaces</b> the normal odds it does not stack with a <b>Shiny Bonanza</b>. It comes from <b>Exclusive Raids</b> (a <b>${pct(EXCLUSIVE_RAID_REWARD.shinyIncenseChance)}</b> chance per win) and a few missions.` })
       )
@@ -1048,7 +1145,7 @@ function renderInfo(tab = 'basics') {
       el('h4', { text: 'Stats' }),
       el('p', { html: `Every creature has HP, Attack, Defence and Speed. Each level adds <b>${Math.round(STAT_GROWTH_PER_LEVEL * 100)}% of the base stat</b>, counted from the base rather than compounding, so a level 10 creature is nearly twice as strong as a level 1. Every creature you catch also gets a <b>stat modifier</b>: one stat is 10% higher (▲) and another 10% lower (▼).` }),
       el('h4', { text: 'The Research Lab and Stat Boosters' }),
-      el('p', { html: `Spare candy from creatures you will never level up has somewhere to go. The <b>Research Lab</b> — earned from the lifetime mission <b>Reach level 7 and register 70 creatures</b> — is pinned to the map once, like a Breeding Centre, and turns candy into <b>Stat Boosters</b>.` }),
+      el('p', { html: `Spare candy from creatures you will never level up has somewhere to go. The <b>Research Lab</b> — earned from the lifetime mission <b>Reach level 7 and register 70 creatures</b> — is pinned to the map, like a Breeding Centre, and turns candy into <b>Stat Boosters</b>.` }),
       el('ul', {},
         el('li', { html: `The price depends on the <b>rarity of the family whose candy you spend</b>, because commons are far easier to come by: ${
           Object.keys(STAT_BOOSTER_CANDY_COST)
@@ -1060,7 +1157,8 @@ function renderInfo(tab = 'basics') {
         el('li', { html: `Using one: tap it in Items, pick a creature, then pick <b>HP</b>, <b>Attack</b>, <b>Defence</b> or <b>Speed</b>. You see the stat now and what it becomes before you commit.` }),
         el('li', { html: `The <b>+1 is permanent and flat</b>. It is added after the stat modifier and after level growth, so it never gets multiplied — +1 today is still +1 at level 10, and it survives evolving.` }),
         el('li', { html: `One creature can take <b>${MAX_STAT_BOOSTS}</b> boosts in total across all four stats. Eight into Attack and twelve into Defence and that creature is finished; the sheet shows how many are left.` }),
-        el('li', { html: 'Grunt battles also drop them occasionally, so you can get started before the lab.' })
+        el('li', { html: 'Grunt battles also drop them occasionally, so you can get started before the lab.' }),
+        el('li', { html: 'Pinned it somewhere you have stopped visiting? <b>Move lab</b> puts it back in your Items so you can place it again anywhere. The lab holds nothing, so there is never anything to collect first.' })
       ),
       el('h4', { text: 'Levelling up' }),
       el('p', { html: `Costs stardust <i>and</i> candy of that creature's family — from ${CANDY_ICON} ${CREATURE_LEVEL_COST[2].candy} + ${DUST_ICON} ${num(CREATURE_LEVEL_COST[2].stardust)} for level 2 up to ${CANDY_ICON} ${CREATURE_LEVEL_COST[MAX_CREATURE_LEVEL].candy} + ${DUST_ICON} ${num(CREATURE_LEVEL_COST[MAX_CREATURE_LEVEL].stardust)} for level ${MAX_CREATURE_LEVEL}.` }),
@@ -1082,11 +1180,13 @@ function renderInfo(tab = 'basics') {
         el('li', { html: 'Jump two levels at once and you are paid for both.' })
       ),
       el('h4', { text: 'Breeding centre' }),
-      el('p', { html: `From player level <b>${BREEDING_UNLOCK_LEVEL}</b> you can pin a breeding centre anywhere — it stays there for good. Leave two creatures of the same species in a slot and they generate that family's candy (every 12 h for common and uncommon, up to 36 h for legendary), stopping at <b>${BREEDING_CANDY_CAP}</b>. They cannot battle until you collect them back from the centre itself.` }),
+      el('p', { html: `From player level <b>${BREEDING_UNLOCK_LEVEL}</b> you can pin a breeding centre anywhere, and pick it back up later if you want it somewhere else. Leave two creatures of the same species in a slot and they generate that family's candy (every 12 h for common and uncommon, up to 36 h for legendary), stopping at <b>${BREEDING_CANDY_CAP}</b>. They cannot battle until you collect them back from the centre itself.` }),
       el('ul', {},
         el('li', { html: 'Tap an empty slot and your whole storage opens, with the <b>same sorting and pages</b> you use in Storage. Pick any two creatures, then <b>Confirm pair</b>.' }),
         el('li', { html: 'They have to be <b>two of the same creature</b>. Pick a mismatched pair and it tells you so and holds the Confirm button until you fix it.' }),
-        el('li', { html: 'Your <b>buddy</b> is left out of the list, because breeding would stop it doing the walking, levelling and battling a buddy is for.' })
+        el('li', { html: 'Your <b>buddy</b> is left out of the list, because breeding would stop it doing the walking, levelling and battling a buddy is for.' }),
+        el('li', { html: `A pair stops at <b>${BREEDING_CANDY_CAP} candy</b> and then sits there earning nothing, so the map pin grows a <b>gold pip</b> the moment any slot is full — with a number on it if more than one is. The slot is highlighted and marked <b>FULL</b> inside the sheet too.` }),
+        el('li', { html: 'Placed it badly? <b>Move centre</b> returns it to your Items so you can pin it somewhere else. You have to <b>collect every pair first</b> — creatures left inside would have no centre to come back to.' })
       )
     );
   }

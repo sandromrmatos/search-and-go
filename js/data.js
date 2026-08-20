@@ -103,8 +103,28 @@ export const RULES = {
 
   // Stardust magnet
   MAGNET_DURATION_MS: 15 * 60_000,
-  MAGNET_BONUS_MULTIPLIER: 4   // bonus = 4 × playerLevel per capture
+  MAGNET_BONUS_MULTIPLIER: 4,   // bonus = 4 × playerLevel per capture
+
+  /* Molten Seeker: widens how far you can reach for 15 minutes. It stacks with
+     nothing — whichever of the seeker and Relax Hour reaches further wins. */
+  SEEKER_DURATION_MS: 15 * 60_000,
+  SEEKER_RANGE_M: 50
 };
+
+/**
+ * The three timed effect slots, each holding one effect at a time.
+ *
+ * Kept as one table because the slots used to be spelled out as a literal
+ * `['incense', 'magnet']` in four different places, and a new slot that missed
+ * any one of them was silently never started, never expired or never saved.
+ */
+export const EFFECT_SLOTS = {
+  incense: { defaultItem: 'incense',         durationMs: RULES.INCENSE_DURATION_MS },
+  magnet:  { defaultItem: 'stardust_magnet', durationMs: RULES.MAGNET_DURATION_MS },
+  seeker:  { defaultItem: 'molten_seeker',   durationMs: RULES.SEEKER_DURATION_MS }
+};
+
+export const EFFECT_KINDS = Object.keys(EFFECT_SLOTS);
 
 /**
  * What a shop/amenity POI turns into on each scan. Weights are percentages
@@ -825,6 +845,162 @@ export const TRAINING_DOJO_START = 13.5;   // 13:30
 export const TRAINING_DOJO_END = 14;       // 14:00
 
 /* ---------------------------------------------------------------
+   Essence Harvesting
+
+   A creature you have already registered turns up somewhere in the scan radius
+   once per two-hour block. Tapping it opens a small game of accuracy that pays
+   candy for that creature's family — no capture, no disc, no range limit.
+   --------------------------------------------------------------- */
+
+/** Blocks are 00:00–02:00, 02:00–04:00 and so on: twelve a day. */
+export const ESSENCE_WINDOW_HOURS = 2;
+
+/** Nothing spawns before this player level. */
+export const ESSENCE_MIN_LEVEL = 2;
+
+/** How long the harvest point sits on the map. */
+export const ESSENCE_SPAWN_MS = 30 * 60_000;
+
+/** Chance of a Molten Seeker on top, but only if at least one candy was won. */
+export const ESSENCE_SEEKER_CHANCE = 0.15;
+
+/**
+ * Attempts allowed, by how far away the creature is when you open it. Walking
+ * closer is worth it, but you can always play from wherever you are.
+ * Read as "more than `over` metres away", first match wins.
+ */
+export const ESSENCE_PIN_BANDS = [
+  { over: 200, pins: 1 },
+  { over: 150, pins: 2 },
+  { over: 100, pins: 3 },
+  { over: 50,  pins: 4 },
+  { over: 25,  pins: 5 },
+  { over: -1,  pins: 6 }
+];
+
+export const ESSENCE_MAX_PINS = 6;
+
+export function essencePinsFor(metres) {
+  const d = Number(metres);
+  if (!isFinite(d)) return 1;
+  return (ESSENCE_PIN_BANDS.find(b => d > b.over) || { pins: 1 }).pins;
+}
+
+/** Candy for hitting each ring, innermost first. */
+export const ESSENCE_RING_CANDY = { inner: 3, mid: 2, outer: 1 };
+
+/** Ring radii in px for a rarity 1 creature: the easiest target in the game. */
+export const ESSENCE_RINGS = { outer: 78, mid: 50, inner: 24 };
+
+/**
+ * How much of the rarity 1 target each rarity draws. Spelled out per rarity
+ * rather than derived, because the two ends are deliberate: a Common gets the
+ * full-size rings and a Legendary gets half of what a Common does.
+ */
+export const ESSENCE_RING_SCALE = { 1: 1, 2: 0.84, 3: 0.68, 4: 0.52, 5: 0.36 };
+
+/** The creature's picture at rarity 1. Shrinks with the rings so it never hides them. */
+export const ESSENCE_ART_PX = 44;
+
+/**
+ * Drift speed in px per second for rarity 1, and what each rarity multiplies it
+ * by. Flat multiples of the base so the jump is easy to reason about: an
+ * Uncommon is twice a Common, a Legendary five times.
+ */
+export const ESSENCE_SPEED_PX = 46;
+export const ESSENCE_SPEED_MULTIPLIER = { 1: 1, 2: 2, 3: 3, 4: 4, 5: 5 };
+
+/**
+ * The highest rarity that can leave an essence. Mythicals are shut out — one
+ * exists, it comes from a single 50 km egg, and its candy is not something a
+ * two-hourly mini-game should be handing over.
+ */
+export const ESSENCE_MAX_RARITY = 5;
+
+/** Whether this creature can leave an essence at all. */
+export const essenceEligible = sp =>
+  !!sp && !sp.mythical && (sp.rarity || familyRarity(sp.id) || 1) <= ESSENCE_MAX_RARITY;
+
+/**
+ * How hard one essence is: tighter rings and a quicker drift as rarity climbs.
+ * Rarity is clamped to the eligible range, so nothing can ask for a game
+ * harder than a Legendary's even if a stale save points at one.
+ */
+export function essenceDifficulty(rarity = 1) {
+  const asked = Number(rarity) || 1;
+  const capped = Math.min(Math.max(asked, 1), ESSENCE_MAX_RARITY);
+  const scale = ESSENCE_RING_SCALE[capped] ?? 1;
+  const multiple = ESSENCE_SPEED_MULTIPLIER[capped] ?? capped;
+  return {
+    rarity: capped,
+    scale,
+    multiple,
+    rings: {
+      outer: Math.round(ESSENCE_RINGS.outer * scale),
+      mid: Math.round(ESSENCE_RINGS.mid * scale),
+      inner: Math.round(ESSENCE_RINGS.inner * scale)
+    },
+    // The picture rides along with the rings, or at a Legendary's size it would
+    // cover the target it is supposed to be sitting inside.
+    artPx: Math.round(ESSENCE_ART_PX * scale),
+    speed: ESSENCE_SPEED_PX * multiple
+  };
+}
+
+/** Which ring a tap `dist` px from the centre landed in, or null for a miss. */
+export function essenceRingHit(dist, rings) {
+  if (dist <= rings.inner) return 'inner';
+  if (dist <= rings.mid) return 'mid';
+  if (dist <= rings.outer) return 'outer';
+  return null;
+}
+
+/* ---------------------------------------------------------------
+   Creature Spotlight: Mondays 18:00–19:00.
+
+   Unlike the two above this does NOT rewrite the POI odds table. It leaves
+   every outcome alone and only biases *which* creature a creature-point turns
+   into, so it needs no table of its own.
+   --------------------------------------------------------------- */
+export const SPOTLIGHT_LABEL = 'Creature Spotlight';
+export const SPOTLIGHT_DAY = 1;            // Monday
+export const SPOTLIGHT_START = 18;         // 18:00
+export const SPOTLIGHT_END = 19;           // 19:00
+
+/** Which creature is featured each week, from the spotlight CSV. */
+export const SPOTLIGHT_CSV_FILE = 'Creature Spotlight List.csv';
+
+/**
+ * When the drawn rarity matches the spotlight creature's rarity, this is the
+ * chance the spawn becomes the spotlight creature rather than a normal pick
+ * from that tier. A different rarity is left completely alone.
+ */
+export const SPOTLIGHT_SUBSTITUTE_CHANCE = 0.50;
+
+/** Extra candy for capturing the spotlight creature during its hour. */
+export const SPOTLIGHT_BONUS_CANDY = 2;
+
+/** How long a spotlight spawn that comes to you sticks around. */
+export const SPOTLIGHT_SPAWN_MS = 5 * 60_000;
+
+/**
+ * Minutes after the start of the hour at which a guaranteed spotlight spawn
+ * appears on the player's own position. Rarer creatures come round less often,
+ * and every pattern divides the hour exactly.
+ */
+export const SPOTLIGHT_SPAWN_OFFSETS = {
+  1: [0, 10, 20, 30, 40, 50],
+  2: [0, 15, 30, 45],
+  3: [0, 20, 40],
+  4: [0, 20, 40],
+  5: [0, 30]
+};
+
+/** The offsets for one rarity, falling back to the rarity 3/4 rhythm. */
+export const spotlightOffsetsFor = rarity =>
+  SPOTLIGHT_SPAWN_OFFSETS[rarity] || SPOTLIGHT_SPAWN_OFFSETS[3];
+
+/* ---------------------------------------------------------------
    Move unlock luck (rolled once per captured creature, kept by the family)
    NOTE: the brief lists 20 + 20 + 10 + 2 + 38 = 90. The missing 10 points are
    parked on "no change" until confirmed — change NONE_WEIGHT to rebalance.
@@ -1114,6 +1290,27 @@ export const MISSIONS = [
   { id: 'lv7x25',   kind: 'creaturesAtLevel', level: 7,  target: 25,  xp: 100, dust: 1500, discs: 5, items: { incense: 1 },       label: 'Level up 25 creatures to level 7' },
   { id: 'lv7x50',   kind: 'creaturesAtLevel', level: 7,  target: 50,  xp: 150, dust: 2500, discs: 5, items: { rare_incense: 1 },  label: 'Level up 50 creatures to level 7' },
 
+  /* ---- Essence Harvesting ----
+     Counts harvests that actually paid candy, so a run of six misses does not
+     tick these along. */
+  { id: 'ess10',  kind: 'essenceHarvests', target: 10,  xp: 10, dust: 50,  label: 'Get candies through Essence Harvesting 10 times' },
+  { id: 'ess20',  kind: 'essenceHarvests', target: 20,  xp: 20, dust: 75,  label: 'Get candies through Essence Harvesting 20 times' },
+  {
+    id: 'ess50', kind: 'essenceHarvests', target: 50, xp: 30, dust: 150,
+    items: { single_use_incubator: 1 },
+    label: 'Get candies through Essence Harvesting 50 times'
+  },
+  {
+    id: 'ess100', kind: 'essenceHarvests', target: 100, xp: 50, dust: 250,
+    items: { super_incubator: 1 },
+    label: 'Get candies through Essence Harvesting 100 times'
+  },
+  {
+    id: 'ess250', kind: 'essenceHarvests', target: 250, xp: 80, dust: 500,
+    items: { molten_seeker: 1, rare_incense: 1 },
+    label: 'Get candies through Essence Harvesting 250 times'
+  },
+
   { id: 'lv10x1',   kind: 'creaturesAtLevel', level: 10, target: 1,   xp: 75,  dust: 2000, discs: 5, items: { ultra_disc: 2 },    label: 'Level up 1 creature to level 10' },
   { id: 'lv10x5',   kind: 'creaturesAtLevel', level: 10, target: 5,   xp: 100, dust: 2500, discs: 5, items: { incense: 1 },       label: 'Level up 5 creatures to level 10' },
   { id: 'lv10x10',  kind: 'creaturesAtLevel', level: 10, target: 10,  xp: 150, dust: 5000, discs: 5, items: { rare_incense: 1 },  label: 'Level up 10 creatures to level 10' }
@@ -1154,6 +1351,13 @@ export const WEEKLY_MISSIONS = [
     id: 'weekWalk75', kind: 'metresWeek', target: 75_000, unit: 'km', xp: 75, dust: 700,
     items: { shiny_incense: 1 },
     label: 'Walk 75 km this week'
+  },
+
+  // ---- Essence Harvesting ----
+  {
+    id: 'weekEssence20', kind: 'essenceWeek', target: 20, xp: 20, dust: 150,
+    items: { molten_seeker: 1 },
+    label: 'Get candies through Essence Harvesting 20 times this week'
   }
 ];
 
@@ -1161,35 +1365,39 @@ export const WEEKLY_MISSIONS = [
    Set missions
 
    A ladder that opens Galactic Adventures one rarity at a time. Each rung wants
-   a number of Elemental Awakening creatures registered *and* a player level, so
-   the set cannot be rushed by a single very active week.
+   a number of Elemental Awakening creatures registered *and* an amount of total
+   player XP, so the set cannot be rushed by a single very active week.
+
+   `requireXp` is deliberately total lifetime XP rather than a player level:
+   levels are a coarse, front-loaded curve, and XP keeps the gate meaningful
+   past the level cap.
 
    `unlockGalacticRarity` is applied on claim, which is what puts those creatures
    into the spawn pools. They never reset.
    --------------------------------------------------------------- */
 export const SET_MISSIONS = [
   {
-    id: 'ga1', kind: 'registeredInSet', set: SET_NAME, target: 65, requireLevel: 7,
+    id: 'ga1', kind: 'registeredInSet', set: SET_NAME, target: 65, requireXp: 10_000,
     xp: 25, dust: 250, unlockGalacticRarity: 1,
     label: `Register 65 creatures from ${SET_NAME}`
   },
   {
-    id: 'ga2', kind: 'registeredInSet', set: SET_NAME, target: 70, requireLevel: 9,
+    id: 'ga2', kind: 'registeredInSet', set: SET_NAME, target: 70, requireXp: 13_000,
     xp: 40, dust: 400, unlockGalacticRarity: 2,
     label: `Register 70 creatures from ${SET_NAME}`
   },
   {
-    id: 'ga3', kind: 'registeredInSet', set: SET_NAME, target: 75, requireLevel: 11,
+    id: 'ga3', kind: 'registeredInSet', set: SET_NAME, target: 75, requireXp: 18_000,
     xp: 60, dust: 600, unlockGalacticRarity: 3,
     label: `Register 75 creatures from ${SET_NAME}`
   },
   {
-    id: 'ga4', kind: 'registeredInSet', set: SET_NAME, target: 77, requireLevel: 12,
+    id: 'ga4', kind: 'registeredInSet', set: SET_NAME, target: 77, requireXp: 22_000,
     xp: 80, dust: 800, unlockGalacticRarity: 4,
     label: `Register 77 creatures from ${SET_NAME}`
   },
   {
-    id: 'ga5', kind: 'registeredInSet', set: SET_NAME, target: 79, requireLevel: 13,
+    id: 'ga5', kind: 'registeredInSet', set: SET_NAME, target: 79, requireXp: 25_000,
     xp: 150, dust: 1500, unlockGalacticRarity: 5,
     items: { breeding_center: 1 },
     grantEgg: MYTHICAL_EGG_TYPE,
@@ -1217,6 +1425,13 @@ export const DAILY_MISSIONS = [
     id: 'dailyWalk10', kind: 'metresToday', target: 10_000, unit: 'km', xp: 15, dust: 150,
     items: { ultra_disc: 2, incense: 1, super_incubator: 1 },
     label: 'Walk 10 km'
+  },
+
+  // ---- Essence Harvesting ----
+  {
+    id: 'dailyEssence3', kind: 'essenceToday', target: 3, xp: 10, dust: 75,
+    items: { ultra_disc: 1 },
+    label: 'Get candies through Essence Harvesting 3 times'
   }
 ];
 
@@ -1579,6 +1794,12 @@ export const DB = {
    * normal state: the file is optional and the game runs fine without it.
    */
   abilities: new Map(),
+
+  /**
+   * The Creature Spotlight rota: one entry per week, sorted by date. Empty
+   * when the CSV is missing, which simply means the event never fires.
+   */
+  spotlight: [],
   familyOf: new Map(),
   familyMembers: new Map(),
   evolvesFrom: new Map(),
@@ -1593,7 +1814,8 @@ export async function loadDatabase(
   exclusiveUrl = EXCLUSIVE_CSV_FILE,
   abilitiesUrl = ABILITIES_CSV_FILE,
   galacticUrl = GALACTIC_CSV_FILE,
-  mythicalUrl = MYTHICAL_CSV_FILE
+  mythicalUrl = MYTHICAL_CSV_FILE,
+  spotlightUrl = SPOTLIGHT_CSV_FILE
 ) {
   DB.warnings = [];
 
@@ -1603,7 +1825,7 @@ export async function loadDatabase(
     return '';
   });
 
-  const [baseText, statsText, exclusiveText, abilitiesText, galacticText, mythicalText] =
+  const [baseText, statsText, exclusiveText, abilitiesText, galacticText, mythicalText, spotlightText] =
     await Promise.all([
       fetchText(csvUrl),
       fetchText(statsUrl),
@@ -1612,7 +1834,8 @@ export async function loadDatabase(
       // until it is authored, so a miss here is silent by design.
       fetchText(abilitiesUrl).catch(() => ''),
       optional(galacticUrl, GALACTIC_SET_NAME),
-      optional(mythicalUrl, 'Mythicals')
+      optional(mythicalUrl, 'Mythicals'),
+      optional(spotlightUrl, SPOTLIGHT_LABEL)
     ]);
 
   const baseRows = toRecords(parseCSV(baseText));
@@ -1620,6 +1843,7 @@ export async function loadDatabase(
   const exclusiveRows = exclusiveText ? toRecords(parseCSV(exclusiveText)) : [];
   const galacticRows = galacticText ? toRecords(parseCSV(galacticText)) : [];
   const mythicalRows = mythicalText ? toRecords(parseCSV(mythicalText)) : [];
+  const spotlightRows = spotlightText ? toRecords(parseCSV(spotlightText)) : [];
 
   const statsById = new Map();
   const statsByName = new Map();
@@ -1636,6 +1860,7 @@ export async function loadDatabase(
   DB.abilities = new Map();
   DB.stage1 = []; DB.spawnable = []; DB.exclusive = [];
   DB.galactic = []; DB.mythical = []; DB.available = [];
+  DB.spotlight = [];
   DB.byRarity = { 1: [], 2: [], 3: [], 4: [], 5: [] };
   DB.exclusiveByRarity = { 3: [], 4: [], 5: [] };
 
@@ -1753,9 +1978,53 @@ export async function loadDatabase(
   DB.types = TYPES.filter(t => DB.species.some(s => s.type === t));
   for (const s of DB.species) if (!DB.types.includes(s.type)) DB.types.push(s.type);
 
+  buildSpotlightRota(spotlightRows);
+
   DB.loaded = true;
   if (DB.warnings.length) console.warn('[data]', DB.warnings);
   return DB;
+}
+
+/**
+ * Turns the spotlight CSV (`id,name,date` with a Monday in DD/MM/YYYY) into the
+ * rota. Runs after every set is loaded, so ids from any set resolve.
+ *
+ * A row is dropped rather than guessed at if its species or date is unusable —
+ * a silently wrong featured creature would be worse than no event that week.
+ */
+function buildSpotlightRota(rows) {
+  const seen = new Set();
+  for (const r of rows) {
+    const id = r['id'] || r['id_output'];
+    const date = parseDayMonthYear(r['date']);
+    if (!id || !date) {
+      DB.warnings.push(`${SPOTLIGHT_LABEL}: skipped a row with a bad id or date ("${r['date']}")`);
+      continue;
+    }
+    // Ids in this file have no .png suffix, but tolerate one anyway.
+    const cleanId = String(id).replace(/\.png$/i, '').trim();
+    const sp = DB.byId.get(cleanId) || DB.byName.get(String(r['name'] || '').toLowerCase());
+    if (!sp) {
+      DB.warnings.push(`${SPOTLIGHT_LABEL}: no creature matches "${r['name']}" (${cleanId})`);
+      continue;
+    }
+    // The rota is keyed on the Monday of that week, so a date written as any
+    // day of the week still lands on the right event.
+    const monday = mondayOf(date).getTime();
+    if (seen.has(monday)) {
+      DB.warnings.push(`${SPOTLIGHT_LABEL}: two entries for the week of ${r['date']} — keeping the first`);
+      continue;
+    }
+    seen.add(monday);
+    DB.spotlight.push({
+      speciesId: sp.id,
+      name: sp.name,
+      species: sp,
+      rarity: sp.rarity || familyRarity(sp.id) || 1,
+      monday
+    });
+  }
+  DB.spotlight.sort((a, b) => a.monday - b.monday);
 }
 
 async function fetchText(url) {
@@ -1988,6 +2257,34 @@ export function rollSpawnSpecies(weights = RARITY_WEIGHTS) {
 }
 
 /**
+ * What a creature point or an incense spawn turns into.
+ *
+ * Identical to `rollSpawnSpecies` except during the Creature Spotlight hour:
+ * when the drawn rarity happens to match the featured creature's rarity, there
+ * is a `SPOTLIGHT_SUBSTITUTE_CHANCE` that the spawn becomes that creature
+ * instead of a normal pick from the tier. Any other rarity is left completely
+ * alone, so the tier odds themselves never move — only which rarity-N creature
+ * you meet changes, and only half the time.
+ *
+ * Eggs and raids deliberately keep using `rollSpawnSpecies`: the spotlight is
+ * about what walks past you on the map.
+ */
+export function rollWildSpecies(weights = RARITY_WEIGHTS, now = new Date()) {
+  const featured = isCreatureSpotlight(now) ? spotlightSpecies(now) : null;
+  const featuredRarity = featured ? (featured.rarity || familyRarity(featured.id) || 1) : 0;
+
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const tier = rollRarityWith(weights);
+    if (featured && tier === featuredRarity && chance(SPOTLIGHT_SUBSTITUTE_CHANCE)) {
+      return featured;
+    }
+    const pool = DB.byRarity[tier];
+    if (pool?.length) return pool[Math.floor(Math.random() * pool.length)];
+  }
+  return DB.spawnable[Math.floor(Math.random() * DB.spawnable.length)];
+}
+
+/**
  * Weighted pick from the exclusive pool. Only rarities 3, 4 and 5 exist here.
  */
 export function rollExclusiveSpecies(weights = EXCLUSIVE_RAID_WEIGHTS) {
@@ -2027,6 +2324,118 @@ export const isRaidInvasion = (now = new Date()) =>
 export const isTrainingDojo = (now = new Date()) =>
   inWeeklyWindow(now, TRAINING_DOJO_DAY, TRAINING_DOJO_START, TRAINING_DOJO_END);
 
+/* ---------------------------------------------------------------
+   Creature Spotlight schedule
+   --------------------------------------------------------------- */
+
+/**
+ * "24/08/2026" -> local midnight on that day.
+ *
+ * Deliberately hand-parsed: `Date.parse` reads DD/MM/YYYY as a US MM/DD/YYYY
+ * and would silently shift most of the rota by months.
+ */
+function parseDayMonthYear(raw) {
+  const m = String(raw ?? '').trim().match(/^(\d{1,2})\s*\/\s*(\d{1,2})\s*\/\s*(\d{4})$/);
+  if (!m) return null;
+  const [, d, mo, y] = m;
+  const date = new Date(Number(y), Number(mo) - 1, Number(d));
+  // Rejects things like 31/02/2026, which would roll into March.
+  if (date.getDate() !== Number(d) || date.getMonth() !== Number(mo) - 1) return null;
+  return date;
+}
+
+/** Local midnight on the Monday of whichever week `d` falls in. */
+function mondayOf(d) {
+  const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+  return monday;
+}
+
+/** The rota entry covering the week `now` is in, or null. */
+export function spotlightEntry(now = new Date()) {
+  if (!DB.spotlight.length) return null;
+  const key = mondayOf(now).getTime();
+  return DB.spotlight.find(e => e.monday === key) || null;
+}
+
+/** The featured species this week, or null when the rota does not cover it. */
+export function spotlightSpecies(now = new Date()) {
+  return spotlightEntry(now)?.species || null;
+}
+
+/** True only inside the Monday 18:00–19:00 window, and only with a rota entry. */
+export const isCreatureSpotlight = (now = new Date()) =>
+  inWeeklyWindow(now, SPOTLIGHT_DAY, SPOTLIGHT_START, SPOTLIGHT_END)
+  && !!spotlightSpecies(now);
+
+/**
+ * The next spotlight from `now` on, whether or not one is running: the entry,
+ * when its hour starts and ends, and whether that is happening right now.
+ * Used by the calendar and the info menu.
+ */
+export function nextSpotlight(now = new Date()) {
+  if (!DB.spotlight.length) return null;
+  for (const e of DB.spotlight) {
+    const start = new Date(e.monday);
+    start.setHours(Math.floor(SPOTLIGHT_START), Math.round((SPOTLIGHT_START % 1) * 60), 0, 0);
+    const end = new Date(e.monday);
+    end.setHours(Math.floor(SPOTLIGHT_END), Math.round((SPOTLIGHT_END % 1) * 60), 0, 0);
+    if (end <= now) continue;          // already finished
+    return { ...e, start, end, live: now >= start && now < end, startsIn: Math.max(0, start - now) };
+  }
+  return null;
+}
+
+/** Every spotlight from `now` on, for a calendar listing. */
+export function upcomingSpotlights(now = new Date(), limit = 8) {
+  const out = [];
+  for (const e of DB.spotlight) {
+    const start = new Date(e.monday);
+    start.setHours(Math.floor(SPOTLIGHT_START), Math.round((SPOTLIGHT_START % 1) * 60), 0, 0);
+    const end = new Date(e.monday);
+    end.setHours(Math.floor(SPOTLIGHT_END), Math.round((SPOTLIGHT_END % 1) * 60), 0, 0);
+    if (end <= now) continue;
+    out.push({ ...e, start, end, live: now >= start && now < end });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/**
+ * Millis until the spotlight hour closes, or 0 when it is not running. Mirrors
+ * the other two events so the chip can count down the same way.
+ */
+export const spotlightEndsIn = (now = new Date()) =>
+  isCreatureSpotlight(now)
+    ? weeklyWindowEndsIn(now, SPOTLIGHT_DAY, SPOTLIGHT_START, SPOTLIGHT_END)
+    : 0;
+
+/** The times a guaranteed spotlight spawn is due, as Date objects, for today. */
+export function spotlightSpawnTimes(now = new Date()) {
+  const sp = spotlightSpecies(now);
+  if (!sp) return [];
+  const rarity = sp.rarity || familyRarity(sp.id) || 1;
+  const base = mondayOf(now);
+  return spotlightOffsetsFor(rarity).map(min => {
+    const t = new Date(base);
+    t.setHours(Math.floor(SPOTLIGHT_START), Math.round((SPOTLIGHT_START % 1) * 60) + min, 0, 0);
+    return t;
+  });
+}
+
+/**
+ * Which scheduled spotlight spawn is currently due, as an index into the offset
+ * list, or -1. A spawn is "due" from its minute until the next one (or the end
+ * of the hour), so opening the game at 18:07 still gets the 18:00 one.
+ */
+export function dueSpotlightSpawn(now = new Date()) {
+  if (!isCreatureSpotlight(now)) return -1;
+  const times = spotlightSpawnTimes(now);
+  let due = -1;
+  for (let i = 0; i < times.length; i++) if (times[i] <= now) due = i;
+  return due;
+}
+
 /**
  * The weekly event that owns the POI odds right now, or null on a normal day.
  * Everything that needs to know an event is running reads this, so the window
@@ -2049,6 +2458,17 @@ export function poiEventState(now = new Date()) {
       endsIn: weeklyWindowEndsIn(now, TRAINING_DOJO_DAY, TRAINING_DOJO_START, TRAINING_DOJO_END)
     };
   }
+  if (isCreatureSpotlight(now)) {
+    // `table: null` on purpose — the spotlight biases which creature a creature
+    // point becomes, and must not touch the odds of getting one at all.
+    return {
+      id: 'creatureSpotlight',
+      label: SPOTLIGHT_LABEL,
+      table: null,
+      species: spotlightSpecies(now),
+      endsIn: weeklyWindowEndsIn(now, SPOTLIGHT_DAY, SPOTLIGHT_START, SPOTLIGHT_END)
+    };
+  }
   return null;
 }
 
@@ -2059,7 +2479,9 @@ export function poiEventState(now = new Date()) {
  */
 export function poiOutcomeTable(now = new Date()) {
   const event = poiEventState(now);
-  if (event) return event.table;
+  // An event without a table of its own (the Creature Spotlight) leaves the
+  // ordinary odds in place rather than blanking them.
+  if (event?.table) return event.table;
   return isWeekend(now) ? POI_OUTCOMES_WEEKEND : POI_OUTCOMES;
 }
 
@@ -2115,6 +2537,29 @@ export const CALENDAR_EVENTS = [
     blurb: 'Grunts take over the map points, with no limit on how many appear.'
   },
   {
+    id: 'creatureSpotlight',
+    // Names the featured creature, which is the only thing anyone wants to know.
+    label: d => {
+      const sp = spotlightSpecies(d);
+      return sp ? `${SPOTLIGHT_LABEL}: ${sp.name}` : SPOTLIGHT_LABEL;
+    },
+    icon: '🌟',
+    art: d => spotlightSpecies(d)?.imagePath || null,
+    start: SPOTLIGHT_START,
+    end: SPOTLIGHT_END,
+    // Only shows on a Monday the rota actually covers.
+    onDay: d => d.getDay() === SPOTLIGHT_DAY && !!spotlightSpecies(d),
+    blurb: d => {
+      const sp = spotlightSpecies(d);
+      if (!sp) return '';
+      const rarity = sp.rarity || familyRarity(sp.id) || 1;
+      const spawns = spotlightOffsetsFor(rarity).length;
+      return `${RARITY_NAMES[rarity] || `Rarity ${rarity}`} · far more common for the hour, `
+        + `+${SPOTLIGHT_BONUS_CANDY} candy when you catch it, and it comes to you `
+        + `${spawns} time${spawns === 1 ? '' : 's'}.`;
+    }
+  },
+  {
     id: 'bonanzaHour',
     label: 'Shiny Bonanza Hour',
     icon: '✦',
@@ -2142,16 +2587,24 @@ function dayStart(from, offset = 0) {
   return d;
 }
 
-/** Everything happening on one day, all-day events first then by start time. */
+/**
+ * Everything happening on one day, all-day events first then by start time.
+ *
+ * `label`, `blurb` and `art` may each be a function of the day, because the
+ * Creature Spotlight features a different creature every week and a fixed
+ * string could not say which.
+ */
 export function eventsOnDay(date) {
   const day = dayStart(date);
+  const resolve = (v, d) => (typeof v === 'function' ? v(d) : v);
   return CALENDAR_EVENTS
     .filter(e => e.onDay(day))
     .map(e => ({
       id: e.id,
-      label: e.label,
+      label: resolve(e.label, day),
       icon: e.icon,
-      blurb: e.blurb,
+      blurb: resolve(e.blurb, day),
+      art: resolve(e.art, day) || null,
       allDay: !!e.allDay,
       start: e.start ?? null,
       end: e.end ?? null

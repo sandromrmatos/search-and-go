@@ -418,6 +418,20 @@
         <button class="btn ghost" data-spawn="grunt">Grunt point</button>
       </div>
       <div class="btn-row wrap">
+        <label class="sel">
+          <span>Essence rarity</span>
+          <select id="dbg-essence-rarity">
+            <option value="">Any</option>
+            <option value="1">1 · Common</option>
+            <option value="2">2 · Uncommon</option>
+            <option value="3">3 · Rare</option>
+            <option value="4">4 · Epic</option>
+            <option value="5">5 · Legendary</option>
+          </select>
+        </label>
+        <button id="dbg-spawn-essence" class="btn ghost">Essence at my feet</button>
+      </div>
+      <div class="btn-row wrap">
         <button class="btn ghost" data-give="discs">+10 Capturing Discs</button>
         <button class="btn ghost" data-give="items">+5 of every item</button>
       </div>
@@ -588,6 +602,16 @@
     <h3>📅 The next 7 days</h3>
     <p id="calendar-hint" class="muted small"></p>
     <div id="calendar-body"></div>
+  </div>
+</div>
+
+<!-- ============ ESSENCE HARVESTING ============ -->
+<div id="essence" class="sheet-wrap hidden">
+  <div class="sheet-backdrop" data-close="essence"></div>
+  <div class="sheet">
+    <button class="sheet-close" data-close="essence">✕</button>
+    <h3 id="essence-title">Essence Harvesting</h3>
+    <div id="essence-body"></div>
   </div>
 </div>
 

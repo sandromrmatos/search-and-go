@@ -2,7 +2,7 @@
    map.js — Leaflet map, player marker, spawn markers with timers
    ============================================================ */
 
-import { RULES } from './data.js';
+import { RULES, species } from './data.js';
 import { distance } from './geo.js';
 import { timeLeftLabel } from './ui.js';
 
@@ -40,7 +40,11 @@ const ICON_HTML = {
     <div class="icon-wrap"><span class="ico-flame-blue">🔥</span></div>`,
   grunt: `
     <div class="glow glow-grunt"></div>
-    <div class="icon-wrap"><span class="ico-grunt">🧍</span></div>`
+    <div class="icon-wrap"><span class="ico-grunt">🧍</span></div>`,
+  // Replaced per point by iconFor, which swaps in that creature's artwork.
+  essence: `
+    <div class="glow glow-essence"></div>
+    <div class="icon-wrap"><span class="ico-essence">✨</span></div>`
 };
 
 const GRUNT_GLYPH = {
@@ -48,6 +52,14 @@ const GRUNT_GLYPH = {
 };
 
 function iconFor(point) {
+  // An essence shows the creature it belongs to, because which one it is
+  // decides whether the walk over is worth it.
+  if (point.kind === 'essence') {
+    const sp = species(point.speciesId);
+    const art = sp ? sp.imagePath : '';
+    return `<div class="glow glow-essence"></div>
+            <div class="icon-wrap"><img class="ico-essence" src="${art}" alt="" /></div>`;
+  }
   if (point.kind === 'grunt') {
     const glyph = GRUNT_GLYPH[point.grunt?.character] || '🧍';
     return `<div class="glow glow-grunt"></div>
@@ -376,7 +388,7 @@ export const GameMap = {
    * RULES.CAPTURE_RANGE_M, wider during Relax and Good Night, and Infinity
    * when the debug override is on.
    */
-  tick(now, playerPos, { range = RULES.CAPTURE_RANGE_M } = {}) {
+  tick(now, playerPos, { range = RULES.CAPTURE_RANGE_M, breedingFull = 0 } = {}) {
     const unlimited = !isFinite(range);
     // Keep the green ring showing the real reach. Only touch Leaflet when the
     // number actually changes — this runs every second.
@@ -410,6 +422,19 @@ export const GameMap = {
       const inReach = unlimited || distance(playerPos, { lat: at.lat, lng: at.lng }) <= range;
       marker.getElement?.()?.querySelector('.breed-flag')?.classList.toggle('in-range', inReach);
     }
+
+    // "There is candy waiting" on the breeding pin. Updated here rather than in
+    // syncBreeding because a slot fills on a timer, with nothing touching the
+    // save at that moment to trigger a re-sync.
+    const badge = this.breedingMarker?.getElement?.()?.querySelector('.breed-badge');
+    if (badge) {
+      badge.classList.toggle('hidden', breedingFull <= 0);
+      // One full slot needs no number; more than one is worth spelling out.
+      badge.textContent = breedingFull > 1 ? String(breedingFull) : '';
+      badge.title = breedingFull === 1
+        ? 'A pair has finished its candy'
+        : `${breedingFull} pairs have finished their candy`;
+    }
   },
 
   /**
@@ -435,7 +460,10 @@ export const GameMap = {
         className: '',
         // The wrapper takes the counter-rotation; the flag itself keeps its
         // in-range bobbing animation, which also uses transform.
-        html: '<div class="breed-rot"><div class="breed-flag"><span>⚑</span></div></div>',
+        // The badge shows when a slot has finished its candy — `tick` fills it
+        // in, because this HTML is only ever built once.
+        html: '<div class="breed-rot"><div class="breed-flag"><span>⚑</span>'
+            + '<i class="breed-badge hidden"></i></div></div>',
         iconSize: [40, 46],
         iconAnchor: [20, 42]
       }),

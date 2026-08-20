@@ -3,8 +3,10 @@
    ============================================================ */
 
 import {
-  loadDatabase, DB, RULES, SETS, RARITY_NAMES, species, familyName,
-  BREEDING_UNLOCK_LEVEL, isRelaxHour, RAID_INVASION_LABEL
+  loadDatabase, DB, RULES, SETS, RARITY_NAMES, species, familyName, familyRarity,
+  BREEDING_UNLOCK_LEVEL, isRelaxHour, RAID_INVASION_LABEL,
+  isCreatureSpotlight, spotlightSpecies, SPOTLIGHT_LABEL, SPOTLIGHT_BONUS_CANDY,
+  SPOTLIGHT_SPAWN_MS
 } from './data.js';
 import { Weather } from './weather.js';
 import { Persist, progressOf } from './persist.js';
@@ -13,8 +15,10 @@ import { Geo, distance, parseCoords, formatDistance, offsetMeters } from './geo.
 import { fetchPOIs, clearPOICache, lastPOIsWereStale } from './osm.js';
 import { describeDrop, itemImage, itemName } from './items.js';
 import {
-  runScan, debugPointAt, tickIncense, spawnWindowGrunt, msUntilNextScan, formatCountdown, isScanning
+  runScan, debugPointAt, tickIncense, spawnWindowGrunt, spawnSpotlightCreature,
+  spawnEssence, debugEssenceAt, msUntilNextScan, formatCountdown, isScanning
 } from './spawns.js';
+import { initEssence, openEssence, abandonEssence } from './essence.js';
 import { GameMap } from './map.js';
 import { playCapture } from './anim.js';
 import { initBattleUI, openBattle, isBattleOpen } from './battleui.js';
@@ -452,7 +456,7 @@ function placeResearchLab() {
   const pos = Geo.current;
   if (!pos) { toast('Waiting for your location…', 'bad'); return; }
   if (store.s.researchLab) { toast('Your Research Lab is already on the map', 'bad'); return; }
-  if (!confirm('Pin your Research Lab here? It stays at these coordinates permanently.')) return;
+  if (!confirm('Pin your Research Lab here? You can pick it up and move it later from the lab itself.')) return;
 
   const r = store.placeResearchLab(pos.lat, pos.lng);
   if (!r.ok) {
@@ -475,7 +479,7 @@ function placeBreedingCentre() {
     toast(`Breeding centres unlock at player level ${BREEDING_UNLOCK_LEVEL}`, 'bad', 3600);
     return;
   }
-  if (!confirm('Pin your breeding centre here? It stays at these coordinates permanently.')) return;
+  if (!confirm('Pin your breeding centre here? You can pick it up and move it later from the centre itself.')) return;
 
   const r = store.placeBreedingCentre(pos.lat, pos.lng);
   if (!r.ok) {
@@ -497,11 +501,24 @@ function placeBreedingCentre() {
  */
 function interactRange(now = new Date()) {
   if (debugAllowed() && store.s.debug.ignoreRange) return Infinity;
-  return isRelaxHour(now) ? RULES.RELAX_RANGE_M : RULES.CAPTURE_RANGE_M;
+  // Relax Hour and a Molten Seeker can overlap. Take whichever reaches further
+  // rather than letting one shrink the other — losing reach you had a second
+  // ago because you burned an item would be the wrong way round.
+  return Math.max(
+    RULES.CAPTURE_RANGE_M,
+    isRelaxHour(now) ? RULES.RELAX_RANGE_M : 0,
+    store.isSeekerActive(now.getTime?.() ?? Date.now()) ? RULES.SEEKER_RANGE_M : 0
+  );
 }
 
-/** Common gate: the point must still be live, uncollected and within range. */
-function checkInteractable(point) {
+/**
+ * Common gate: the point must still be live and uncollected.
+ *
+ * `requireRange` is on for everything you interact with in the world. Essence
+ * Harvesting turns it off — you can play that one from anywhere, and distance
+ * decides how many attempts you get instead of whether you get any.
+ */
+function checkInteractable(point, { requireRange = true } = {}) {
   const live = store.point(point.id);
   if (!live) { toast('That point is gone', 'bad'); syncMap(); return null; }
   if (live.expiresAt <= Date.now()) {
@@ -515,11 +532,13 @@ function checkInteractable(point) {
   const pos = Geo.current;
   if (!pos) { toast('Waiting for your location…', 'bad'); return null; }
 
-  const d = distance(pos, live);
-  const range = interactRange();
-  if (d > range) {
-    toast(`Too far away — ${formatDistance(d)}. Get within ${range} m.`, 'bad');
-    return null;
+  if (requireRange) {
+    const d = distance(pos, live);
+    const range = interactRange();
+    if (d > range) {
+      toast(`Too far away — ${formatDistance(d)}. Get within ${range} m.`, 'bad');
+      return null;
+    }
   }
   return live;
 }
@@ -527,9 +546,15 @@ function checkInteractable(point) {
 /** Routes a tap on the map to whatever that point actually is. */
 async function onPointTap(point) {
   if (capturing) return;
-  const live = checkInteractable(point);
+  // Essence Harvesting is the one thing with no range gate.
+  const live = checkInteractable(point, { requireRange: point.kind !== 'essence' });
   if (!live) return;
 
+  if (live.kind === 'essence') {
+    const d = distance(Geo.current, live);
+    dlog(`Essence Harvesting: ${species(live.speciesId)?.name} at ${Math.round(d)} m`);
+    return openEssence(live, d);
+  }
   if (live.kind === 'creature') return captureCreature(live);
   if (live.kind === 'discs' || live.kind === 'items') return collectItems(live);
   if (live.kind === 'raid' || live.kind === 'grunt') return openBattle(live);
@@ -614,7 +639,16 @@ async function doCapture(live) {
     store.spendItem('capture_disc');
     syncMap();
 
-    const res = store.capture(live, { origin: live.source === 'incense' ? 'incense' : 'wild' });
+    // The spotlight creature pays bonus candy during its hour, however you met
+    // it — a wild point, an incense spawn or the one that came to you. Other
+    // creatures caught in the same hour are unaffected.
+    const featured = isCreatureSpotlight() ? spotlightSpecies() : null;
+    const spotlightBonus = featured && featured.id === live.speciesId ? SPOTLIGHT_BONUS_CANDY : 0;
+
+    const res = store.capture(live, {
+      origin: live.source === 'incense' ? 'incense' : 'wild',
+      bonusCandy: spotlightBonus
+    });
     const sprite = res.sp.spritePath(res.shiny);
 
     dlog(`Captured ${res.sp.name} (R${res.rarity})${res.shiny ? ' SHINY' : ''} at "${live.poiName}" · ` +
@@ -706,7 +740,10 @@ function startLoop() {
       syncMap();
     }
 
-    GameMap.tick(now, Geo.current, { range: interactRange() });
+    GameMap.tick(now, Geo.current, {
+      range: interactRange(),
+      breedingFull: store.breedingFullSlots(now)
+    });
 
     // Keeps the temperature current while the player stands still, since a
     // stationary device may not emit another location event for a long time.
@@ -721,6 +758,30 @@ function startLoop() {
         dlog(`A trainer found you (${Math.round(RULES.WINDOW_GRUNT_MS / 60_000)} min)`);
         syncMap();
         toast('A trainer has walked up to you and wants to battle!', '', 4200);
+      }
+    }
+
+    // During the Creature Spotlight hour the featured creature walks up to you
+    // on a fixed schedule. Checked on the loop so a slot that comes round while
+    // the game is open still fires.
+    if (Geo.current) {
+      const star = spawnSpotlightCreature(Geo.current, now);
+      if (star) {
+        const sp = species(star.speciesId);
+        dlog(`${SPOTLIGHT_LABEL}: ${sp?.name} appeared (${Math.round(SPOTLIGHT_SPAWN_MS / 60_000)} min)`);
+        syncMap();
+        toast(`${SPOTLIGHT_LABEL} — ${sp?.name} has come to you!`, 'good', 4200);
+      }
+    }
+
+    // Essence Harvesting: one registered creature turns up in the scan radius
+    // per two-hour block, the first time the game is open during it.
+    if (Geo.current) {
+      const essence = spawnEssence(Geo.current, now);
+      if (essence) {
+        dlog(`Essence Harvesting: ${species(essence.speciesId)?.name} appeared`);
+        syncMap();
+        toast(`${species(essence.speciesId)?.name} has left an essence nearby — tap it to harvest`, '', 4600);
       }
     }
 
@@ -813,8 +874,21 @@ function initUI() {
   });
 
   initBattleUI({ onDone: () => { syncMap(); refreshAll(); } });
-  initExtras({ onChange: () => { refreshAll(); renderMissionBadge(); } });
+  initExtras({
+    onChange: () => { refreshAll(); renderMissionBadge(); },
+    // Picking up a breeding centre or lab removes a permanent pin.
+    onMapChange: () => syncMap()
+  });
   initShop({ onChange: () => { refreshAll(); renderMissionBadge(); } });
+
+  initEssence({
+    onChange: () => { refreshAll(); renderMissionBadge(); },
+    // The essence is spent once the game finishes, however it went.
+    onDone: pointId => { store.markCollected(pointId); syncMap(); }
+  });
+  // Backing out of the sheet still spends it, so it cannot be re-rolled.
+  $('#essence .sheet-backdrop').addEventListener('click', abandonEssence);
+  $('#essence .sheet-close').addEventListener('click', abandonEssence);
 
   initEggs({
     refresh: () => { refreshAll(); renderMissionBadge(); },
@@ -1108,6 +1182,19 @@ function initDebugPanel() {
     syncMap();
     closeSheet('debug');
     toast(`Debug spawn created (${species(s.speciesId).name} hidden until captured)`, 'good');
+  });
+  $('#dbg-spawn-essence').addEventListener('click', () => {
+    const pos = Geo.current;
+    if (!pos) { toast('No location yet', 'bad'); return; }
+    const rarity = Number($('#dbg-essence-rarity').value) || null;
+    const p = debugEssenceAt(offsetMeters(pos, 2, 1), rarity);
+    if (!p) { toast('No creature with that rarity', 'bad'); return; }
+    const sp = species(p.speciesId);
+    const r = sp.rarity || familyRarity(sp.id) || 1;
+    syncMap();
+    closeSheet('debug');
+    toast(`${sp.name}'s essence · rarity ${r} ${RARITY_NAMES[r]}`, 'good');
+    dlog(`Debug essence: ${sp.name} (rarity ${r})`);
   });
 
   $$('#debug [data-give]').forEach(btn => btn.addEventListener('click', () => {

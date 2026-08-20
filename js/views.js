@@ -10,7 +10,7 @@ import {
   breedingSlotsFor, BREEDING_UNLOCK_LEVEL, bonanzaState,
   isRelaxHour, relaxHourEndsIn, RELAX_HOUR_LABEL, RULES, BUDDY_KM_PER_CANDY,
   isStardustSunday, STARDUST_SUNDAY_LABEL, STARDUST_SUNDAY_MULTIPLIER,
-  MAX_EGGS, MAX_EXCLUSIVE_EGGS, INCUBATOR_ITEMS, poiEventState,
+  MAX_EGGS, MAX_EXCLUSIVE_EGGS, INCUBATOR_ITEMS, poiEventState, SPOTLIGHT_BONUS_CANDY,
   MAX_STAT_BOOSTS, STAT_BOOSTER_CANDY_COST, statBoosterCost,
   abilityText, clauseConditionText, clauseEffectText, buffMoveText,
   GALACTIC_SET_NAME, MYTHICAL_RARITY, unlockedGalacticRarities
@@ -20,7 +20,7 @@ import { store, creatureStats, maxHpOf, hpOf, isFainted, isHurt } from './state.
 
 import { Persist } from './persist.js';
 import { playEvolution } from './anim.js';
-import { ITEMS, itemImage, itemName, itemsInOrder, INCENSE_ITEMS } from './items.js';
+import { ITEMS, itemImage, itemName, itemsInOrder, INCENSE_ITEMS, effectSlotForItem } from './items.js';
 import { Weather, temperatureLabel, weatherRows, conditionOf } from './weather.js';
 import {
   $, $$, el, toast, openSheet, closeSheet, num, timeLeftLabel,
@@ -531,8 +531,9 @@ export function openItemSheet(itemId) {
     }, label));
   }
   if (def.use === 'timed') {
-    // Every incense type shares the one incense slot.
-    const kind = INCENSE_ITEMS.includes(itemId) ? 'incense' : 'magnet';
+    // Every incense type shares the one incense slot; the magnet and the
+    // Molten Seeker each have their own, so they can all burn together.
+    const kind = effectSlotForItem(itemId);
     const active = store.effect(kind);
     actions.push(el('button', {
       class: 'btn primary',
@@ -1797,7 +1798,8 @@ export function renderEffectChips(now = Date.now()) {
 
   const bits = [
     { kind: 'incense', id: 'incense', label: 'Incense' },
-    { kind: 'magnet', id: 'stardust_magnet', label: 'Magnet' }
+    { kind: 'magnet', id: 'stardust_magnet', label: 'Magnet' },
+    { kind: 'seeker', id: 'molten_seeker', label: `${RULES.SEEKER_RANGE_M} m reach` }
   ];
   for (const b of bits) {
     const fx = store.effect(b.kind, now);
@@ -1845,9 +1847,15 @@ export function renderEffectChips(now = Date.now()) {
   if (event) {
     const blurb = event.id === 'raidInvasion'
       ? 'raids everywhere · discs pay an Ultra'
-      : 'grunts everywhere · no limit';
+      : event.id === 'creatureSpotlight'
+        // Names the creature: that is the whole point of the event.
+        ? `${event.species?.name || 'a creature'} everywhere · +${SPOTLIGHT_BONUS_CANDY} candy`
+        : 'grunts everywhere · no limit';
+    const icon = event.id === 'raidInvasion' ? '🔥'
+      : event.id === 'creatureSpotlight' ? '🌟'
+      : '🥋';
     host.append(el('div', { class: `fx-chip event-${event.id}` },
-      el('span', { text: event.id === 'raidInvasion' ? '🔥' : '🥋' }),
+      el('span', { text: icon }),
       el('span', { text: `${event.label} · ${blurb}` }),
       el('b', { text: timeLeftLabel(event.endsIn) })
     ));

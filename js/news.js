@@ -15,7 +15,7 @@
    ============================================================ */
 
 import { store } from './state.js';
-import { calendarDays } from './data.js';
+import { calendarDays, nextSpotlight, SPOTLIGHT_START } from './data.js';
 import { $, el, openSheet } from './ui.js';
 
 const NEWS_URL = './news.json';
@@ -173,13 +173,34 @@ function renderCalendar() {
     ? 'Every recurring event coming up, in your own local time.'
     : 'Nothing scheduled in the next week.';
 
+  // The next Creature Spotlight gets its own banner: which creature is featured
+  // is the one thing worth planning around, and it changes every week.
+  const next = nextSpotlight();
+  if (next) {
+    const when = next.live
+      ? 'on now'
+      : next.start.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' })
+        + ` · ${clockLabel(SPOTLIGHT_START)}`;
+    body.append(el('div', { class: 'cal-spotlight' + (next.live ? ' live' : '') },
+      el('img', { src: next.species.imagePath, alt: next.species.name }),
+      el('div', { class: 'cal-spot-main' },
+        el('div', { class: 'cal-spot-tag', text: next.live ? 'SPOTLIGHT ON NOW' : 'NEXT SPOTLIGHT' }),
+        el('b', { text: next.species.name }),
+        el('div', { class: 'muted small', text: when })
+      )
+    ));
+  }
+
   for (const day of days) {
     body.append(el('div', { class: 'cal-day' + (day.isToday ? ' today' : '') },
       el('div', { class: 'cal-date' }, el('b', { text: dayHeading(day) })),
       day.events.length
         ? el('div', { class: 'cal-events' }, ...day.events.map(e =>
           el('div', { class: 'cal-event' + (e.allDay ? ' all-day' : '') },
-            el('span', { class: 'cal-ico', text: e.icon }),
+            // A spotlight row shows the creature itself instead of an emoji.
+            e.art
+              ? el('img', { class: 'cal-art', src: e.art, alt: '' })
+              : el('span', { class: 'cal-ico', text: e.icon }),
             el('div', { class: 'cal-main' },
               el('b', { text: e.label }),
               el('div', { class: 'muted small', text: e.blurb })

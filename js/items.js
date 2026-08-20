@@ -110,7 +110,7 @@ export const ITEMS = {
     image: 'breedingcenter.png',
     use: 'place',
     order: 7,
-    blurb: 'Pin it to the map once. Leave two creatures of the same species inside to generate candy.'
+    blurb: 'Pin it to the map, then leave two creatures of the same species inside to generate candy. You can pick it back up and move it once every pair has been collected.'
   },
   incubator: {
     id: 'incubator',
@@ -140,6 +140,16 @@ export const ITEMS = {
     order: 10,
     blurb: `Single use like the one above, but it cuts the distance the egg needs by ${Math.round(incubatorDiscount(SUPER_INCUBATOR) * 100)}% — a 10 km egg hatches after 7.5 km. Dropped by grunt battles and some daily missions.`
   },
+  molten_seeker: {
+    id: 'molten_seeker',
+    name: 'Molten Seeker',
+    plural: 'Molten Seekers',
+    image: 'Molten_Seeker.png',
+    use: 'timed',
+    order: 6.5,
+    durationMs: RULES.SEEKER_DURATION_MS,
+    blurb: `For ${Math.round(RULES.SEEKER_DURATION_MS / 60_000)} minutes you can reach ${RULES.SEEKER_RANGE_M} m instead of ${RULES.CAPTURE_RANGE_M} m, so creatures, discs, raids, grunts and your buildings can all be tapped from twice as far away.`
+  },
   stat_booster: {
     id: 'stat_booster',
     name: 'Stat Booster',
@@ -157,7 +167,7 @@ export const ITEMS = {
     image: 'resarch_lab.png',
     use: 'place',
     order: 12,
-    blurb: 'Pin it to the map once, like a Breeding Centre. Visit it to turn spare candy into Stat Boosters.'
+    blurb: 'Pin it to the map, like a Breeding Centre. Visit it to turn spare candy into Stat Boosters, and pick it back up any time to move it.'
   }
 };
 
@@ -168,6 +178,16 @@ export const ITEM_IDS = Object.keys(ITEMS);
  * only one can burn at a time — no stacking a Shiny on top of a Rare.
  */
 export const INCENSE_ITEMS = ['incense', 'rare_incense', 'shiny_incense'];
+
+/**
+ * Which effect slot a `use: 'timed'` item runs in. Every incense shares one
+ * slot; the magnet and the seeker have their own, so a seeker can burn at the
+ * same time as an incense.
+ */
+export const effectSlotForItem = itemId =>
+  INCENSE_ITEMS.includes(itemId) ? 'incense'
+    : itemId === 'molten_seeker' ? 'seeker'
+    : 'magnet';
 
 export const item = id => ITEMS[id] || null;
 

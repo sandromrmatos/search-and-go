@@ -11,6 +11,8 @@ import {
   rollShiny, chance, RULES, RAID_CAPTURE_LEVEL, RAID_CAPTURE_BONUS_CANDY,
   MISSIONS, DAILY_MISSIONS, WEEKLY_MISSIONS, SET_MISSIONS,
   setGalacticUnlocked, isMythicalEgg, eggCanBeShiny, MYTHICAL_EGG_TYPE,
+  dueSpotlightSpawn, EFFECT_SLOTS, EFFECT_KINDS,
+  ESSENCE_WINDOW_HOURS, ESSENCE_MIN_LEVEL, ESSENCE_SEEKER_CHANCE, essenceEligible,
   breedingSlotsFor, breedingIntervalMs,
   BREEDING_CANDY_CAP, BREEDING_UNLOCK_LEVEL,
   dustInRange, weightedPick, GRUNT_REWARD, levelUpRewardsFor,
@@ -54,8 +56,24 @@ export const GRUNT_WINDOW_HOURS = 8;
 export const gruntWindowIndex = (d = new Date()) => Math.floor(d.getHours() / GRUNT_WINDOW_HOURS);
 export const gruntWindowKey = (d = new Date()) => `${dayKey(d)}#${gruntWindowIndex(d)}`;
 
+/**
+ * Identifies one scheduled Creature Spotlight spawn, e.g. "2026-08-24#3".
+ * The slot index comes from the rarity's offset list, so the same stamp shape
+ * works whether that rarity gets two spawns in the hour or six.
+ */
+export const spotlightSlotKey = (d = new Date(), slot = 0) => `${dayKey(d)}#${slot}`;
+
+/**
+ * Essence Harvesting runs once per two-hour block: 00:00–02:00, 02:00–04:00 and
+ * so on, twelve a day. Same shape as the grunt window, different divisor.
+ */
+export const essenceWindowIndex = (d = new Date()) => Math.floor(d.getHours() / ESSENCE_WINDOW_HOURS);
+export const essenceWindowKey = (d = new Date()) => `${dayKey(d)}#${essenceWindowIndex(d)}`;
+
 const blankWeekly = () => ({
-  week: weekKey(), capturesWeek: 0, metresWeek: 0, days: {}, claimed: {}
+  week: weekKey(), capturesWeek: 0, metresWeek: 0, days: {}, claimed: {},
+  /** Essence harvests that paid candy this week. */
+  essenceWeek: 0
 });
 
 /**
@@ -66,7 +84,9 @@ const blankWeekly = () => ({
 const blankDaily = () => ({
   date: dayKey(), capturesToday: 0, metresToday: 0, claimed: {},
   /** shopItemId -> how many bought today. Enforces the per-day shop caps. */
-  shop: {}
+  shop: {},
+  /** Essence harvests that paid candy today. */
+  essenceToday: 0
 });
 
 function blankState() {
@@ -87,7 +107,7 @@ function blankState() {
     caughtCount: {},   // speciesId -> total number ever caught (including released)
 
     points: [],         // live map points of every kind
-    effects: { incense: null, magnet: null },
+    effects: { incense: null, magnet: null, seeker: null },
     breeding: null,     // { lat, lng, placedAt, slots: [...] }
     researchLab: null,  // { lat, lng, placedAt }
     /** Galactic Adventures rarities opened by the Set missions. Never resets. */
@@ -103,6 +123,15 @@ function blankState() {
     /** Day + 8-hour slot of the last "grunt at your feet" spawn, e.g. "2026-08-13#1". */
     gruntWindow: null,
 
+    /**
+     * Which scheduled Creature Spotlight spawn has already been handed out,
+     * e.g. "2026-08-24#3" for the fourth slot of that Monday's hour.
+     */
+    spotlightSpawn: null,
+
+    /** Day + 2-hour block of the last Essence Harvesting spawn. */
+    essenceWindow: null,
+
     /** Newest news entry the player has seen, as a timestamp. */
     newsSeenAt: 0,
 
@@ -114,7 +143,9 @@ function blankState() {
       raidsByRarity: {},  // rarity -> raid bosses beaten, for the per-rarity missions
       exclusiveRaidsWon: 0,
       exclusiveRaidsByRarity: {},
-      adsWatched: 0, shopBuys: 0
+      adsWatched: 0, shopBuys: 0,
+      /** Harvests that paid at least one candy — what the missions count. */
+      essenceHarvests: 0
     },
 
     lastScanAt: 0,
@@ -252,7 +283,7 @@ export function migrate(raw) {
   for (const k of Object.keys(s.candy)) if (!DB.byId.has(k)) delete s.candy[k];
 
   // ---- effects: drop anything already finished ----
-  for (const key of ['incense', 'magnet']) {
+  for (const key of EFFECT_KINDS) {
     const fx = s.effects[key];
     if (!fx || !(Number(fx.endsAt) > now)) s.effects[key] = null;
   }
@@ -315,6 +346,7 @@ export function migrate(raw) {
   // ---- daily reset ----
   s.daily.capturesToday = Math.max(0, Math.floor(Number(s.daily.capturesToday) || 0));
   s.daily.metresToday = Math.max(0, Number(s.daily.metresToday) || 0);
+  s.daily.essenceToday = Math.max(0, Math.floor(Number(s.daily.essenceToday) || 0));
   // Shop tallies are clamped to that row's own cap, so a tampered save cannot
   // hand out more than a day's worth and cannot go negative either.
   const rawShop = (s.daily.shop && typeof s.daily.shop === 'object') ? s.daily.shop : {};
@@ -330,10 +362,13 @@ export function migrate(raw) {
   s.weekly.claimed = { ...(s.weekly.claimed || {}) };
   s.weekly.capturesWeek = Math.max(0, Math.floor(Number(s.weekly.capturesWeek) || 0));
   s.weekly.metresWeek = Math.max(0, Number(s.weekly.metresWeek) || 0);
+  s.weekly.essenceWeek = Math.max(0, Math.floor(Number(s.weekly.essenceWeek) || 0));
   if (s.weekly.week !== weekKey()) s.weekly = blankWeekly();
 
   // ---- grunt window stamp ----
   s.gruntWindow = typeof s.gruntWindow === 'string' ? s.gruntWindow : null;
+  s.spotlightSpawn = typeof s.spotlightSpawn === 'string' ? s.spotlightSpawn : null;
+  s.essenceWindow = typeof s.essenceWindow === 'string' ? s.essenceWindow : null;
 
   // ---- uid counter ----
   let maxUid = 0;
@@ -1165,6 +1200,9 @@ class Store {
   isMagnetActive(now = Date.now()) { return !!this.effect('magnet', now); }
   isIncenseActive(now = Date.now()) { return !!this.effect('incense', now); }
 
+  /** A Molten Seeker is burning, so the interaction radius is widened. */
+  isSeekerActive(now = Date.now()) { return !!this.effect('seeker', now); }
+
   /** True while the running incense is the Rare variety. */
   isRareIncense(now = Date.now()) { return !!this.effect('incense', now)?.rare; }
 
@@ -1180,11 +1218,13 @@ class Store {
    * one. `useItemId` chooses which incense is burned.
    */
   startEffect(kind, now = Date.now(), useItemId = null) {
-    const itemId = useItemId || (kind === 'incense' ? 'incense' : 'stardust_magnet');
+    const slot = EFFECT_SLOTS[kind];
+    if (!slot) return { ok: false, reason: 'unknown' };
+    const itemId = useItemId || slot.defaultItem;
     if (this.effect(kind, now)) return { ok: false, reason: 'active' };
     if (!this.hasItem(itemId)) return { ok: false, reason: 'noItem' };
 
-    const duration = kind === 'incense' ? RULES.INCENSE_DURATION_MS : RULES.MAGNET_DURATION_MS;
+    const duration = slot.durationMs;
     this.spendItem(itemId);
     this.s.effects[kind] = {
       startedAt: now,
@@ -1205,7 +1245,7 @@ class Store {
 
   clearExpiredEffects(now = Date.now()) {
     let changed = false;
-    for (const kind of ['incense', 'magnet']) {
+    for (const kind of EFFECT_KINDS) {
       const fx = this.s.effects[kind];
       if (fx && fx.endsAt <= now) { this.s.effects[kind] = null; changed = true; }
     }
@@ -1595,6 +1635,85 @@ class Store {
     this.touch('grunt-window', { immediate: true });
   }
 
+  /* ---------------- the spotlight creature who finds you ---------------- */
+
+  /**
+   * The scheduled spotlight spawn due right now has not been handed out yet.
+   * Keyed on the slot index rather than the clock, so opening the game late in
+   * a slot still gets that slot's creature — and only once.
+   */
+  canSpawnSpotlight(now = new Date()) {
+    const slot = dueSpotlightSpawn(now);
+    if (slot < 0) return false;
+    return this.s.spotlightSpawn !== spotlightSlotKey(now, slot);
+  }
+
+  markSpotlightSpawned(now = new Date(), slot = dueSpotlightSpawn(now)) {
+    this.s.spotlightSpawn = spotlightSlotKey(now, slot);
+    this.touch('spotlight', { immediate: true });
+  }
+
+  /* ---------------- essence harvesting ---------------- */
+
+  /**
+   * Every species you have registered, which is the pool an essence is drawn
+   * from — uniformly, so a Legendary is as likely as your first Common.
+   * Mythicals are left out: registering one must not put its candy on a
+   * two-hourly drip.
+   */
+  essenceCandidates() {
+    return Object.keys(this.s.registered)
+      .map(id => species(id))
+      .filter(essenceEligible);
+  }
+
+  /**
+   * Whether a harvest is owed: past the level gate, something registered, and
+   * this two-hour block has not produced one yet.
+   */
+  canSpawnEssence(now = new Date()) {
+    if (this.level < ESSENCE_MIN_LEVEL) return false;
+    if (!this.essenceCandidates().length) return false;
+    return this.s.essenceWindow !== essenceWindowKey(now);
+  }
+
+  markEssenceSpawned(now = new Date()) {
+    this.s.essenceWindow = essenceWindowKey(now);
+    this.touch('essence', { immediate: true });
+  }
+
+  /**
+   * Banks the result of one harvest: candy for that family, the mission
+   * counters, and the Molten Seeker roll. Only a harvest that actually paid
+   * candy counts towards the missions — a run of six misses is not a harvest.
+   */
+  finishEssenceHarvest(speciesId, candy) {
+    const sp = species(speciesId);
+    const won = Math.max(0, Math.floor(Number(candy) || 0));
+    if (!sp) return { ok: false, reason: 'missing' };
+
+    let candyTotal = this.candyFor(sp.id);
+    let seeker = false;
+    if (won > 0) {
+      candyTotal = this.addCandy(sp.id, won);
+      this.s.stats.essenceHarvests = (this.s.stats.essenceHarvests || 0) + 1;
+      this.bumpDaily('essenceToday');
+      this.bumpEssenceWeek();
+      if (chance(ESSENCE_SEEKER_CHANCE)) {
+        this.addItem('molten_seeker');
+        seeker = true;
+      }
+    }
+    this.touch('essence', { immediate: true });
+    return { ok: true, candy: won, candyTotal, seeker, species: sp };
+  }
+
+  /** Counts a paying harvest towards the weekly mission, rolling the week. */
+  bumpEssenceWeek(n = 1) {
+    if (this.s.weekly.week !== weekKey()) this.s.weekly = blankWeekly();
+    this.s.weekly.essenceWeek = (this.s.weekly.essenceWeek || 0) + n;
+  }
+
   /* ---------------- breeding centre ---------------- */
 
   get breedingUnlocked() { return this.level >= BREEDING_UNLOCK_LEVEL; }
@@ -1609,6 +1728,38 @@ class Store {
     return { ok: true };
   }
 
+  /**
+   * How many breeding slots have hit the candy cap. Derived rather than stored,
+   * because a slot fills purely by the clock — nothing writes to the save at
+   * the moment it happens, so a flag would go stale.
+   */
+  breedingFullSlots(now = Date.now()) {
+    if (!this.s.breeding) return 0;
+    return this.s.breeding.slots
+      .filter(sl => this.breedingProgress(sl, now).earned >= BREEDING_CANDY_CAP)
+      .length;
+  }
+
+  /**
+   * Picks the breeding centre back up, returning it to your Items so it can be
+   * pinned somewhere else.
+   *
+   * Every pair has to be collected first: a creature inside carries the index
+   * of its slot, and dropping the building would leave those indices pointing
+   * at nothing — the creatures would stay permanently unavailable for battling,
+   * breeding and Stat Boosters with no way to free them.
+   */
+  moveBreedingCentre() {
+    if (!this.s.breeding) return { ok: false, reason: 'noCentre' };
+    const occupied = this.s.breeding.slots.length;
+    if (occupied) return { ok: false, reason: 'occupied', slots: occupied };
+
+    this.s.breeding = null;
+    this.addItem('breeding_center');
+    this.touch('breeding', { immediate: true });
+    return { ok: true };
+  }
+
   /* ---------------- research lab ---------------- */
 
   placeResearchLab(lat, lng) {
@@ -1616,6 +1767,15 @@ class Store {
     if (!this.hasItem('research_lab')) return { ok: false, reason: 'noItem' };
     this.spendItem('research_lab');
     this.s.researchLab = { lat, lng, placedAt: Date.now() };
+    this.touch('research-lab', { immediate: true });
+    return { ok: true };
+  }
+
+  /** The lab holds nothing, so it can always be picked up and re-placed. */
+  moveResearchLab() {
+    if (!this.s.researchLab) return { ok: false, reason: 'noLab' };
+    this.s.researchLab = null;
+    this.addItem('research_lab');
     this.touch('research-lab', { immediate: true });
     return { ok: true };
   }
@@ -1851,6 +2011,11 @@ class Store {
       case 'metresToday':
         return this.s.daily.date === dayKey() ? (this.s.daily.metresToday || 0) : 0;
       case 'metresWeek': return this.weekly.metresWeek || 0;
+      // Essence Harvesting: only harvests that paid at least one candy count.
+      case 'essenceHarvests': return this.s.stats.essenceHarvests || 0;
+      case 'essenceToday':
+        return this.s.daily.date === dayKey() ? (this.s.daily.essenceToday || 0) : 0;
+      case 'essenceWeek': return this.weekly.essenceWeek || 0;
       default: return 0;
     }
   }
@@ -1862,19 +2027,30 @@ class Store {
       : scope === 'weekly' ? !!this.weekly.claimed?.[m.id]
       // 'lifetime' and 'set' share the permanent store.
       : !!this.s.missions[m.id];
-    // A mission can carry a second condition on top of its bar. `requireLevel`
-    // does not move the bar, it just holds the claim back until you get there.
+    // A mission can carry a second condition on top of its bar. Neither moves
+    // the bar — they just hold the claim back until you get there, so the bar
+    // keeps showing the part you are actually working on.
+    //
+    // `requireLevel` is a player level (the Research Lab mission), `requireXp`
+    // is total lifetime XP (the Set ladder). A mission may carry either.
     const levelMet = !m.requireLevel || this.level >= m.requireLevel;
+    const xpMet = !m.requireXp || this.s.xp >= m.requireXp;
+    const gateMet = levelMet && xpMet;
     const hit = progress >= m.target;
     return {
       def: m, scope, daily: scope === 'daily', weekly: scope === 'weekly',
       progress,
       target: m.target,
-      levelMet,
+      // `levelMet` keeps its old name and meaning: "every extra gate is met".
+      // Existing readers treat it as the single go/no-go flag.
+      levelMet: gateMet,
       levelNeeded: m.requireLevel || null,
-      complete: hit && levelMet,
+      xpMet,
+      xpNeeded: m.requireXp || null,
+      xpShort: m.requireXp ? Math.max(0, m.requireXp - this.s.xp) : 0,
+      complete: hit && gateMet,
       claimed,
-      claimable: hit && levelMet && !claimed
+      claimable: hit && gateMet && !claimed
     };
   }
 

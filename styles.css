@@ -124,6 +124,27 @@ a { color: var(--accent); }
 }
 .cal-event.all-day { border-color: #ffd16644; background: #ffd16610; }
 .cal-ico { font-size: 18px; flex: 0 0 auto; }
+/* A Creature Spotlight row shows the featured creature rather than an emoji. */
+.cal-art { width: 30px; height: 30px; object-fit: contain; flex: 0 0 auto; }
+
+/* The next-spotlight banner at the top of the calendar. */
+.cal-spotlight {
+  display: flex; align-items: center; gap: 12px;
+  margin: 0 0 12px; padding: 11px 13px; border-radius: 14px;
+  background: linear-gradient(135deg, #ffd16620, var(--panel-solid));
+  border: 1px solid #ffd16677;
+}
+.cal-spotlight.live { box-shadow: 0 0 16px #ffd16644; border-color: #ffd166; }
+.cal-spotlight img {
+  width: 58px; height: 58px; object-fit: contain; flex: 0 0 auto;
+  filter: drop-shadow(0 0 8px #ffd16688);
+}
+.cal-spot-main { min-width: 0; }
+.cal-spot-main b { font-size: 16px; display: block; }
+.cal-spot-tag {
+  font-size: 9px; font-weight: 800; letter-spacing: .6px; color: var(--accent2);
+  margin-bottom: 2px;
+}
 .cal-main { flex: 1; min-width: 0; }
 .cal-main b { font-size: 13.5px; }
 .cal-when {
@@ -424,6 +445,19 @@ a { color: var(--accent); }
 .glow-item  { background: radial-gradient(circle, #ff444466 0%, transparent 70%); }
 .glow-raid  { background: radial-gradient(circle, #ff6b3c66 0%, transparent 70%); }
 .glow-exraid { background: radial-gradient(circle, #3ca8ff77 0%, transparent 70%); }
+/* ---- Essence Harvesting point ----
+   Shows the creature's own artwork inside a soft teal aura, so you can tell at
+   a glance whose essence it is and whether it is worth walking to. */
+.glow-essence {
+  background: radial-gradient(circle, #6ee7f099 0%, #6ee7f000 70%);
+  animation: pulse 2.1s ease-in-out infinite;
+}
+.spawn-marker.kind-essence .ico-essence {
+  width: 40px; height: 40px; object-fit: contain;
+  filter: drop-shadow(0 0 8px #6ee7f0) drop-shadow(0 2px 4px #0008);
+}
+.spawn-marker.kind-essence.in-range .ico-essence { animation: gruntBob 1.6s ease-in-out infinite; }
+
 .glow-grunt { background: radial-gradient(circle, #b07cff55 0%, transparent 70%); }
 
 /* ---- collected: stays on the map, ticked, until the timer runs out ---- */
@@ -442,11 +476,29 @@ a { color: var(--accent); }
 
 /* ---- breeding centre pin ---- */
 .breed-flag {
+  position: relative;   /* anchors .breed-badge */
   width: 40px; height: 46px; display: grid; place-items: center;
   font-size: 26px; color: #ffd9f0;
   filter: drop-shadow(0 0 8px #ff8ec7) drop-shadow(0 2px 4px #0008);
 }
 .breed-flag.in-range { animation: gruntBob 1.4s ease-in-out infinite; color: #b9ffd0; filter: drop-shadow(0 0 10px #4ade80); }
+
+/* "A pair has finished its candy" — a candy-coloured pip on the flag. It sits
+   on the flag rather than the rotating wrapper so it stays upright with it. */
+.breed-badge {
+  position: absolute; top: 0; right: 1px;
+  min-width: 15px; height: 15px; padding: 0 3px;
+  border-radius: 99px; border: 2px solid #101736;
+  background: var(--accent2); color: #241c00;
+  font-size: 9.5px; font-weight: 800; font-style: normal; line-height: 11px;
+  display: grid; place-items: center;
+  box-shadow: 0 0 8px var(--accent2);
+  animation: breedPip 1.6s ease-in-out infinite;
+}
+@keyframes breedPip {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.22); }
+}
 /* Research Lab shares the pin shape, in its own colour. */
 .breed-flag.lab-flag {
   font-size: 23px; color: #cfe3ff;
@@ -642,6 +694,8 @@ a { color: var(--accent); }
 .fx-chip b { font-variant-numeric: tabular-nums; }
 .fx-chip.incense { border-color: #ff8ec766; color: #ffd9f0; }
 .fx-chip.magnet { border-color: #ffd16666; color: #fff0c2; }
+/* Molten Seeker: molten orange, and it widens the green reach ring. */
+.fx-chip.seeker { border-color: #ff7a3c88; color: #ffd6c2; }
 .fx-chip.sunday {
   border-color: #ffd16688; color: #fff3cd;
   background: linear-gradient(135deg, rgba(90,66,20,.95), rgba(11,16,36,.95));
@@ -658,6 +712,12 @@ a { color: var(--accent); }
   border-color: #ff7a3c99; color: #ffdcc7;
   background: linear-gradient(135deg, rgba(110,48,20,.95), rgba(11,16,36,.95));
   box-shadow: 0 0 12px #ff7a3c44;
+}
+/* Creature Spotlight borrows the star gold of the featured-creature glow. */
+.fx-chip.event-creatureSpotlight {
+  border-color: #ffd16699; color: #fff3cd;
+  background: linear-gradient(135deg, rgba(92,72,18,.95), rgba(11,16,36,.95));
+  box-shadow: 0 0 12px #ffd16644;
 }
 .fx-chip.event-trainingDojo {
   border-color: #b07cff99; color: #e8dcff;
@@ -1314,6 +1374,72 @@ a { color: var(--accent); }
 }
 
 /* ============================================================
+   ESSENCE HARVESTING
+   ============================================================ */
+.essence-meta { display: flex; align-items: center; gap: 7px; font-size: 12px; margin: 8px 0 6px; }
+
+.essence-pins { display: flex; align-items: center; gap: 3px; margin: 6px 0 8px; font-size: 14px; }
+.essence-pins .pin { line-height: 1; transition: opacity .15s ease; }
+.essence-pins .pin.spent { opacity: .22; filter: grayscale(1); }
+.essence-pins .muted { margin-left: 6px; }
+
+/* The board. Fixed aspect so the difficulty does not change with screen size. */
+.essence-board {
+  position: relative; width: 100%; aspect-ratio: 1 / 1; max-height: 58vh;
+  border-radius: 16px; overflow: hidden; cursor: crosshair;
+  background: radial-gradient(circle at 50% 40%, #16224e 0%, #0a0f24 75%);
+  border: 1px solid var(--line);
+  /* The whole point is tapping precisely, so no scroll-through or callouts. */
+  touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none;
+}
+.essence-target { position: absolute; left: 0; top: 0; will-change: transform; }
+.essence-target .ring {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  border-radius: 50%; border: 1.5px solid;
+}
+.essence-target .ring.outer { border-color: #6ee7f04d; background: #6ee7f00f; }
+.essence-target .ring.mid   { border-color: #6ee7f08c; background: #6ee7f01a; }
+.essence-target .ring.inner { border-color: #ffd166; background: #ffd16626; box-shadow: 0 0 12px #ffd16644; }
+.essence-art {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 44px; height: 44px; object-fit: contain; pointer-events: none;
+  filter: drop-shadow(0 0 8px #6ee7f0aa);
+}
+
+/* "+3" / "miss" where the tap landed */
+.essence-splash {
+  position: absolute; transform: translate(-50%, -50%);
+  font-size: 15px; font-weight: 800; pointer-events: none;
+  animation: essenceFloat .7s ease-out forwards;
+}
+.essence-splash.hit-inner { color: #ffd166; }
+.essence-splash.hit-mid   { color: #9af0ff; }
+.essence-splash.hit-outer { color: #b9c2e6; }
+.essence-splash.miss      { color: #ff9b9b; font-size: 12.5px; }
+@keyframes essenceFloat {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(.7); }
+  25%  { opacity: 1; transform: translate(-50%, -80%) scale(1.1); }
+  100% { opacity: 0; transform: translate(-50%, -160%) scale(1); }
+}
+
+/* the result panel */
+.essence-result { text-align: center; padding: 6px 0 2px; }
+.essence-result-art { width: 96px; height: 96px; object-fit: contain; }
+.essence-result h4 { margin: 6px 0 4px; font-size: 17px; }
+.essence-breakdown { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 10px 0 2px; }
+.essence-tag {
+  font-size: 11px; padding: 3px 9px; border-radius: 99px;
+  background: #6ee7f01f; border: 1px solid #6ee7f055; color: #cbf5ff;
+}
+.essence-tag.miss { background: #ff6b6b1a; border-color: #ff6b6b55; color: #ffc7c7; }
+.essence-bonus {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  margin: 12px 0 0; padding: 9px 12px; border-radius: 12px; font-size: 13px;
+  background: #ff7a3c1a; border: 1px solid #ff7a3c66; color: #ffd6c2;
+}
+.essence-bonus img { width: 26px; height: 26px; object-fit: contain; }
+
+/* ============================================================
    EGGS
    ============================================================ */
 .eggs-grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
@@ -1447,6 +1573,20 @@ a { color: var(--accent); }
 .breed-pair { display: flex; gap: 6px; align-items: center; }
 .breed-pair img { width: 42px; height: 42px; object-fit: contain; }
 .breed-candy { font-size: 12px; color: #ffe9a8; font-weight: 700; }
+.breed-candy.done { color: var(--good); }
+
+/* A slot that has hit the candy cap: nothing more is accruing, so it is worth
+   walking over for. Matches the claimable-mission treatment. */
+.breed-slot.full {
+  border-color: #ffd16688;
+  background: linear-gradient(135deg, #ffd16618, #ffffff0a);
+  box-shadow: 0 0 14px #ffd16622;
+}
+.breed-full-tag {
+  font-size: 8.5px; font-weight: 800; letter-spacing: .5px;
+  padding: 2px 6px; border-radius: 99px;
+  background: var(--accent2); color: #241c00;
+}
 .breed-next { font-size: 11px; color: var(--muted); margin-top: 4px; }
 
 /* ============================================================

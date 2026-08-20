@@ -23,12 +23,15 @@
 import {
   RULES, randInt, rollSpawnSpecies, rollPOIOutcome, rollDiscDrop, rollItemDrop,
   rollRaid, rollExclusiveRaid, rollShiny, species, gruntLevelRange, GRUNT_CHARACTERS, GRUNT_PHRASES,
-  BATTLE_TEAM_SIZE, DB, chance, RARE_INCENSE_WEIGHTS,
-  isRaidInvasion, applyRaidInvasionBonus, gruntsAreUncapped
+  BATTLE_TEAM_SIZE, DB, chance, RARE_INCENSE_WEIGHTS, RARITY_WEIGHTS,
+  isRaidInvasion, applyRaidInvasionBonus, gruntsAreUncapped,
+  rollWildSpecies, isCreatureSpotlight, spotlightSpecies, dueSpotlightSpawn, familyRarity,
+  essenceEligible, ESSENCE_MAX_RARITY,
+  SPOTLIGHT_LABEL, SPOTLIGHT_SPAWN_MS, ESSENCE_SPAWN_MS
 } from './data.js';
 import { distance, offsetMeters } from './geo.js';
 import { fetchPOIs, splitPOIs } from './osm.js';
-import { store, gruntWindowKey } from './state.js';
+import { store, gruntWindowKey, spotlightSlotKey, essenceWindowKey } from './state.js';
 import { itemName } from './items.js';
 
 let scanning = false;
@@ -64,7 +67,9 @@ function basePoint(kind, poi, now) {
 }
 
 function makeCreaturePoint(poi, now) {
-  const sp = rollSpawnSpecies();
+  // rollWildSpecies, not rollSpawnSpecies: during the Creature Spotlight hour a
+  // matching rarity has a chance of becoming the featured creature.
+  const sp = rollWildSpecies(RARITY_WEIGHTS, new Date(now));
   // Shiny is decided at capture time for wild spawns, so it stays a surprise.
   return { ...basePoint('creature', poi, now), speciesId: sp.id };
 }
@@ -333,7 +338,9 @@ export function tickIncense(pos, now = Date.now()) {
   // A Rare Incense rolls the same pools against much rarer-leaning weights.
   // A Shiny Incense uses the plain pool — its difference is the shiny roll,
   // which happens at capture time.
-  const sp = fx.rare ? rollSpawnSpecies(RARE_INCENSE_WEIGHTS) : rollSpawnSpecies();
+  // An incense is a spawn like any other, so the spotlight substitution applies
+  // to it too — against the Rare weights when a Rare Incense is burning.
+  const sp = rollWildSpecies(fx.rare ? RARE_INCENSE_WEIGHTS : RARITY_WEIGHTS, new Date(now));
   const itemId = fx.itemId || 'incense';
   const point = {
     id: newId('incense'),
@@ -356,8 +363,108 @@ export function tickIncense(pos, now = Date.now()) {
 }
 
 /* ---------------------------------------------------------------
-   The trainer who finds you
+   Spawns that come to you
    --------------------------------------------------------------- */
+
+/**
+ * The Creature Spotlight's guaranteed spawn: the featured creature appears on
+ * the player's own position at each scheduled minute of the spotlight hour and
+ * lives for SPOTLIGHT_SPAWN_MS.
+ *
+ * Unlike a wild spawn this is never a roll — it is always the featured
+ * creature — and like the window grunt it ignores spacing rules entirely.
+ *
+ * @returns the new point, or null when this slot has already been handed out.
+ */
+export function spawnSpotlightCreature(pos, now = Date.now()) {
+  if (!pos) return null;
+  const when = new Date(now);
+  if (!isCreatureSpotlight(when)) return null;
+  if (!store.canSpawnSpotlight(when)) return null;
+
+  const sp = spotlightSpecies(when);
+  if (!sp) return null;
+  const slot = dueSpotlightSpawn(when);
+
+  const point = {
+    id: newId('spotlight'),
+    kind: 'creature',
+    // Tagged so the capture path can pay the spotlight candy bonus and the map
+    // can give it its own glow.
+    source: 'spotlight',
+    poiId: 'spotlight/' + spotlightSlotKey(when, slot),
+    lat: pos.lat,
+    lng: pos.lng,
+    poiName: `${SPOTLIGHT_LABEL}: ${sp.name}`,
+    poiKind: 'spotlight',
+    poiKindValue: sp.id,
+    speciesId: sp.id,
+    createdAt: now,
+    // A flat five minutes rather than the randomised creature lifetime.
+    expiresAt: now + SPOTLIGHT_SPAWN_MS,
+    collected: false
+  };
+
+  store.addPoints([point]);
+  store.markSpotlightSpawned(when, slot);
+  return point;
+}
+
+/**
+ * Essence Harvesting: a creature you have already registered turns up somewhere
+ * in the scan radius once per two-hour block, and sits there for 30 minutes.
+ *
+ * Unlike every other spawn this is not rolled from a rarity table — it is a
+ * uniform pick from your own registry, so it is always something you have met.
+ *
+ * @returns the new point, or null when this block already had one.
+ */
+export function spawnEssence(pos, now = Date.now()) {
+  if (!pos) return null;
+  const when = new Date(now);
+  if (!store.canSpawnEssence(when)) return null;
+
+  const pool = store.essenceCandidates();
+  if (!pool.length) return null;
+  const sp = pool[Math.floor(Math.random() * pool.length)];
+
+  // Anywhere in the scan radius, but not right on top of something else.
+  const active = store.activePoints(now);
+  const taken = active.map(p => ({ lat: p.lat, lng: p.lng }));
+  let spot = null;
+  for (let i = 0; i < rule('GRUNT_PLACEMENT_TRIES', 24); i++) {
+    const pt = scatterNear(pos, 10, rule('SCAN_RADIUS_M', 250));
+    if (tooClose(pt, taken, rule('MIN_SPAWN_SEPARATION_M', 15))) continue;
+    spot = pt;
+    break;
+  }
+  if (!spot) return null;
+
+  const point = makeEssencePoint(sp, spot, now, 'essence/' + essenceWindowKey(when));
+
+  store.addPoints([point]);
+  store.markEssenceSpawned(when);
+  return point;
+}
+
+/** The essence point itself, shared by the real spawn and the debug button. */
+function makeEssencePoint(sp, spot, now, poiId) {
+  return {
+    id: newId('essence'),
+    kind: 'essence',
+    source: 'essence',
+    poiId,
+    lat: spot.lat,
+    lng: spot.lng,
+    poiName: `${sp.name}'s essence`,
+    poiKind: 'essence',
+    poiKindValue: sp.id,
+    speciesId: sp.id,
+    createdAt: now,
+    expiresAt: now + ESSENCE_SPAWN_MS,
+    collected: false
+  };
+}
 
 /**
  * One grunt trainer turns up standing on the player's own position per 8-hour
@@ -418,6 +525,44 @@ export function debugPointAt(pos, kind = 'creature', speciesId = null) {
     point = makeCreaturePoint(poi, now);
     if (speciesId && species(speciesId)) point.speciesId = speciesId;
   }
+  store.addPoints([point]);
+  return point;
+}
+
+/**
+ * A creature of this rarity to harvest. Registered ones come first so the pick
+ * matches what the real spawn would have done, but a fresh save has an empty
+ * registry, so it falls back to the whole database — otherwise the debug button
+ * would do nothing until you had caught something. Either way it honours the
+ * rarity ceiling, so the debug button cannot conjure a mythical essence the
+ * real spawn would never produce.
+ *
+ * @param {number|null} rarity 1 to ESSENCE_MAX_RARITY, or null for any.
+ */
+function pickEssenceSpecies(rarity = null) {
+  if (rarity && rarity > ESSENCE_MAX_RARITY) return null;
+  const matching = list => list.filter(sp =>
+    essenceEligible(sp) && (!rarity || (sp.rarity || familyRarity(sp.id)) === rarity));
+  const pick = list => (list.length ? list[Math.floor(Math.random() * list.length)] : null);
+  return pick(matching(store.essenceCandidates())) || pick(matching(DB.species));
+}
+
+/**
+ * Debug: an essence point at your feet for a rarity you choose, so the rings,
+ * the drift speed and the candy tiers can all be tried at will.
+ *
+ * Deliberately skips every gate the real spawn respects — the level check, the
+ * registry and the once-per-two-hour-block stamp — so it can be fired as often
+ * as you like without using up the block's genuine harvest.
+ *
+ * @returns the new point, or null when no creature has that rarity.
+ */
+export function debugEssenceAt(pos, rarity = null) {
+  if (!pos) return null;
+  const sp = pickEssenceSpecies(Number(rarity) || null);
+  if (!sp) return null;
+  const now = Date.now();
+  const point = makeEssencePoint(sp, pos, now, 'debug-essence/' + now);
   store.addPoints([point]);
   return point;
 }
