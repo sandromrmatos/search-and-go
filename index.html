@@ -13,6 +13,21 @@
 <!-- Leaflet is vendored locally so the game does not depend on a CDN being reachable -->
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
 <link rel="stylesheet" href="styles.css" />
+
+<!-- ============ ADS: AdSense Ad Placement API (H5 games) ============
+     Serves the rewarded video behind the Shop's "Watch a video" button.
+     js/ads.js drives it through window.adBreak / window.adConfig, which are the
+     documented entry points: https://developers.google.com/ad-placement/apis
+
+     The glue below is defined synchronously so calls made before the async
+     script lands are queued on `adsbygoogle` rather than lost. -->
+<script async
+  src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3087746799420474"
+  crossorigin="anonymous"></script>
+<script>
+  window.adsbygoogle = window.adsbygoogle || [];
+  window.adBreak = window.adConfig = function (o) { window.adsbygoogle.push(o); };
+</script>
 </head>
 <body>
 
@@ -169,6 +184,7 @@
               <option value="3">3 · Rare</option>
               <option value="4">4 · Epic</option>
               <option value="5">5 · Legendary</option>
+              <option value="6">6 · Mythical</option>
             </select>
           </label>
           <label class="sel">
@@ -184,6 +200,7 @@
         <div class="collection-progress">
           <span id="collection-count">0 / 0 registered</span>
         </div>
+        <p id="collection-note" class="hint hidden"></p>
         <div id="collection-grid" class="grid"></div>
       </div>
 
@@ -203,6 +220,7 @@
       </div>
       <div class="tabs" id="mission-tabs">
         <button class="tab active" data-mtab="lifetime">Lifetime</button>
+        <button class="tab" data-mtab="set">Set</button>
         <button class="tab" data-mtab="weekly">Weekly</button>
         <button class="tab" data-mtab="daily">Daily</button>
       </div>
@@ -214,9 +232,21 @@
     <section class="view view-news" id="view-news">
       <div class="view-head">
         <h2>News</h2>
-        <div class="view-head-right"><span id="news-count" class="muted"></span></div>
+        <div class="view-head-right">
+          <button id="btn-calendar" class="mini-btn">📅 Calendar</button>
+          <span id="news-count" class="muted"></span>
+        </div>
       </div>
       <div id="news-list" class="news-list"></div>
+    </section>
+
+    <!-- SHOP VIEW -->
+    <section class="view view-shop" id="view-shop">
+      <div class="view-head">
+        <h2>Shop</h2>
+        <div class="view-head-right"><span id="shop-coins" class="shop-coin-chip">🪙 0</span></div>
+      </div>
+      <div id="shop-body"></div>
     </section>
 
     <!-- PROFILE VIEW -->
@@ -306,11 +336,12 @@
   </main>
 
   <!-- ---- BOTTOM NAV ---- -->
-  <nav class="nav nav-6">
+  <nav class="nav nav-7">
     <button class="nav-btn active" data-view="map"><span>🗺</span>Map</button>
     <button class="nav-btn" data-view="storage"><span>🎒</span>Storage</button>
     <button class="nav-btn" data-view="collection"><span>📖</span>Collection</button>
     <button class="nav-btn" data-view="missions" id="nav-missions"><span>🎯</span>Missions</button>
+    <button class="nav-btn" data-view="shop" id="nav-shop"><span>🛒</span>Shop</button>
     <button class="nav-btn" data-view="news" id="nav-news"><span>📰</span>News</button>
     <button class="nav-btn" data-view="profile"><span>👤</span>Profile</button>
   </nav>
@@ -546,6 +577,17 @@
     <h3>⚑ Breeding Centre</h3>
     <p id="breeding-hint" class="muted small"></p>
     <div id="breeding-slots" class="breed-slots"></div>
+  </div>
+</div>
+
+<!-- ============ EVENT CALENDAR ============ -->
+<div id="calendar" class="sheet-wrap hidden">
+  <div class="sheet-backdrop" data-close="calendar"></div>
+  <div class="sheet">
+    <button class="sheet-close" data-close="calendar">✕</button>
+    <h3>📅 The next 7 days</h3>
+    <p id="calendar-hint" class="muted small"></p>
+    <div id="calendar-body"></div>
   </div>
 </div>
 

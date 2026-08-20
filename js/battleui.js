@@ -7,7 +7,7 @@
 import {
   species, RARITY_NAMES, STAT_LABELS, BATTLE_TEAM_SIZE, familyName,
   statsFor, raidBossStats, RAID_CAPTURE_LEVEL, raidModifiers, EXCLUSIVE_RAID_REWARD,
-  eggLabel
+  eggLabel, buffMoveText
 } from './data.js';
 
 /** "+50%" style label straight from the raid modifier table. */
@@ -297,7 +297,7 @@ function showPeek(c) {
               ),
               el('div', { class: 'move-meta' },
                 m.isBuff
-                  ? el('span', { class: 'bf', text: `Raises ${STAT_LABELS[m.buffStat]} by ${Math.round(m.buffPct * 100)}%` })
+                  ? el('span', { class: 'bf', text: buffMoveText(m) })
                   : el('span', { class: 'pw', text: `${m.power} power` })
               )
             )))
@@ -512,6 +512,10 @@ function startFight() {
     ? `A rarity ${ctx.raid.rarity}${ctx.raid.exclusive ? ' exclusive' : ''} ${species(ctx.raid.speciesId).name} towers over you.`
     : `“${ctx.grunt.phrase}”`);
 
+  // Abilities announce themselves as the creatures take the field, before the
+  // first move is chosen, so the player can pick knowing what is in play.
+  for (const e of ctx.battle.abilityLines()) logAbility(e);
+
   step('arena');
   renderArena();
 }
@@ -585,6 +589,27 @@ function renderMoves() {
   });
 }
 
+/**
+ * An ability announcement, in its own colour so it stands apart from the blow
+ * by blow. Says what fired and why, or why nothing did.
+ */
+function logAbility(e) {
+  const who = e.side === 'player' ? 'Your' : 'The opposing';
+  const fired = e.parts.filter(p => p.active);
+
+  // When it fired, read out what it is doing and the condition that did it.
+  // When it did not, the reasons are the interesting part.
+  const detail = fired.length
+    ? `${fired.map(p => p.effect).join(' and ')} — ${fired.map(p => p.reason).join(', ')}`
+    : e.parts.map(p => p.reason).join(', ');
+
+  logLine(
+    `<span class="ability">✦ ${who} <b>${e.actorLabel}</b>: ${e.ability}` +
+    ` — ${detail}.` +
+    `<span class="ability-state">${e.active ? 'triggered' : 'not triggered'}</span></span>`
+  );
+}
+
 function logLine(html, cls = '') {
   const log = $('#bt-log');
   log.append(el('p', { class: cls, html }));
@@ -622,7 +647,10 @@ async function playTurn(moveIndex) {
       const imgSel = e.side === 'player' ? '#bt-mine-img' : '#bt-enemy-img';
       const img = $(imgSel);
       img.classList.remove('buffed'); void img.offsetWidth; img.classList.add('buffed');
-      logLine(`<span class="buff">${e.statLabel} rose to ${e.after} (+${e.pct}%).</span>`);
+      // A multi-stat buff reads as one line listing each stat it raised.
+      const parts = (e.stats?.length ? e.stats : [e])
+        .map(s => `${s.statLabel} rose to ${s.after}`);
+      logLine(`<span class="buff">${parts.join(', ')} (+${e.pct}%).</span>`);
       renderArena();
       await sleep(380);
     } else if (e.type === 'skipped') {
@@ -641,6 +669,9 @@ async function playTurn(moveIndex) {
       logLine(`${e.side === 'player' ? 'Go' : 'They send out'} <b>${e.label}</b>!`);
       renderArena();
       await sleep(360);
+    } else if (e.type === 'ability') {
+      logAbility(e);
+      await sleep(520);
     }
   }
 

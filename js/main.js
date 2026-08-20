@@ -27,8 +27,9 @@ import {
 import {
   initExtras, renderMissions, renderMissionBadge, openBreeding, openResearchLab
 } from './extras.js';
-import { setMissionsRenderer } from './views.js';
-import { renderNews, renderNewsBadge, loadNews } from './news.js';
+import { setMissionsRenderer, setShopRenderer } from './views.js';
+import { initShop, renderShop } from './shop.js';
+import { renderNews, renderNewsBadge, loadNews, openCalendar } from './news.js';
 import { initEggs, maybePromptHatch, showEggDropPopup } from './eggs.js';
 import { $, $$, el, toast, wireSheetClosers, openSheet, closeSheet, num } from './ui.js';
 
@@ -206,6 +207,7 @@ async function boot() {
 
     msg('Setting up…');
     setMissionsRenderer(renderMissions);
+    setShopRenderer(renderShop);
     initUI();
     try {
       GameMap.init('map');
@@ -784,6 +786,8 @@ function initUI() {
     compass.classList.toggle('hidden', deg === 0);
     compass.title = deg === 0 ? 'Face north' : `Rotated ${Math.round(deg)}° · tap to face north`;
   };
+  $('#btn-calendar').addEventListener('click', openCalendar);
+
   // Tapping the chip forces a scan, but only when one is already due or the last
   // one failed — otherwise it would be a free way to re-roll spawns early.
   $('#reset-chip').addEventListener('click', () => {
@@ -810,6 +814,7 @@ function initUI() {
 
   initBattleUI({ onDone: () => { syncMap(); refreshAll(); } });
   initExtras({ onChange: () => { refreshAll(); renderMissionBadge(); } });
+  initShop({ onChange: () => { refreshAll(); renderMissionBadge(); } });
 
   initEggs({
     refresh: () => { refreshAll(); renderMissionBadge(); },

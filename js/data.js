@@ -16,8 +16,28 @@ export const SET_NAME = 'Elemental Awakening';
  */
 export const EXCLUSIVE_CSV_FILE = 'Raid Exclusive - Search and Go.csv';
 export const EXCLUSIVE_SET_NAME = 'Exclusive';
-/** Exclusive dex numbers start here so they never collide with the main set. */
-export const EXCLUSIVE_ORDER_BASE = 1000;
+
+/**
+ * The second full set. Its creatures are locked behind the Set missions: a
+ * rarity only joins the spawn pools once its mission has been claimed.
+ */
+export const GALACTIC_CSV_FILE = 'Galactic Adventures.csv';
+export const GALACTIC_SET_NAME = 'Galactic Adventures';
+
+/** Mythicals: rarity 6, one per egg, never in a spawn pool. */
+export const MYTHICAL_CSV_FILE = 'Mythicals.csv';
+export const MYTHICAL_SET_NAME = 'Mythical';
+export const MYTHICAL_RARITY = 6;
+/** The one mythical so far. Pinned so its egg can never hatch anything else. */
+export const MYTHICAL_ASTRALYON_ID = 'Mythical_01';
+
+/**
+ * Dex numbers per set, spaced so the shared sort keeps each collection
+ * together and in the same order as the Collection tabs.
+ */
+export const GALACTIC_ORDER_BASE = 1000;
+export const EXCLUSIVE_ORDER_BASE = 2000;
+export const MYTHICAL_ORDER_BASE = 3000;
 
 export const IMAGE_DIR = 'images';
 export const SHINY_DIR = 'shiny';
@@ -160,18 +180,23 @@ export const RARITY_WEIGHTS = { 1: 60, 2: 28, 3: 8, 4: 3, 5: 1 };
 export const RARE_INCENSE_WEIGHTS = { 1: 32, 2: 30, 3: 25, 4: 10, 5: 3 };
 
 export const RARITY_NAMES = {
-  1: 'Common', 2: 'Uncommon', 3: 'Rare', 4: 'Epic', 5: 'Legendary'
+  1: 'Common', 2: 'Uncommon', 3: 'Rare', 4: 'Epic', 5: 'Legendary',
+  // Rarity 6 exists but never appears in a weight table, so nothing can roll it.
+  6: 'Mythical'
 };
 
 export const CANDY_ON_CAPTURE = {
-  1: [3, 5], 2: [3, 6], 3: [4, 6], 4: [5, 7], 5: [6, 8]
+  1: [3, 5], 2: [3, 6], 3: [4, 6], 4: [5, 7], 5: [6, 8],
+  // Mythicals arrive with a big bonus candy payout of their own, so the base
+  // figure is a flat 5 rather than a range.
+  6: [5, 5]
 };
 
 export const DUST_ON_CAPTURE = {
   1: [10, 15], 2: [12, 18], 3: [15, 20], 4: [20, 30], 5: [30, 50]
 };
 
-export const XP_ON_CAPTURE = { 1: 2, 2: 3, 3: 5, 4: 10, 5: 20 };
+export const XP_ON_CAPTURE = { 1: 2, 2: 3, 3: 5, 4: 10, 5: 20, 6: 30 };
 
 export const XP_ON_EVOLVE = { 1: 30, 2: 50 };
 
@@ -218,7 +243,7 @@ export const MAX_STAT_BOOSTS = 20;
  * Candy needed for one Stat Booster, by the rarity of the species whose candy
  * you are spending. Commons are plentiful, so they cost far more.
  */
-export const STAT_BOOSTER_CANDY_COST = { 1: 50, 2: 30, 3: 15, 4: 10, 5: 10 };
+export const STAT_BOOSTER_CANDY_COST = { 1: 50, 2: 30, 3: 15, 4: 10, 5: 10, 6: 10 };
 
 /** Falls back to the rarity 1 price for anything with no rarity of its own. */
 export const statBoosterCost = rarity =>
@@ -310,6 +335,21 @@ export const TYPES = ['Neutral', 'Mystic', 'Wind', 'Celestial', 'Mechanic'];
 export const STAT_KEYS = ['hp', 'attack', 'defence', 'speed'];
 export const STAT_LABELS = { hp: 'HP', attack: 'Attack', defence: 'Defence', speed: 'Speed' };
 
+/**
+ * "Attack" / "Attack and Speed" / "Attack, Defence and Speed" — a buff move's
+ * stats in words. Mythicals raise more than one at a time.
+ */
+export function buffStatsLabel(move) {
+  const stats = move?.buffStats?.length ? move.buffStats : [move?.buffStat];
+  const names = stats.filter(Boolean).map(s => STAT_LABELS[s] || s);
+  if (names.length <= 1) return names[0] || '';
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+/** "Raises Attack, Defence and Speed by 15%" */
+export const buffMoveText = move =>
+  `Raises ${buffStatsLabel(move)} by ${Math.round((move?.buffPct || 0) * 100)}%`;
+
 /** attacker type -> the type it hits for extra damage. */
 export const TYPE_ADVANTAGE = {
   Mystic: 'Wind',
@@ -337,6 +377,275 @@ export const TYPE_RESISTANCE = {
 export const NOT_VERY_EFFECTIVE_MULTIPLIER = 0.7;
 
 export const BATTLE_TEAM_SIZE = 3;
+
+/* ---------------------------------------------------------------
+   Abilities
+
+   An ability belongs to a species and holds one or more *clauses*. Each clause
+   pairs one effect with one trigger, which is why the source file has a row per
+   clause rather than a row per ability: a single ability often wants opposite
+   effects under opposite conditions ("+50% below 10 degrees, -50% above 20").
+
+   Nothing here reads the clock or the weather on its own. Everything is
+   evaluated against a context the battle passes in, so the same ability can be
+   previewed on a storage sheet without pretending a battle is happening.
+   --------------------------------------------------------------- */
+
+export const ABILITIES_CSV_FILE = 'Abilities Search and Go.csv';
+
+/** The four things an ability can do, and which multiplier each one moves. */
+export const ABILITY_EFFECTS = {
+  'deal more': { channel: 'deal', direction: 1 },
+  'deal less': { channel: 'deal', direction: -1 },
+  'take more': { channel: 'take', direction: 1 },
+  'take less': { channel: 'take', direction: -1 }
+};
+
+/** Triggers that read a list of allowed values out of the `Value` column. */
+export const ABILITY_LIST_TRIGGERS = [
+  'opposing type', 'opposing stage', 'opposing rarity', 'opposing set', 'day', 'month'
+];
+/** Triggers that read `Min` / `Max` instead. */
+export const ABILITY_RANGE_TRIGGERS = [
+  'temperature', 'time', 'cloud cover', 'humidity', 'wind'
+];
+
+/**
+ * The weather-driven triggers, and the field each one reads. All follow the
+ * same rule as temperature: with no reading, the clause never fires.
+ */
+export const ABILITY_WEATHER_TRIGGERS = {
+  'temperature': { field: 'temperature', unit: '°C', label: 'temperature' },
+  'cloud cover': { field: 'cloudCover', unit: '%', label: 'cloud cover' },
+  'humidity': { field: 'humidity', unit: '%', label: 'humidity' },
+  'wind': { field: 'wind', unit: ' km/h', label: 'wind speed' }
+};
+export const ABILITY_TRIGGERS = [...ABILITY_LIST_TRIGGERS, ...ABILITY_RANGE_TRIGGERS];
+
+/**
+ * Clauses are only ever expected to fire one at a time, but if several do their
+ * multipliers compound. Clamped so a stack can never trivialise a battle.
+ */
+export const ABILITY_MULTIPLIER_MIN = 0.25;
+export const ABILITY_MULTIPLIER_MAX = 4;
+
+export const DAY_NAMES_LONG =
+  ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+export const MONTH_NAMES_LONG = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
+
+/**
+ * Normalises the weather half of an ability context. Accepts either a `weather`
+ * object or a bare `temperature`, so callers that only care about the
+ * temperature — the ability preview on a storage sheet, for instance — do not
+ * have to build a whole reading.
+ */
+export function abilityWeather(ctx = {}) {
+  const w = ctx.weather || {};
+  const pick = v => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  return {
+    temperature: pick(w.temperature ?? ctx.temperature),
+    cloudCover: pick(w.cloudCover),
+    humidity: pick(w.humidity),
+    wind: pick(w.wind)
+  };
+}
+
+const clampAbilityMultiplier = m =>
+  Math.min(ABILITY_MULTIPLIER_MAX, Math.max(ABILITY_MULTIPLIER_MIN, m));
+
+/** A clause's multiplier, e.g. "deal less 50" -> 0.5. */
+export function clauseMultiplier(clause) {
+  const spec = ABILITY_EFFECTS[clause.effect];
+  if (!spec) return 1;
+  return 1 + spec.direction * (clause.percent / 100);
+}
+
+/** The rarity to judge an opponent by, falling back to its family's. */
+const rarityOf = sp => sp?.rarity || familyRarity(sp?.id) || null;
+
+/** Two-digit clock label for the time trigger, e.g. 13.5 -> "13:30". */
+const hourLabel = h => {
+  const whole = Math.floor(h);
+  const mins = Math.round((h - whole) * 60);
+  return `${String(whole % 24).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+};
+
+/**
+ * Is this clause active right now?
+ *
+ * @param {object} clause
+ * @param {object} ctx
+ * @param {object|null} ctx.opponent the species facing this creature
+ * @param {Date}        ctx.now
+ * @param {object}      ctx.weather  { temperature, cloudCover, humidity, wind },
+ *   any of which may be null when that reading is unknown
+ * @returns {{active:boolean, reason:string}} `reason` is written for the log,
+ *   describing the world as it stands whether or not the clause fired.
+ */
+export function evaluateClause(clause, ctx = {}) {
+  const { opponent = null, now = new Date() } = ctx;
+  const weather = abilityWeather(ctx);
+  const list = clause.values || [];
+  const has = v => list.some(x => String(x).toLowerCase() === String(v).toLowerCase());
+
+  switch (clause.trigger) {
+    case 'opposing type': {
+      if (!opponent) return { active: false, reason: 'no opponent yet' };
+      return { active: has(opponent.type), reason: `opponent is ${opponent.type}` };
+    }
+    case 'opposing stage': {
+      if (!opponent) return { active: false, reason: 'no opponent yet' };
+      return { active: has(opponent.stage), reason: `opponent is Stage ${opponent.stage}` };
+    }
+    case 'opposing rarity': {
+      if (!opponent) return { active: false, reason: 'no opponent yet' };
+      const r = rarityOf(opponent);
+      if (r == null) return { active: false, reason: 'opponent has no rarity' };
+      return { active: has(r), reason: `opponent is rarity ${r}` };
+    }
+    case 'opposing set': {
+      if (!opponent) return { active: false, reason: 'no opponent yet' };
+      const set = opponent.set || SET_NAME;
+      return { active: has(set), reason: `opponent is from ${set}` };
+    }
+    case 'temperature':
+    case 'cloud cover':
+    case 'humidity':
+    case 'wind': {
+      const spec = ABILITY_WEATHER_TRIGGERS[clause.trigger];
+      const value = weather?.[spec.field];
+      // Decision: never guess. No reading means the clause simply does not fire.
+      if (value == null || !Number.isFinite(value)) {
+        return { active: false, reason: `${spec.label} unavailable` };
+      }
+      const okMin = clause.min == null || value >= clause.min;
+      const okMax = clause.max == null || value < clause.max;
+      const shown = `${Math.round(value)}${spec.unit}`;
+      return {
+        active: okMin && okMax,
+        reason: clause.trigger === 'temperature'
+          ? `it is ${shown}`
+          : `${spec.label} is ${shown}`
+      };
+    }
+    case 'time': {
+      const h = now.getHours() + now.getMinutes() / 60;
+      const { min, max } = clause;
+      let active;
+      if (min == null && max == null) active = false;
+      else if (min == null) active = h < max;
+      else if (max == null) active = h >= min;
+      // min greater than max reads as a window that wraps past midnight.
+      else if (min <= max) active = h >= min && h < max;
+      else active = h >= min || h < max;
+      return { active, reason: `the time is ${hourLabel(h)}` };
+    }
+    case 'day': {
+      const name = DAY_NAMES_LONG[now.getDay()];
+      return { active: has(name), reason: `it is ${name}` };
+    }
+    case 'month': {
+      const name = MONTH_NAMES_LONG[now.getMonth()];
+      return { active: has(name), reason: `it is ${name}` };
+    }
+    default:
+      return { active: false, reason: 'unknown trigger' };
+  }
+}
+
+/**
+ * Runs every clause of an ability and reduces them to the two multipliers the
+ * damage step needs, plus a per-clause breakdown for the battle log.
+ */
+export function evaluateAbility(ability, ctx = {}) {
+  const out = {
+    ability,
+    clauses: [],
+    dealMultiplier: 1,
+    takeMultiplier: 1,
+    anyActive: false
+  };
+  if (!ability) return out;
+
+  for (const clause of ability.clauses) {
+    const { active, reason } = evaluateClause(clause, ctx);
+    out.clauses.push({ clause, active, reason });
+    if (!active) continue;
+    out.anyActive = true;
+    const channel = ABILITY_EFFECTS[clause.effect]?.channel;
+    if (channel === 'deal') out.dealMultiplier *= clauseMultiplier(clause);
+    if (channel === 'take') out.takeMultiplier *= clauseMultiplier(clause);
+  }
+
+  out.dealMultiplier = clampAbilityMultiplier(out.dealMultiplier);
+  out.takeMultiplier = clampAbilityMultiplier(out.takeMultiplier);
+  return out;
+}
+
+/** "deals 50% more damage" — the effect half of a clause, in words. */
+export function clauseEffectText(clause) {
+  const pct = clause.percent;
+  switch (clause.effect) {
+    case 'deal more': return `deals ${pct}% more damage`;
+    case 'deal less': return `deals ${pct}% less damage`;
+    case 'take more': return `takes ${pct}% more damage`;
+    case 'take less': return `takes ${pct}% less damage`;
+    default: return 'has no effect';
+  }
+}
+
+/** "the opponent is Mystic" — the condition half of a clause, in words. */
+export function clauseConditionText(clause) {
+  const list = clause.values || [];
+  const join = arr => arr.length <= 1
+    ? String(arr[0] ?? '')
+    : `${arr.slice(0, -1).join(', ')} or ${arr[arr.length - 1]}`;
+
+  switch (clause.trigger) {
+    case 'opposing type': return `the opposing creature is ${join(list)}`;
+    case 'opposing stage': return `the opposing creature is Stage ${join(list)}`;
+    case 'opposing rarity': return `the opposing creature is rarity ${join(list)}`;
+    case 'opposing set': return `the opposing creature is from ${join(list)}`;
+    case 'temperature':
+    case 'cloud cover':
+    case 'humidity':
+    case 'wind': {
+      const { unit, label } = ABILITY_WEATHER_TRIGGERS[clause.trigger];
+      const n = v => `${v}${unit}`;
+      if (clause.min != null && clause.max != null) {
+        return `the ${label} is between ${n(clause.min)} and ${n(clause.max)}`;
+      }
+      if (clause.max != null) return `the ${label} is below ${n(clause.max)}`;
+      if (clause.min != null) return `the ${label} is ${n(clause.min)} or above`;
+      return `the ${label} is known`;
+    }
+    case 'time': {
+      if (clause.min != null && clause.max != null) {
+        return `the time is between ${hourLabel(clause.min)} and ${hourLabel(clause.max)}`;
+      }
+      if (clause.max != null) return `the time is before ${hourLabel(clause.max)}`;
+      if (clause.min != null) return `the time is after ${hourLabel(clause.min)}`;
+      return 'any time';
+    }
+    case 'day': return `it is ${join(list)}`;
+    case 'month': return `it is ${join(list)}`;
+    default: return 'an unknown condition';
+  }
+}
+
+/** One clause as a sentence: "Deals 50% more damage if …". */
+export const clauseText = clause =>
+  `${clauseEffectText(clause).replace(/^./, ch => ch.toUpperCase())} if ${clauseConditionText(clause)}.`;
+
+/** The whole ability in words, using the authored text when there is one. */
+export function abilityText(ability) {
+  if (!ability) return '';
+  if (ability.description) return ability.description;
+  return ability.clauses.map(clauseText).join(' ');
+}
 
 /* Raid bosses are beefed up versions of a normal creature. */
 export const RAID_BOSS_MODIFIERS = { hp: 3, attack: 1.25, defence: 1.25, speed: 1.25 };
@@ -407,7 +716,7 @@ export const RAID_REWARD = {
   incubatorChanceByRarity: { 4: 1, 5: 1 },
   rareIncenseItem: 'rare_incense',
   rareIncenseChanceByRarity: { 4: 0.25, 5: 0.25 },
-  always: { revive: 2 }        // every raid win, win or catch
+  always: { revive: 2, full_heal: 1 }   // every raid win, win or catch
 };
 
 /** Odds of a Single Use Incubator dropping from a boss of this rarity. */
@@ -502,8 +811,12 @@ export const RAID_INVASION_LABEL = 'Raid Invasion';
 export const RAID_INVASION_DAY = 3;        // 0 = Sunday, so 3 = Wednesday
 export const RAID_INVASION_START = 19;     // 19:00
 export const RAID_INVASION_END = 20;       // 20:00
-/** Handed over by every disc point during the invasion, on top of its drop. */
+/**
+ * Handed over by every disc point during the invasion, on top of its drop.
+ * Always at least one Ultra Capture Disc, and a quarter of the time a second.
+ */
 export const RAID_INVASION_DISC_BONUS = { ultra_disc: 1 };
+export const RAID_INVASION_DOUBLE_CHANCE = 0.25;
 
 /** Training Dojo Hour: Saturdays 13:30–14:00. */
 export const TRAINING_DOJO_LABEL = 'Training Dojo Hour';
@@ -554,11 +867,25 @@ export const EGG_TYPES = {
     id: '15km', km: 15, dust: 200, xp: 50, image: '15km_egg.png', bonusCandy: 7,
     exclusive: true,
     weights: { 3: 50, 4: 35, 5: 15 }
+  },
+  /**
+   * The mythical egg. `speciesId` pins what comes out, so adding more mythicals
+   * to the CSV later cannot dilute this one — a future mythical needs its own
+   * egg entry. It also never rolls a shiny, and ignores the storage caps.
+   */
+  '50km': {
+    id: '50km', km: 50, dust: 500, xp: 100, image: '50km_egg.png', bonusCandy: 25,
+    mythical: true,
+    speciesId: MYTHICAL_ASTRALYON_ID,
+    noShiny: true,
+    ignoresStorageLimit: true
   }
 };
 
 /** The egg type Exclusive Raids drop. */
 export const EXCLUSIVE_EGG_TYPE = '15km';
+/** The egg the final Set mission hands over. */
+export const MYTHICAL_EGG_TYPE = '50km';
 
 /** Which egg you get when one drops. */
 export const EGG_TYPE_ROLL = [
@@ -592,22 +919,69 @@ export const eggMetresFor = (type, incubatorId = null) =>
 export const rollEggType = () => weightedPick(EGG_TYPE_ROLL).type;
 /** True for the 15 km egg, which uses the separate exclusive slots. */
 export const isExclusiveEgg = type => !!eggDef(type).exclusive;
+/** True for the 50 km egg, which has no slot limit at all. */
+export const isMythicalEgg = type => !!eggDef(type).mythical;
+/** Some eggs can never produce a shiny. */
+export const eggCanBeShiny = type => !eggDef(type).noShiny;
 
 /**
- * Eggs use their own rarity table rather than the wild spawn weights, and the
- * 15 km egg draws from the exclusive pool instead of the spawnable one.
+ * What an egg hatches. Most roll their own rarity table rather than the wild
+ * spawn weights; an egg with a pinned `speciesId` always gives that creature.
  */
 export const rollEggSpecies = type => {
   const def = eggDef(type);
-  return def.exclusive ? rollExclusiveSpecies(def.weights) : rollSpawnSpecies(def.weights);
+  if (def.speciesId) {
+    const fixed = species(def.speciesId);
+    if (fixed) return fixed;
+    // Nothing sensible to fall back to, so say so loudly rather than silently
+    // handing over a random creature from a mythical egg.
+    console.warn(`[data] egg "${type}" wants missing species "${def.speciesId}"`);
+  }
+  return def.exclusive
+    ? rollExclusiveSpecies(def.weights)
+    : rollSpawnSpecies(def.weights);
 };
+
+/* ---------------------------------------------------------------
+   Shop
+
+   Coins come from watching rewarded video, one coin per video, and buy the
+   consumables below. Every row carries its own daily cap so no amount of
+   watching can flood a save with Ultra Discs.
+
+   `limit` is per local day and resets at midnight with the daily missions.
+   Coins themselves do *not* reset — an unspent coin would be a nasty thing to
+   take away from someone who watched an ad for it.
+   --------------------------------------------------------------- */
+
+/** Coins earned per completed rewarded video. */
+export const COINS_PER_AD = 1;
+
+/** Shown next to a coin count. */
+export const COIN_ICON = '🪙';
+
+export const SHOP_ITEMS = [
+  { id: 'shop_discs',      item: 'capture_disc',         qty: 2, coins: 1, limit: 3 },
+  { id: 'shop_potions',    item: 'potion',               qty: 2, coins: 1, limit: 5 },
+  { id: 'shop_revives',    item: 'revive',               qty: 2, coins: 1, limit: 5 },
+  { id: 'shop_ultra',      item: 'ultra_disc',           qty: 1, coins: 1, limit: 2 },
+  { id: 'shop_incubator',  item: 'single_use_incubator', qty: 1, coins: 2, limit: 1 },
+  { id: 'shop_incense',    item: 'incense',              qty: 1, coins: 3, limit: 1 },
+  { id: 'shop_magnet',     item: 'stardust_magnet',      qty: 1, coins: 3, limit: 1 }
+];
+
+export const shopItem = id => SHOP_ITEMS.find(s => s.id === id) || null;
+
+/** Coins needed to buy one of everything, once each — for the info menu. */
+export const shopFullSweepCoins = () =>
+  SHOP_ITEMS.reduce((a, s) => a + s.coins * s.limit, 0);
 
 /* ---------------------------------------------------------------
    Buddy
    A creature picked in your Profile walks with you and earns candy for its
    own family. Rarer families need a longer walk per candy.
    --------------------------------------------------------------- */
-export const BUDDY_KM_PER_CANDY = { 1: 2, 2: 4, 3: 8, 4: 12, 5: 16 };
+export const BUDDY_KM_PER_CANDY = { 1: 2, 2: 4, 3: 8, 4: 12, 5: 16, 6: 20 };
 
 /** Metres of walking one candy costs for a buddy of this family rarity. */
 export function buddyMetresPerCandy(rarity) {
@@ -624,7 +998,7 @@ export const BREEDING_UNLOCK_LEVEL = 3;
 export const BREEDING_SLOTS_BY_LEVEL = { 3: 1, 5: 2, 7: 3, 8: 4, 9: 5 };
 
 /** Hours to generate one candy, by the pair's Stage 1 rarity. */
-export const BREEDING_HOURS = { 1: 12, 2: 12, 3: 18, 4: 24, 5: 36 };
+export const BREEDING_HOURS = { 1: 12, 2: 12, 3: 18, 4: 24, 5: 36, 6: 48 };
 
 export const BREEDING_CANDY_CAP = 5;
 
@@ -783,6 +1157,46 @@ export const WEEKLY_MISSIONS = [
   }
 ];
 
+/* ---------------------------------------------------------------
+   Set missions
+
+   A ladder that opens Galactic Adventures one rarity at a time. Each rung wants
+   a number of Elemental Awakening creatures registered *and* a player level, so
+   the set cannot be rushed by a single very active week.
+
+   `unlockGalacticRarity` is applied on claim, which is what puts those creatures
+   into the spawn pools. They never reset.
+   --------------------------------------------------------------- */
+export const SET_MISSIONS = [
+  {
+    id: 'ga1', kind: 'registeredInSet', set: SET_NAME, target: 65, requireLevel: 7,
+    xp: 25, dust: 250, unlockGalacticRarity: 1,
+    label: `Register 65 creatures from ${SET_NAME}`
+  },
+  {
+    id: 'ga2', kind: 'registeredInSet', set: SET_NAME, target: 70, requireLevel: 9,
+    xp: 40, dust: 400, unlockGalacticRarity: 2,
+    label: `Register 70 creatures from ${SET_NAME}`
+  },
+  {
+    id: 'ga3', kind: 'registeredInSet', set: SET_NAME, target: 75, requireLevel: 11,
+    xp: 60, dust: 600, unlockGalacticRarity: 3,
+    label: `Register 75 creatures from ${SET_NAME}`
+  },
+  {
+    id: 'ga4', kind: 'registeredInSet', set: SET_NAME, target: 77, requireLevel: 12,
+    xp: 80, dust: 800, unlockGalacticRarity: 4,
+    label: `Register 77 creatures from ${SET_NAME}`
+  },
+  {
+    id: 'ga5', kind: 'registeredInSet', set: SET_NAME, target: 79, requireLevel: 13,
+    xp: 150, dust: 1500, unlockGalacticRarity: 5,
+    items: { breeding_center: 1 },
+    grantEgg: MYTHICAL_EGG_TYPE,
+    label: `Register all 79 creatures in ${SET_NAME}`
+  }
+];
+
 export const DAILY_MISSIONS = [
   { id: 'daily5',  kind: 'capturesToday', target: 5,  xp: 5,  dust: 20, discs: 2, label: 'Catch 5 creatures today' },
   { id: 'daily20', kind: 'capturesToday', target: 20, xp: 10, dust: 30, discs: 2, label: 'Catch 20 creatures today' },
@@ -810,14 +1224,205 @@ export const DAILY_MISSIONS = [
    Sets shown in the Collection menu
    --------------------------------------------------------------- */
 export const SETS = [
-  { id: 'elemental-awakening', title: SET_NAME, available: true },
-  { id: 'exclusive', title: EXCLUSIVE_SET_NAME, available: true, exclusive: true },
+  { id: 'elemental-awakening', title: SET_NAME, available: true, setName: SET_NAME },
+  { id: 'galactic-adventures', title: GALACTIC_SET_NAME, available: true, setName: GALACTIC_SET_NAME, galactic: true },
+  { id: 'exclusive', title: EXCLUSIVE_SET_NAME, available: true, exclusive: true, setName: EXCLUSIVE_SET_NAME },
+  { id: 'mythical', title: MYTHICAL_SET_NAME, available: true, mythical: true, setName: MYTHICAL_SET_NAME },
   { id: 'coming-soon', title: 'Coming Soon', available: false }
 ];
 
-/** The species a collection tab lists. */
-export const speciesForSet = set =>
-  set?.exclusive ? DB.exclusive : DB.species.filter(s => !s.exclusive);
+/* ---------------------------------------------------------------
+   Galactic Adventures unlocks
+
+   Which rarities are in play is player progress, so state.js owns the truth and
+   pushes it here. Everything that rolls a creature reads DB.byRarity or
+   DB.available, so telling data.js once keeps wild spawns, incense, eggs, raids
+   and grunt teams consistent without touching any of them.
+   --------------------------------------------------------------- */
+
+let galacticUnlocked = new Set();
+
+/** True once the Set mission for this Galactic rarity has been claimed. */
+export const isGalacticRarityUnlocked = r => galacticUnlocked.has(Number(r));
+export const unlockedGalacticRarities = () => [...galacticUnlocked].sort((a, b) => a - b);
+
+/**
+ * Replaces the unlocked set and rebuilds the pools. Call it on load and after
+ * claiming a Set mission.
+ */
+export function setGalacticUnlocked(rarities = []) {
+  galacticUnlocked = new Set((rarities || []).map(Number).filter(r => r >= 1 && r <= 5));
+  if (DB.loaded) rebuildSpawnPools();
+  return unlockedGalacticRarities();
+}
+
+/**
+ * Recomputes every pool a roll can draw from.
+ *
+ * The rarity weights are untouched: a rarity 1 roll is still 60%, it simply
+ * chooses from a longer list once Galactic rarity 1 is unlocked.
+ */
+export function rebuildSpawnPools() {
+  const inPlay = sp => {
+    if (sp.exclusive || sp.mythical) return false;
+    if (sp.galactic) return isGalacticRarityUnlocked(sp.rarity || familyRarity(sp.id));
+    return true;
+  };
+
+  DB.available = DB.species.filter(inPlay);
+  DB.stage1 = DB.available.filter(s => s.stage === 1);
+  DB.spawnable = DB.stage1.filter(s => s.rarity >= 1 && s.rarity <= 5);
+
+  DB.byRarity = { 1: [], 2: [], 3: [], 4: [], 5: [] };
+  for (const sp of DB.spawnable) DB.byRarity[sp.rarity].push(sp);
+  return DB.spawnable.length;
+}
+
+/** The ability a species has, or null. */
+export const abilityOf = speciesId => DB.abilities.get(speciesId) || null;
+export const hasAbility = speciesId => DB.abilities.has(speciesId);
+
+/**
+ * The species a collection tab lists. Each set gets its own tab so the "x / y"
+ * counter is honest per set — the main tab must read 79, not 79 plus whatever
+ * mythicals exist.
+ */
+export function speciesForSet(set) {
+  if (set?.galactic) return DB.galactic;
+  if (set?.exclusive) return DB.exclusive;
+  if (set?.mythical) return DB.mythical;
+  return DB.species.filter(s => !s.galactic && !s.exclusive && !s.mythical);
+}
+
+/* ---------------------------------------------------------------
+   Ability file parsing
+   --------------------------------------------------------------- */
+
+/** Splits a `Value` cell into trimmed entries. Blank yields an empty list. */
+function abilityValues(raw) {
+  return String(raw ?? '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+const numOrNull = raw => {
+  const s = String(raw ?? '').trim();
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+};
+
+/**
+ * Turns the ability rows into `speciesId -> ability`, one row per clause.
+ * Rows are grouped by creature and ability name, so the order of the file does
+ * not matter and an ability's clauses do not have to be adjacent.
+ *
+ * Anything unparseable is skipped with a warning rather than thrown: a typo in
+ * one clause should not cost the player the whole battle system.
+ */
+function buildAbilities(rows) {
+  const byKey = new Map();
+
+  rows.forEach((r, i) => {
+    const line = i + 2;   // +1 for the header, +1 for 1-based counting
+    const rawId = r['id_output'] || r['id'];
+    if (!rawId) return;
+    const id = String(rawId).replace(/\.png$/i, '').trim();
+
+    const sp = DB.byId.get(id);
+    if (!sp) {
+      DB.warnings.push(`Abilities line ${line}: no creature with id "${id}"`);
+      return;
+    }
+    // The name column is a human cross-check; a mismatch is worth flagging but
+    // the id is what counts.
+    const named = (r['name'] || '').trim();
+    if (named && named.toLowerCase() !== sp.name.toLowerCase()) {
+      DB.warnings.push(`Abilities line ${line}: "${named}" does not match ${id} (${sp.name})`);
+    }
+
+    const abilityName = (r['ability name'] || '').trim();
+    if (!abilityName) {
+      DB.warnings.push(`Abilities line ${line}: missing Ability Name`);
+      return;
+    }
+
+    const effect = (r['effect'] || '').trim().toLowerCase();
+    if (!ABILITY_EFFECTS[effect]) {
+      DB.warnings.push(`Abilities line ${line}: unknown Effect "${r['effect']}"`);
+      return;
+    }
+
+    const trigger = (r['trigger'] || '').trim().toLowerCase();
+    if (!ABILITY_TRIGGERS.includes(trigger)) {
+      DB.warnings.push(`Abilities line ${line}: unknown Trigger "${r['trigger']}"`);
+      return;
+    }
+
+    const percent = numOrNull(r['percent']);
+    if (percent == null || percent <= 0) {
+      DB.warnings.push(`Abilities line ${line}: Percent must be a positive number`);
+      return;
+    }
+    // Reducing by more than 100% is meaningless, and would flip the sign.
+    if (effect.endsWith('less') && percent > 100) {
+      DB.warnings.push(`Abilities line ${line}: "${effect}" cannot exceed 100%`);
+      return;
+    }
+
+    // A single clause beyond the cap would be silently clamped in battle, which
+    // is confusing to author against, so say so up front.
+    const single = 1 + ABILITY_EFFECTS[effect].direction * (percent / 100);
+    if (single < ABILITY_MULTIPLIER_MIN || single > ABILITY_MULTIPLIER_MAX) {
+      DB.warnings.push(
+        `Abilities line ${line}: ${percent}% is outside the ` +
+        `${ABILITY_MULTIPLIER_MIN}x–${ABILITY_MULTIPLIER_MAX}x cap and will be clamped`);
+    }
+
+    const values = abilityValues(r['value']);
+    const min = numOrNull(r['min']);
+    const max = numOrNull(r['max']);
+
+    if (ABILITY_LIST_TRIGGERS.includes(trigger) && !values.length) {
+      DB.warnings.push(`Abilities line ${line}: "${trigger}" needs a Value`);
+      return;
+    }
+    if (ABILITY_RANGE_TRIGGERS.includes(trigger) && min == null && max == null) {
+      DB.warnings.push(`Abilities line ${line}: "${trigger}" needs a Min or a Max`);
+      return;
+    }
+
+    const key = `${id}::${abilityName.toLowerCase()}`;
+    if (!byKey.has(key)) {
+      byKey.set(key, {
+        speciesId: id,
+        name: abilityName,
+        description: (r['ability description'] || '').trim() || null,
+        clauses: []
+      });
+    }
+    const ability = byKey.get(key);
+    // A description on any row of the ability applies to the whole thing.
+    if (!ability.description && (r['ability description'] || '').trim()) {
+      ability.description = r['ability description'].trim();
+    }
+    ability.clauses.push({ effect, percent, trigger, values, min, max });
+  });
+
+  const out = new Map();
+  for (const ability of byKey.values()) {
+    if (!ability.clauses.length) continue;
+    if (out.has(ability.speciesId)) {
+      // One ability per creature is the design. Keep the first and say so.
+      DB.warnings.push(
+        `${ability.speciesId} has more than one ability; ignoring "${ability.name}"`);
+      continue;
+    }
+    out.set(ability.speciesId, ability);
+  }
+  return out;
+}
 
 /* ===============================================================
    CSV parsing
@@ -960,6 +1565,20 @@ export const DB = {
    */
   exclusive: [],
   exclusiveByRarity: { 3: [], 4: [], 5: [] },
+  /** Galactic Adventures, all 77 whether unlocked or not. */
+  galactic: [],
+  /** Rarity 6 creatures. Only ever obtained from their own egg. */
+  mythical: [],
+  /**
+   * Everything currently reachable by normal play: the main set plus whichever
+   * Galactic rarities have been unlocked. Rebuilt by setGalacticUnlocked.
+   */
+  available: [],
+  /**
+   * speciesId -> ability. Empty until the abilities file exists, which is the
+   * normal state: the file is optional and the game runs fine without it.
+   */
+  abilities: new Map(),
   familyOf: new Map(),
   familyMembers: new Map(),
   evolvesFrom: new Map(),
@@ -971,23 +1590,36 @@ export const DB = {
 export async function loadDatabase(
   csvUrl = CSV_FILE,
   statsUrl = STATS_CSV_FILE,
-  exclusiveUrl = EXCLUSIVE_CSV_FILE
+  exclusiveUrl = EXCLUSIVE_CSV_FILE,
+  abilitiesUrl = ABILITIES_CSV_FILE,
+  galacticUrl = GALACTIC_CSV_FILE,
+  mythicalUrl = MYTHICAL_CSV_FILE
 ) {
   DB.warnings = [];
 
-  const [baseText, statsText, exclusiveText] = await Promise.all([
-    fetchText(csvUrl),
-    fetchText(statsUrl),
-    // A missing exclusive file is not fatal: the rest of the game still runs.
-    fetchText(exclusiveUrl).catch(err => {
-      DB.warnings.push(`Exclusive creatures not loaded: ${err.message}`);
-      return '';
-    })
-  ]);
+  /** A missing extra set is not fatal: the rest of the game still runs. */
+  const optional = (url, what) => fetchText(url).catch(err => {
+    DB.warnings.push(`${what} not loaded: ${err.message}`);
+    return '';
+  });
+
+  const [baseText, statsText, exclusiveText, abilitiesText, galacticText, mythicalText] =
+    await Promise.all([
+      fetchText(csvUrl),
+      fetchText(statsUrl),
+      optional(exclusiveUrl, 'Exclusive creatures'),
+      // Abilities are entirely optional and the file is expected to be absent
+      // until it is authored, so a miss here is silent by design.
+      fetchText(abilitiesUrl).catch(() => ''),
+      optional(galacticUrl, GALACTIC_SET_NAME),
+      optional(mythicalUrl, 'Mythicals')
+    ]);
 
   const baseRows = toRecords(parseCSV(baseText));
   const statRows = toRecords(parseCSV(statsText));
   const exclusiveRows = exclusiveText ? toRecords(parseCSV(exclusiveText)) : [];
+  const galacticRows = galacticText ? toRecords(parseCSV(galacticText)) : [];
+  const mythicalRows = mythicalText ? toRecords(parseCSV(mythicalText)) : [];
 
   const statsById = new Map();
   const statsByName = new Map();
@@ -1001,7 +1633,9 @@ export async function loadDatabase(
   DB.byId.clear(); DB.byName.clear();
   DB.evolvesFrom.clear(); DB.familyOf.clear(); DB.familyMembers.clear();
   DB.moveIndex.clear();
+  DB.abilities = new Map();
   DB.stage1 = []; DB.spawnable = []; DB.exclusive = [];
+  DB.galactic = []; DB.mythical = []; DB.available = [];
   DB.byRarity = { 1: [], 2: [], 3: [], 4: [], 5: [] };
   DB.exclusiveByRarity = { 3: [], 4: [], 5: [] };
 
@@ -1039,56 +1673,28 @@ export async function loadDatabase(
     DB.byName.set(sp.name.toLowerCase(), sp);
   });
 
-  /* ---- raid-exclusive creatures ----
-     Same row carries info, stats and moves. Their `order` is pushed past the
-     main set so the shared sort never interleaves the two collections. */
-  exclusiveRows.forEach((r, idx) => {
-    const rawId = r['id_output'] || r['id'];
-    if (!rawId) return;
-    // ids in this file are written as "Exclusive_01.png".
-    const id = rawId.replace(/\.png$/i, '');
-    const name = r['name'] || '';
-    if (!name) return;
-
-    const numMatch = id.match(/(\d+)\s*$/);
-    const rarityRaw = r['rarity'];
-    const candyRaw = r['evolution candy'];
-    const image = r['image'] || `${name}.png`;
-
-    const sp = new Species({
-      id,
-      order: EXCLUSIVE_ORDER_BASE + (numMatch ? Number(numMatch[1]) : idx + 1),
-      name,
-      stage: stageNumber(r['stage']),
-      type: r['type'] || 'Neutral',
-      image,
-      shinyImage: shinyFileFor(name, image),
-      rarity: rarityRaw ? Number(rarityRaw) : null,
-      evolvesToName: r['evolves to'] || null,
-      evolutionCandy: candyRaw ? Number(candyRaw) : null,
-      set: EXCLUSIVE_SET_NAME,
-      exclusive: true,
-      baseStats: readStats(r, name),
-      moves: readMoves(r, name)
-    });
-
-    if (DB.byId.has(sp.id)) {
-      DB.warnings.push(`Exclusive id "${sp.id}" clashes with an existing creature`);
-      return;
-    }
-    DB.species.push(sp);
-    DB.exclusive.push(sp);
-    DB.byId.set(sp.id, sp);
-    // Never let an exclusive shadow a main-set name lookup.
-    if (DB.byName.has(sp.name.toLowerCase())) {
-      DB.warnings.push(`Exclusive "${sp.name}" shares a name with a main-set creature`);
-    } else {
-      DB.byName.set(sp.name.toLowerCase(), sp);
-    }
+  /* ---- the self-contained sets ----
+     Galactic Adventures, the raid exclusives and the mythicals all ship one row
+     per creature carrying info, stats and moves together, unlike the main set
+     which splits them across two files. Their `order` is pushed past the main
+     set so the shared sort keeps each collection in one block. */
+  addSelfContainedSet(galacticRows, {
+    setName: GALACTIC_SET_NAME, orderBase: GALACTIC_ORDER_BASE,
+    bucket: DB.galactic, flags: { galactic: true }
+  });
+  addSelfContainedSet(exclusiveRows, {
+    setName: EXCLUSIVE_SET_NAME, orderBase: EXCLUSIVE_ORDER_BASE,
+    bucket: DB.exclusive, flags: { exclusive: true }
+  });
+  addSelfContainedSet(mythicalRows, {
+    setName: MYTHICAL_SET_NAME, orderBase: MYTHICAL_ORDER_BASE,
+    bucket: DB.mythical, flags: { mythical: true }
   });
 
   DB.species.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
-  DB.exclusive.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+  for (const list of [DB.galactic, DB.exclusive, DB.mythical]) {
+    list.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+  }
 
   // evolution links
   for (const sp of DB.species) {
@@ -1121,11 +1727,10 @@ export async function loadDatabase(
     DB.familyMembers.set(sp.id, [sp.id]);
   }
 
-  // Exclusives are left out of every spawn list on purpose — the only ways to
-  // meet them are an Exclusive Raid and a 15 km egg.
-  DB.stage1 = DB.species.filter(s => s.stage === 1 && !s.exclusive);
-  DB.spawnable = DB.stage1.filter(s => s.rarity >= 1 && s.rarity <= 5);
-  for (const sp of DB.spawnable) DB.byRarity[sp.rarity].push(sp);
+  // The main set is always in play. Galactic rarities join as they are
+  // unlocked; exclusives and mythicals never do. rebuildSpawnPools does the
+  // actual work and is re-run whenever an unlock is claimed.
+  rebuildSpawnPools();
 
   for (const sp of DB.exclusive) {
     if (sp.stage === 1 && DB.exclusiveByRarity[sp.rarity]) {
@@ -1137,6 +1742,13 @@ export async function loadDatabase(
       DB.warnings.push(`No rarity ${r} exclusive creatures found`);
     }
   }
+
+  // Abilities come last: they are keyed on species ids, so every creature has
+  // to exist before the rows can be validated against them.
+  DB.abilities = abilitiesText
+    ? buildAbilities(toRecords(parseCSV(abilitiesText)))
+    : new Map();
+  for (const sp of DB.species) sp.ability = DB.abilities.get(sp.id) || null;
 
   DB.types = TYPES.filter(t => DB.species.some(s => s.type === t));
   for (const s of DB.species) if (!DB.types.includes(s.type)) DB.types.push(s.type);
@@ -1155,6 +1767,66 @@ async function fetchText(url) {
 /** The shiny folder mirrors the main image filenames exactly. */
 function shinyFileFor(name, image) {
   return image;
+}
+
+/**
+ * Loads one of the single-file sets into `DB.species` and its own bucket.
+ * Shared by Galactic Adventures, the raid exclusives and the mythicals, which
+ * all use the same column layout.
+ *
+ * @param {Array<object>} rows    parsed records, may be empty
+ * @param {object} opts
+ * @param {string} opts.setName
+ * @param {number} opts.orderBase dex numbers start just past this
+ * @param {Array}  opts.bucket    the DB list to also push into
+ * @param {object} opts.flags     extra Species fields, e.g. { exclusive: true }
+ */
+function addSelfContainedSet(rows, { setName, orderBase, bucket, flags = {} }) {
+  rows.forEach((r, idx) => {
+    const rawId = r['id_output'] || r['id'];
+    if (!rawId) return;
+    // ids in these files are written with a .png suffix, e.g. "Exclusive_01.png".
+    const id = String(rawId).replace(/\.png$/i, '').trim();
+    const name = r['name'] || '';
+    if (!name) return;
+
+    const numMatch = id.match(/(\d+)\s*$/);
+    const rarityRaw = r['rarity'];
+    const candyRaw = r['evolution candy'];
+    const image = r['image'] || r['Image'] || `${name}.png`;
+
+    const sp = new Species({
+      id,
+      order: orderBase + (numMatch ? Number(numMatch[1]) : idx + 1),
+      name,
+      stage: stageNumber(r['stage']),
+      type: r['type'] || 'Neutral',
+      image,
+      shinyImage: shinyFileFor(name, image),
+      rarity: rarityRaw ? Number(rarityRaw) : null,
+      evolvesToName: r['evolves to'] || null,
+      evolutionCandy: candyRaw ? Number(candyRaw) : null,
+      set: setName,
+      ...flags,
+      baseStats: readStats(r, name),
+      moves: readMoves(r, name)
+    });
+
+    if (DB.byId.has(sp.id)) {
+      DB.warnings.push(`${setName} id "${sp.id}" clashes with an existing creature`);
+      return;
+    }
+    DB.species.push(sp);
+    bucket.push(sp);
+    DB.byId.set(sp.id, sp);
+    // Never let a later set shadow an earlier one's name lookup, since evolution
+    // targets are matched by name.
+    if (DB.byName.has(sp.name.toLowerCase())) {
+      DB.warnings.push(`${setName} "${sp.name}" shares a name with another creature`);
+    } else {
+      DB.byName.set(sp.name.toLowerCase(), sp);
+    }
+  });
 }
 
 function readStats(row, name) {
@@ -1190,7 +1862,9 @@ function readMoves(row, name) {
 
     const power = int(powerRaw) ?? 0;
     const level = int(levelRaw) ?? 1;
-    const buffStat = normaliseStat(row[`move${slot} stat buff`]);
+    // A buff can name several stats, e.g. "Attack, Defense, Speed".
+    const buffStats = normaliseStats(row[`move${slot} stat buff`]);
+    const buffStat = buffStats[0] || null;
     let buffPct = pct(row[`move${slot} stat buff percentage`]);
 
     const isBuff = power === 0;
@@ -1208,7 +1882,10 @@ function readMoves(row, name) {
       name: mName || `Move ${slot}`,
       power: isBuff ? 0 : power,
       level,
+      // `buffStat` is the first of `buffStats`, kept so single-stat callers read
+      // naturally. Anything applying the buff must use `buffStats`.
       buffStat: isBuff ? buffStat : null,
+      buffStats: isBuff ? buffStats : [],
       buffPct: isBuff ? buffPct : null,
       isBuff
     };
@@ -1220,6 +1897,7 @@ function readMoves(row, name) {
   return moves;
 }
 
+/** Accepts "Defense" as well as "Defence", which both appear in the CSVs. */
 function normaliseStat(raw) {
   const s = String(raw ?? '').trim().toLowerCase();
   if (!s) return null;
@@ -1228,6 +1906,19 @@ function normaliseStat(raw) {
   if (s.startsWith('def')) return 'defence';
   if (s.startsWith('spe')) return 'speed';
   return null;
+}
+
+/**
+ * A buff move can raise more than one stat: mythicals list them as
+ * "Attack, Defense, Speed". Returns a de-duplicated array of stat keys.
+ */
+function normaliseStats(raw) {
+  const out = [];
+  for (const part of String(raw ?? '').split(/[,/&]|\band\b/)) {
+    const stat = normaliseStat(part);
+    if (stat && !out.includes(stat)) out.push(stat);
+  }
+  return out;
 }
 
 /* ===============================================================
@@ -1380,6 +2071,108 @@ export function rollPOIOutcome(now = new Date()) {
 /** During Training Dojo Hour the map holds as many grunts as it can fit. */
 export const gruntsAreUncapped = (now = new Date()) => isTrainingDojo(now);
 
+/* ---------------------------------------------------------------
+   Calendar
+
+   Every recurring event in one table so the News tab can list what is coming
+   without knowing the rules behind each one. `onDay` is given a date at local
+   midnight, so it must only ever look at the calendar, never the clock.
+   --------------------------------------------------------------- */
+
+export const CALENDAR_EVENTS = [
+  {
+    id: 'stardustSunday',
+    label: STARDUST_SUNDAY_LABEL,
+    icon: '✨',
+    allDay: true,
+    onDay: d => d.getDay() === 0,
+    blurb: `Every stardust reward is ×${STARDUST_SUNDAY_MULTIPLIER}, all day.`
+  },
+  {
+    id: 'bonanzaDay',
+    label: 'Shiny Bonanza Day',
+    icon: '★',
+    allDay: true,
+    onDay: isBonanzaDay,
+    blurb: 'Shiny odds are doubled all day. The last Saturday of the month.'
+  },
+  {
+    id: 'raidInvasion',
+    label: RAID_INVASION_LABEL,
+    icon: '🔥',
+    start: RAID_INVASION_START,
+    end: RAID_INVASION_END,
+    onDay: d => d.getDay() === RAID_INVASION_DAY,
+    blurb: 'Raids everywhere, and every disc point pays an Ultra Capture Disc.'
+  },
+  {
+    id: 'trainingDojo',
+    label: TRAINING_DOJO_LABEL,
+    icon: '🥋',
+    start: TRAINING_DOJO_START,
+    end: TRAINING_DOJO_END,
+    onDay: d => d.getDay() === TRAINING_DOJO_DAY,
+    blurb: 'Grunts take over the map points, with no limit on how many appear.'
+  },
+  {
+    id: 'bonanzaHour',
+    label: 'Shiny Bonanza Hour',
+    icon: '✦',
+    start: BONANZA_HOUR_START,
+    end: BONANZA_HOUR_END,
+    onDay: () => true,
+    blurb: 'Shiny odds are doubled.'
+  },
+  {
+    id: 'relax',
+    label: RELAX_HOUR_LABEL,
+    icon: '🌙',
+    start: RELAX_HOUR_START,
+    end: RELAX_HOUR_END,
+    onDay: () => true,
+    blurb: `Your reach grows to ${RULES.RELAX_RANGE_M} m.`
+  }
+];
+
+/** Local midnight `offset` days from `from`. */
+function dayStart(from, offset = 0) {
+  const d = new Date(from);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + offset);
+  return d;
+}
+
+/** Everything happening on one day, all-day events first then by start time. */
+export function eventsOnDay(date) {
+  const day = dayStart(date);
+  return CALENDAR_EVENTS
+    .filter(e => e.onDay(day))
+    .map(e => ({
+      id: e.id,
+      label: e.label,
+      icon: e.icon,
+      blurb: e.blurb,
+      allDay: !!e.allDay,
+      start: e.start ?? null,
+      end: e.end ?? null
+    }))
+    .sort((a, b) =>
+      Number(!!b.allDay) - Number(!!a.allDay) || (a.start ?? 0) - (b.start ?? 0));
+}
+
+/**
+ * The next `days` days including today, each with its events.
+ * @returns {Array<{date:Date, offset:number, isToday:boolean, events:Array}>}
+ */
+export function calendarDays(days = 7, from = new Date()) {
+  const out = [];
+  for (let i = 0; i < days; i++) {
+    const date = dayStart(from, i);
+    out.push({ date, offset: i, isToday: i === 0, events: eventsOnDay(date) });
+  }
+  return out;
+}
+
 /**
  * Copies rather than handing back the table's own object — a point's drop is
  * edited in place during a Raid Invasion, and mutating the shared table would
@@ -1399,8 +2192,11 @@ export function rollItemDrop() {
 /** Adds the Raid Invasion bonus to a disc drop. No-op outside the window. */
 export function applyRaidInvasionBonus(drop, now = new Date()) {
   if (!isRaidInvasion(now)) return drop;
+  // The doubling is rolled once for the whole bonus, so a lucky point pays two
+  // of everything the bonus contains rather than two of one thing.
+  const times = chance(RAID_INVASION_DOUBLE_CHANCE) ? 2 : 1;
   for (const [id, n] of Object.entries(RAID_INVASION_DISC_BONUS)) {
-    drop[id] = (drop[id] || 0) + n;
+    drop[id] = (drop[id] || 0) + n * times;
   }
   return drop;
 }
@@ -1525,10 +2321,16 @@ export function effectivenessOf(attackerType, defenderType) {
  * power x attack / defence, then the type multiplier. Rounded, min 1 — so a
  * resisted hit still always takes at least 1 HP off.
  */
-export function damageOf(move, attackerType, attackerAttack, defenderType, defenderDefence) {
+export function damageOf(
+  move, attackerType, attackerAttack, defenderType, defenderDefence,
+  { dealMultiplier = 1, takeMultiplier = 1 } = {}
+) {
   if (!move || move.power <= 0) return 0;
   const { mult } = effectivenessOf(attackerType, defenderType);
-  const raw = (move.power * attackerAttack / Math.max(1, defenderDefence)) * mult;
+  // Abilities are their own layer on top of type effectiveness, so a super
+  // effective hit from a +50% ability is 1.4 x 1.5.
+  const raw = (move.power * attackerAttack / Math.max(1, defenderDefence))
+    * mult * dealMultiplier * takeMultiplier;
   return Math.max(1, Math.round(raw));
 }
 

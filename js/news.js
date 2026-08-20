@@ -15,7 +15,8 @@
    ============================================================ */
 
 import { store } from './state.js';
-import { $, el } from './ui.js';
+import { calendarDays } from './data.js';
+import { $, el, openSheet } from './ui.js';
 
 const NEWS_URL = './news.json';
 
@@ -130,6 +131,67 @@ export async function renderNews() {
   }
 
   renderNewsBadge();
+}
+
+/* ---------------------------------------------------------------
+   Event calendar
+
+   Lives in the News tab because it answers the same question — "what is
+   happening?" — just forwards instead of backwards.
+   --------------------------------------------------------------- */
+
+/** 17.5 -> "17:30". Matches how the event windows are defined. */
+const clockLabel = h => {
+  const whole = Math.floor(h);
+  const mins = Math.round((h - whole) * 60);
+  return `${String(whole).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+};
+
+/** "Today", "Tomorrow", then the weekday and date. */
+function dayHeading(day) {
+  const weekday = day.date.toLocaleDateString(undefined, { weekday: 'long' });
+  const date = day.date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  if (day.offset === 0) return `Today · ${weekday} ${date}`;
+  if (day.offset === 1) return `Tomorrow · ${weekday} ${date}`;
+  return `${weekday} ${date}`;
+}
+
+export function openCalendar() {
+  renderCalendar();
+  openSheet('calendar');
+}
+
+function renderCalendar() {
+  const body = $('#calendar-body');
+  const hint = $('#calendar-hint');
+  if (!body) return;
+  body.innerHTML = '';
+
+  const days = calendarDays(7);
+  const total = days.reduce((n, d) => n + d.events.length, 0);
+  hint.textContent = total
+    ? 'Every recurring event coming up, in your own local time.'
+    : 'Nothing scheduled in the next week.';
+
+  for (const day of days) {
+    body.append(el('div', { class: 'cal-day' + (day.isToday ? ' today' : '') },
+      el('div', { class: 'cal-date' }, el('b', { text: dayHeading(day) })),
+      day.events.length
+        ? el('div', { class: 'cal-events' }, ...day.events.map(e =>
+          el('div', { class: 'cal-event' + (e.allDay ? ' all-day' : '') },
+            el('span', { class: 'cal-ico', text: e.icon }),
+            el('div', { class: 'cal-main' },
+              el('b', { text: e.label }),
+              el('div', { class: 'muted small', text: e.blurb })
+            ),
+            el('span', {
+              class: 'cal-when',
+              text: e.allDay ? 'All day' : `${clockLabel(e.start)}–${clockLabel(e.end)}`
+            })
+          )))
+        : el('p', { class: 'muted small cal-none', text: 'Nothing special today.' })
+    ));
+  }
 }
 
 /** "14 Aug 2026 · 21:45", falling back to whatever the file said. */
