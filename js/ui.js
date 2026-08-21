@@ -24,6 +24,22 @@ export function el(tag, attrs = {}, ...kids) {
   return n;
 }
 
+/**
+ * Appends children to an existing node, skipping the empty ones.
+ *
+ * `el()` already drops null children, but a bare `node.append(null)` renders
+ * the literal text "null" — so any render that builds a list with `cond ? x :
+ * null` in it has to come through here rather than calling append directly.
+ */
+export function appendAll(host, ...kids) {
+  if (!host) return host;
+  for (const kid of kids.flat()) {
+    if (kid == null || kid === false) continue;
+    host.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  }
+  return host;
+}
+
 /* ---------------------------------------------------------------
    Toasts
    --------------------------------------------------------------- */

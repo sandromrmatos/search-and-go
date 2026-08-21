@@ -26,7 +26,7 @@ import {
   renderHUD, renderStorage, renderCollection, renderProfile, renderSaveStatus,
   initCollectionFilters, refreshAll, renderView, renderStorageTabs,
   renderEffectChips, openNicknamePrompt, setViewHooks, enterMultiSelect,
-  renderWeatherChip
+  renderWeatherChip, setStorageSearch, setStorageFamilyAll
 } from './views.js';
 import {
   initExtras, renderMissions, renderMissionBadge, openBreeding, openResearchLab
@@ -948,6 +948,11 @@ function initUI() {
     store.setUI({ storageSort: e.target.value, storagePage: 0 });
     renderStorage();
   });
+  // Search by name, and the box that widens it to the whole evolution line.
+  $('#storage-search').addEventListener('input', e => setStorageSearch(e.target.value));
+  $('#storage-search').addEventListener('search', e => setStorageSearch(e.target.value));
+  $('#storage-family-all').addEventListener('change', e => setStorageFamilyAll(e.target.checked));
+
   $('#storage-dir').addEventListener('click', () => {
     store.setUI({ storageDir: store.s.ui.storageDir > 0 ? -1 : 1, storagePage: 0 });
     renderStorage();

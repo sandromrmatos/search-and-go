@@ -2264,6 +2264,26 @@ function normaliseStats(raw) {
 
 export const species = id => DB.byId.get(id) || null;
 export const speciesByName = n => DB.byName.get(String(n).toLowerCase()) || null;
+
+/**
+ * Every species whose name contains `text`, case-insensitively. A plain
+ * substring match on purpose: typing more letters should only ever narrow the
+ * list, never suddenly hide a longer name that still starts the same way.
+ */
+export function speciesMatching(text) {
+  const q = String(text ?? '').trim().toLowerCase();
+  if (!q) return [];
+  return DB.species.filter(sp => sp.name.toLowerCase().includes(q));
+}
+
+/**
+ * The family roots behind a search, so "whole family" can reach stages the
+ * player has not registered. Read from the database rather than from storage:
+ * searching for an evolution you have never owned still has to find the
+ * pre-evolution sitting in your boxes.
+ */
+export const familyRootsMatching = text =>
+  [...new Set(speciesMatching(text).map(sp => familyRoot(sp.id)))];
 export const familyRoot = id => DB.familyOf.get(id) || id;
 export const familyRootSpecies = id => species(familyRoot(id));
 export const familyName = id => (familyRootSpecies(id)?.name ?? '?');

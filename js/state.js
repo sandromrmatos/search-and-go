@@ -161,7 +161,11 @@ function blankState() {
       /** Collection shows shiny artwork, with silhouettes for shinies not caught. */
       collectionShiny: false,
       /** Storage is filtered to one family root id, or '' for everything. */
-      storageFamily: ''
+      storageFamily: '',
+      /** The storage search box: a name fragment, or '' for everything. */
+      storageQuery: '',
+      /** Whether that search widens to the whole evolution line. */
+      storageFamilyAll: false
     }
   };
 }

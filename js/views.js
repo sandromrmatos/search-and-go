@@ -6,6 +6,7 @@ import {
   DB, SETS, speciesForSet, RARITY_NAMES, MAX_CREATURE_LEVEL, MAX_PLAYER_LEVEL, STAT_KEYS, STAT_LABELS,
   STAT_GROWTH_PER_LEVEL,
   species, familyRoot, familyName, familyRarity, levelUpCost, moveLevelFor, statsFor,
+  familyRootsMatching,
   fullLearnset, finalEvolutionOf,
   breedingSlotsFor, BREEDING_UNLOCK_LEVEL, bonanzaState,
   isRelaxHour, relaxHourEndsIn, RELAX_HOUR_LABEL, RULES, BUDDY_KM_PER_CANDY,
@@ -23,7 +24,7 @@ import { playEvolution } from './anim.js';
 import { ITEMS, itemImage, itemName, itemsInOrder, INCENSE_ITEMS, effectSlotForItem } from './items.js';
 import { Weather, temperatureLabel, weatherRows, conditionOf } from './weather.js';
 import {
-  $, $$, el, toast, openSheet, closeSheet, num, timeLeftLabel,
+  $, $$, el, appendAll, toast, openSheet, closeSheet, num, timeLeftLabel,
   clampPage, pageSlice, pagerBar, pageOfIndex, wireSwipe, bumpEl, openImageViewer
 } from './ui.js';
 
@@ -200,15 +201,15 @@ export function renderStorageTabs() {
   itemTab.innerHTML = 'Items';
   if (total) itemTab.append(el('span', { class: 'tab-badge', text: String(total) }));
 
-  const family = store.s.ui.storageFamily;
-  const shown = family
-    ? store.s.storage.filter(c => familyRoot(c.speciesId) === family).length
-    : store.s.storage.length;
+  // The header count follows whatever the grid is showing, family filter and
+  // search box included, so the two can never disagree.
+  const filtered = !!store.s.ui.storageFamily || !!storageQuery();
+  const shown = filtered ? storageMatchesNow().length : store.s.storage.length;
   $('#storage-count').textContent = tab === 'items'
     ? `${total} item${total === 1 ? '' : 's'}`
     : tab === 'eggs'
       ? `${store.normalEggs.length}/${MAX_EGGS} + ${store.exclusiveEggs.length}/${MAX_EXCLUSIVE_EGGS} eggs`
-      : family
+      : filtered
         ? `${shown} of ${store.s.storage.length} shown`
         : `${store.s.storage.length} stored`;
 }
@@ -220,6 +221,116 @@ let sortedCollection = [];
 let multiSelectMode = false;
 let multiSelected = new Set();
 
+/* ---------------------------------------------------------------
+   Storage search
+
+   Two settings working together: a name to look for, and whether that name
+   should pull in the rest of the evolution line. Both live in the save so a
+   re-render, a page turn or a trip to another tab does not lose them.
+   --------------------------------------------------------------- */
+
+/** The search text, trimmed. '' when the box is empty. */
+const storageQuery = () => String(store.s.ui.storageQuery ?? '').trim();
+
+/** Whole-family mode is only ever on while there is something to match. */
+const familyModeOn = () => !!store.s.ui.storageFamilyAll && !!storageQuery();
+
+/** Does this creature's own name — or the nickname you gave it — match? */
+function nameHit(c, q) {
+  const s = sp(c);
+  return (!!s && s.name.toLowerCase().includes(q))
+    || String(c.nickname || '').toLowerCase().includes(q);
+}
+
+/**
+ * The predicate the grid filters on.
+ *
+ * In whole-family mode the search is resolved to family roots through the
+ * species database, not through storage, so searching for an evolution you
+ * have never owned still finds the pre-evolutions you are holding.
+ */
+function storageMatcher() {
+  const q = storageQuery().toLowerCase();
+  if (!q) return () => true;
+
+  if (!familyModeOn()) return c => nameHit(c, q);
+
+  const roots = new Set(familyRootsMatching(q));
+  // A nicknamed creature is findable by that nickname, so its line counts too.
+  for (const c of store.s.storage) {
+    if (String(c.nickname || '').toLowerCase().includes(q)) roots.add(familyRoot(c.speciesId));
+  }
+  return c => roots.has(familyRoot(c.speciesId));
+}
+
+/** Everything the current search covers, whatever page it is on. */
+const storageMatchesNow = () => {
+  const { storageFamily } = store.s.ui;
+  const matches = storageMatcher();
+  return store.s.storage.filter(c =>
+    (!storageFamily || familyRoot(c.speciesId) === storageFamily) && matches(c));
+};
+
+/** Typing in the search box. Resets to page 1, since the old page is meaningless. */
+export function setStorageSearch(text) {
+  const next = String(text ?? '');
+  store.setUI({ storageQuery: next, storagePage: 0 });
+  // Clearing the box takes the family tick with it, and any selection it made.
+  if (!next.trim() && store.s.ui.storageFamilyAll) {
+    store.setUI({ storageFamilyAll: false });
+    if (multiSelectMode) { multiSelectMode = false; multiSelected.clear(); }
+  } else if (familyModeOn()) {
+    // Still in family mode, so keep "everything shown is ticked" true.
+    tickEverythingShown();
+  }
+  renderStorage();
+}
+
+/**
+ * The Whole family box. Ticking it widens the search to the whole evolution
+ * line and ticks every creature in it, which is the point: one gesture to grab
+ * a line for a mass release.
+ */
+export function setStorageFamilyAll(on) {
+  store.setUI({ storageFamilyAll: !!on, storagePage: 0 });
+  if (!on) {
+    multiSelectMode = false;
+    multiSelected.clear();
+    renderStorage();
+    return;
+  }
+  if (!storageQuery()) {
+    store.setUI({ storageFamilyAll: false });
+    toast('Type a creature name first', 'bad');
+    renderStorage();
+    return;
+  }
+  const { picked, blocked } = tickEverythingShown();
+  renderStorage();
+
+  if (!picked && !blocked) { toast('Nothing in storage from that family', 'bad'); return; }
+  if (!picked) {
+    toast(`All ${blocked} are protected — favourites, shinies, buddies and breeding creatures cannot be selected`, 'bad', 4200);
+    return;
+  }
+  toast(blocked
+    ? `${picked} selected · ${blocked} protected and left alone`
+    : `${picked} selected across the whole family`, 'good', 3600);
+}
+
+/**
+ * Ticks every creature the search covers that is actually allowed to be
+ * selected, and reports how many were held back so the count on screen is
+ * never a mystery.
+ */
+function tickEverythingShown() {
+  const all = storageMatchesNow();
+  const ok = all.filter(canMultiSelect);
+  multiSelectMode = true;
+  multiSelected = new Set(ok.map(c => c.uid));
+  return { picked: ok.length, blocked: all.length - ok.length };
+}
+
 export function renderStorage() {
   renderStorageTabs();
   if (store.s.ui.storageTab === 'items') return renderItems();
@@ -227,13 +338,27 @@ export function renderStorage() {
 
   const grid = $('#storage-grid');
   const { storageSort, storageDir, storageFamily } = store.s.ui;
+  const query = storageQuery();
+  const wholeFamily = familyModeOn();
 
   // An active family filter narrows the list before sorting, so paging, the
-  // pager and the sheet's prev/next arrows all stay inside the filter.
-  const source = storageFamily
-    ? store.s.storage.filter(c => familyRoot(c.speciesId) === storageFamily)
-    : store.s.storage;
-  renderStorageFilterBar(storageFamily, source.length);
+  // pager and the sheet's prev/next arrows all stay inside the filter. The
+  // search box narrows it again on top.
+  const matches = storageMatcher();
+  const source = store.s.storage.filter(c =>
+    (!storageFamily || familyRoot(c.speciesId) === storageFamily) && matches(c));
+  renderStorageFilterBar(storageFamily, source.length, query, wholeFamily);
+
+  // The box only makes sense once there is a name to build a family from.
+  const famBox = $('#storage-family-all');
+  if (famBox) {
+    famBox.checked = wholeFamily;
+    famBox.disabled = !query;
+    $('#storage-family-all-label')?.classList.toggle('disabled', !query);
+  }
+  const search = $('#storage-search');
+  // Never fight the caret while someone is typing.
+  if (search && document.activeElement !== search && search.value !== query) search.value = query;
 
   // Sort the whole collection first, then cut it into pages.
   sortedStorage = [...source].sort(SORTERS[storageSort] || SORTERS.id);
@@ -245,9 +370,11 @@ export function renderStorage() {
 
   const empty = $('#storage-empty');
   empty.classList.toggle('hidden', sortedStorage.length > 0);
-  empty.textContent = storageFamily
-    ? `No ${familyName(storageFamily)} in your storage.`
-    : 'Nothing here yet. Go catch something!';
+  empty.textContent = query
+    ? `Nothing in your storage matches "${query}"${wholeFamily ? ', family and all' : ''}.`
+    : storageFamily
+      ? `No ${familyName(storageFamily)} in your storage.`
+      : 'Nothing here yet. Go catch something!';
   $('#storage-sort').value = storageSort;
   $('#storage-dir').textContent = storageDir > 0 ? '↑' : '↓';
 
@@ -330,37 +457,49 @@ export function renderStorage() {
 }
 
 /**
- * The "showing only this family" chip. Always visible while a filter is on, so
- * a persisted filter can never leave someone staring at an empty grid with no
+ * The "you are only seeing some of your storage" chips: one for the family
+ * filter, one for the search box. Always visible while either is on, so a
+ * persisted filter can never leave someone staring at an empty grid with no
  * way out.
  */
-function renderStorageFilterBar(familyRootId, count) {
+function renderStorageFilterBar(familyRootId, count, query = '', wholeFamily = false) {
   const bar = $('#storage-filter-bar');
   if (!bar) return;
-  bar.classList.toggle('hidden', !familyRootId);
+  const on = !!familyRootId || !!query;
+  bar.classList.toggle('hidden', !on);
   bar.innerHTML = '';
-  if (!familyRootId) return;
+  if (!on) return;
 
-  bar.append(
-    el('span', { class: 'filter-chip' },
+  const clearFamily = () => {
+    store.setUI({ storageFamily: '', storagePage: 0 });
+    renderStorage();
+  };
+
+  if (familyRootId) {
+    bar.append(el('span', { class: 'filter-chip' },
       el('span', { text: `🎒 ${familyName(familyRootId)} line · ${count}` }),
+      el('button', { class: 'chip-x', title: 'Show everything again', onclick: clearFamily }, '✕')
+    ));
+  }
+
+  if (query) {
+    bar.append(el('span', { class: 'filter-chip' },
+      el('span', { text: `🔍 ${query}${wholeFamily ? ' + family' : ''} · ${count}` }),
       el('button', {
-        class: 'chip-x',
-        title: 'Show everything again',
-        onclick: () => {
-          store.setUI({ storageFamily: '', storagePage: 0 });
-          renderStorage();
-        }
+        class: 'chip-x', title: 'Clear the search',
+        onclick: () => setStorageSearch('')
       }, '✕')
-    ),
-    el('button', {
-      class: 'mini-btn',
-      onclick: () => {
-        store.setUI({ storageFamily: '', storagePage: 0 });
-        renderStorage();
-      }
-    }, 'Show all')
-  );
+    ));
+  }
+
+  bar.append(el('button', {
+    class: 'mini-btn',
+    onclick: () => {
+      if (query) setStorageSearch('');
+      if (familyRootId) clearFamily();
+      else renderStorage();
+    }
+  }, 'Show all'));
 }
 
 /** Page controls under the storage grid, plus swipe on the grid itself. */
@@ -473,6 +612,9 @@ export function enterMultiSelect(uid = null) {
 function exitMultiSelect() {
   multiSelectMode = false;
   multiSelected.clear();
+  // The Whole family box only ever means "these are ticked", so it comes off
+  // with them rather than sitting on with an empty selection.
+  if (store.s.ui.storageFamilyAll) store.setUI({ storageFamilyAll: false });
   renderStorage();
 }
 
@@ -567,7 +709,7 @@ export function openItemSheet(itemId) {
   }
 
   body.innerHTML = '';
-  body.append(
+  appendAll(body,
     el('div', { class: 'det-head' },
       el('img', { src: itemImage(itemId), alt: def.name }),
       el('div', { class: 'det-title' },
@@ -725,7 +867,7 @@ export function openStatBoostPicker(uid) {
 
   const body = $('#sheet-body');
   body.innerHTML = '';
-  body.append(
+  appendAll(body,
     el('div', { class: 'det-head' },
       el('img', { src: s.spritePath(c.shiny), alt: s.name }),
       el('div', { class: 'det-title' },
@@ -799,7 +941,7 @@ function renderPickerBulkBar(itemId, eligibleCount, rerender) {
   const need = isPotion ? store.potionsNeededForAll() : store.revivable().length;
   const willUse = Math.min(have, need);
 
-  host.append(
+  appendAll(host,
     el('button', {
       class: 'btn primary wide',
       disabled: willUse < 1,
@@ -852,7 +994,7 @@ function renderCreatureSheet() {
   const nextUid = idx < sortedStorage.length - 1 ? sortedStorage[idx + 1].uid : null;
 
   body.innerHTML = '';
-  body.append(
+  appendAll(body,
     // ---- navigation arrows ----
     el('div', { class: 'sheet-nav' },
       el('button', { class: 'arrow-btn', disabled: !prevUid, onclick: () => goToCreature(prevUid, body, 'right') }, '‹'),
@@ -1052,7 +1194,7 @@ export function openAbilitySheet(speciesId) {
 
   const body = $('#sheet-body');
   body.innerHTML = '';
-  body.append(
+  appendAll(body,
     el('div', { class: 'det-head' },
       el('img', { src: sp.imagePath, alt: sp.name }),
       el('div', { class: 'det-title' },
@@ -1438,7 +1580,7 @@ function renderSpeciesSheet(speciesId) {
 
   const body = $('#sheet-body');
   body.innerHTML = '';
-  body.append(
+  appendAll(body,
     navIdx >= 0
       ? el('div', { class: 'sheet-nav' },
         el('button', {
@@ -1579,7 +1721,11 @@ export function showFamilyInStorage(speciesId) {
   const owned = store.s.storage.filter(c => familyRoot(c.speciesId) === root).length;
 
   closeSheet('sheet');
-  store.setUI({ storageFamily: root, storageTab: 'creatures', storagePage: 0 });
+  // Clear any search on the way in, or this jump could land on an empty grid.
+  store.setUI({
+    storageFamily: root, storageTab: 'creatures', storagePage: 0,
+    storageQuery: '', storageFamilyAll: false
+  });
 
   // Drive the real nav button so the active view, the highlight and the render
   // all stay in step — view switching lives in that handler.
@@ -1602,7 +1748,7 @@ export function renderBuddy() {
 
   const prog = store.buddyProgress();
   if (!prog) {
-    host.append(
+    appendAll(host,
       el('p', { class: 'muted small', text: 'Pick a creature to walk with you. It earns candy for its family the further you walk, and it can still battle, level up and evolve.' }),
       el('div', { class: 'btn-row' },
         el('button', { class: 'btn primary', onclick: openBuddyPicker }, '🐾 Add buddy'))
@@ -1614,7 +1760,7 @@ export function renderBuddy() {
   const s = species(c.speciesId);
   const rarity = familyRarity(s.id);
 
-  host.append(
+  appendAll(host,
     el('div', { class: 'buddy-top' },
       el('img', { class: 'buddy-img', src: s.spritePath(c.shiny), alt: s.name }),
       el('div', { class: 'buddy-meta' },

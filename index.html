@@ -114,7 +114,18 @@
       </div>
 
       <div id="tab-creatures">
-        <div class="toolbar">
+        <div class="toolbar wrap">
+          <label class="sel">
+            <span>Find</span>
+            <input id="storage-search" class="search-input" type="search"
+                   placeholder="Creature name…" autocomplete="off"
+                   aria-label="Filter your storage by creature name" />
+          </label>
+          <label class="tool-toggle" id="storage-family-all-label"
+                 title="Widen the search to the whole evolution line and tick them all">
+            <input type="checkbox" id="storage-family-all" />
+            <span>Whole family</span>
+          </label>
           <label class="sel">
             <span>Sort</span>
             <select id="storage-sort">
