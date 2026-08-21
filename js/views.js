@@ -275,60 +275,26 @@ const storageMatchesNow = () => {
 export function setStorageSearch(text) {
   const next = String(text ?? '');
   store.setUI({ storageQuery: next, storagePage: 0 });
-  // Clearing the box takes the family tick with it, and any selection it made.
-  if (!next.trim() && store.s.ui.storageFamilyAll) {
-    store.setUI({ storageFamilyAll: false });
-    if (multiSelectMode) { multiSelectMode = false; multiSelected.clear(); }
-  } else if (familyModeOn()) {
-    // Still in family mode, so keep "everything shown is ticked" true.
-    tickEverythingShown();
-  }
+  // With nothing typed there is no family to widen to, so the tick comes off
+  // rather than sitting there ticked and doing nothing.
+  if (!next.trim() && store.s.ui.storageFamilyAll) store.setUI({ storageFamilyAll: false });
   renderStorage();
 }
 
 /**
- * The Whole family box. Ticking it widens the search to the whole evolution
- * line and ticks every creature in it, which is the point: one gesture to grab
- * a line for a mass release.
+ * The Whole family box. Purely a filter: it widens the search from the one
+ * species you typed to its whole evolution line. It selects nothing — ticking
+ * creatures is still the hold gesture's job.
  */
 export function setStorageFamilyAll(on) {
-  store.setUI({ storageFamilyAll: !!on, storagePage: 0 });
-  if (!on) {
-    multiSelectMode = false;
-    multiSelected.clear();
-    renderStorage();
-    return;
-  }
-  if (!storageQuery()) {
+  if (on && !storageQuery()) {
     store.setUI({ storageFamilyAll: false });
     toast('Type a creature name first', 'bad');
     renderStorage();
     return;
   }
-  const { picked, blocked } = tickEverythingShown();
+  store.setUI({ storageFamilyAll: !!on, storagePage: 0 });
   renderStorage();
-
-  if (!picked && !blocked) { toast('Nothing in storage from that family', 'bad'); return; }
-  if (!picked) {
-    toast(`All ${blocked} are protected — favourites, shinies, buddies and breeding creatures cannot be selected`, 'bad', 4200);
-    return;
-  }
-  toast(blocked
-    ? `${picked} selected · ${blocked} protected and left alone`
-    : `${picked} selected across the whole family`, 'good', 3600);
-}
-
-/**
- * Ticks every creature the search covers that is actually allowed to be
- * selected, and reports how many were held back so the count on screen is
- * never a mystery.
- */
-function tickEverythingShown() {
-  const all = storageMatchesNow();
-  const ok = all.filter(canMultiSelect);
-  multiSelectMode = true;
-  multiSelected = new Set(ok.map(c => c.uid));
-  return { picked: ok.length, blocked: all.length - ok.length };
 }
 
 export function renderStorage() {
@@ -612,9 +578,6 @@ export function enterMultiSelect(uid = null) {
 function exitMultiSelect() {
   multiSelectMode = false;
   multiSelected.clear();
-  // The Whole family box only ever means "these are ticked", so it comes off
-  // with them rather than sitting on with an empty selection.
-  if (store.s.ui.storageFamilyAll) store.setUI({ storageFamilyAll: false });
   renderStorage();
 }
 
