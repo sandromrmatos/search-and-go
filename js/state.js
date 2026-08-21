@@ -24,6 +24,7 @@ import {
   MAX_EXCLUSIVE_EGGS, EXCLUSIVE_EGG_TYPE, isExclusiveEgg,
   emptyBoosts, totalBoosts, boostsLeft, MAX_STAT_BOOSTS, STAT_BOOSTER_ITEM,
   statBoosterCost, STAT_KEYS,
+  ITEM_EXCHANGES, itemExchange, itemExchangeOption,
   SHOP_ITEMS, shopItem, COINS_PER_AD
 } from './data.js';
 import { ITEMS, item as itemDef } from './items.js';
@@ -1829,6 +1830,62 @@ class Store {
       ok: true, made: n, spent: total, cost,
       candyLeft: this.candyFor(speciesId),
       species: sp
+    };
+  }
+
+  /* ---------------- exchange corner ---------------- */
+
+  /**
+   * Every trade-in the Exchange Corner offers, with how many the player is
+   * holding and how many trades that affords. Deals the player cannot afford
+   * are still returned, greyed out by the UI, so the rates are always readable.
+   */
+  exchangeOptions() {
+    return ITEM_EXCHANGES.map(deal => {
+      const have = this.itemCount(deal.from);
+      return {
+        from: deal.from,
+        cost: deal.cost,
+        have,
+        max: Math.floor(have / deal.cost),
+        to: deal.to
+      };
+    });
+  }
+
+  /** How many times this trade can be made right now. */
+  exchangeMax(fromId) {
+    const deal = itemExchange(fromId);
+    if (!deal) return 0;
+    return Math.floor(this.itemCount(fromId) / deal.cost);
+  }
+
+  /**
+   * Hands over `times` lots of `fromId` and pays out the matching `toId`.
+   * All or nothing: a trade that cannot be paid for in full is refused rather
+   * than part-filled, so the player never loses items for a smaller return.
+   */
+  exchangeItems(fromId, toId, times = 1) {
+    const n = Math.max(1, Math.floor(Number(times) || 1));
+    if (!this.s.researchLab) return { ok: false, reason: 'noLab' };
+
+    const deal = itemExchange(fromId);
+    if (!deal) return { ok: false, reason: 'noDeal' };
+    const want = itemExchangeOption(fromId, toId);
+    if (!want) return { ok: false, reason: 'noOption' };
+
+    const spend = deal.cost * n;
+    const have = this.itemCount(fromId);
+    if (have < spend) return { ok: false, reason: 'items', need: spend, have, short: spend - have };
+
+    this.spendItem(fromId, spend);
+    const gained = want.qty * n;
+    this.addItem(toId, gained);
+    this.touch('exchange', { immediate: true });
+    return {
+      ok: true, times: n, from: fromId, to: toId,
+      spent: spend, gained,
+      leftOfFrom: this.itemCount(fromId)
     };
   }
 

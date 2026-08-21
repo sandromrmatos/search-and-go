@@ -14,6 +14,7 @@ import {
   ESSENCE_RING_CANDY, ESSENCE_PIN_BANDS, ESSENCE_SEEKER_CHANCE,
   ESSENCE_MAX_RARITY, essenceDifficulty,
   STAT_BOOSTER_ITEM, MAX_STAT_BOOSTS, statBoosterCost, STAT_BOOSTER_CANDY_COST,
+  ITEM_EXCHANGES,
   SUPER_INCUBATOR, incubatorDiscount, ITEM_DROP_FULL_HEAL_CHANCE,
   MAX_CREATURE_LEVEL, CREATURE_LEVEL_COST, POI_OUTCOMES, POI_OUTCOMES_WEEKEND, SHINY_ODDS,
   POI_OUTCOMES_RAID_INVASION, POI_OUTCOMES_TRAINING_DOJO,
@@ -326,7 +327,7 @@ function renderResearchLab(inRange) {
     return;
   }
   hint.textContent = inRange
-    ? 'Turn spare candy into items. Anything you make goes to your Items storage.'
+    ? 'Turn spare candy into items, or trade items you are sitting on for ones you need. Anything you get goes to your Items storage.'
     : `You need to be within ${RULES.CAPTURE_RANGE_M} m of the lab to use it.`;
 
   const options = store.statBoosterOptions();
@@ -352,6 +353,28 @@ function renderResearchLab(inRange) {
     el('p', { class: 'hint', html: `A <b>Stat Booster</b> adds a permanent <b>+1</b> to one stat of one creature, up to <b>${MAX_STAT_BOOSTS}</b> per creature. The candy price depends on the rarity of the family you spend from: ${
       [1, 2, 3, 4].map(r => `<b>${RARITY_NAMES[r]}</b> ${statBoosterCost(r)}`).join(' · ')
     } (rarity 5 also ${statBoosterCost(5)}).` }),
+
+    el('h4', { class: 'sheet-h4', text: 'Exchange corner' }),
+    el('button', {
+      class: 'cell item-cell tappable lab-recipe',
+      disabled: !inRange,
+      onclick: () => openExchangeCorner()
+    },
+      el('span', { class: 'lab-swap', text: '⇄' }),
+      el('span', { class: 'nm', text: 'Exchange corner' }),
+      el('span', {
+        class: 'use-hint',
+        text: (() => {
+          const ready = store.exchangeOptions().filter(o => o.max > 0).length;
+          return ready
+            ? `${ready} trade${ready === 1 ? '' : 's'} available`
+            : 'Nothing to trade in yet';
+        })()
+      })
+    ),
+    el('p', { class: 'hint', html: `Hand over a pile of one everyday item and take a few of another: ${
+      ITEM_EXCHANGES.map(d => `<b>${d.cost} ${itemName(d.from)}${d.cost === 1 ? '' : 's'}</b>`).join(' · ')
+    }. The rate is always in the lab's favour, so it is a way to clear out what you never use rather than a way to print discs.` }),
     el('p', { class: 'hint', text: 'More recipes will appear here in future updates.' }),
     el('div', { class: 'btn-row' },
       el('button', { class: 'btn ghost', disabled: !inRange, onclick: moveLab }, '🔬 Move lab')
@@ -489,6 +512,178 @@ function renderStatBoosterCraft() {
       }, `Exchange ${spend} candy`)
     ),
     el('p', { class: 'hint', text: 'Boosters work on any creature, whatever candy you used to make them.' })
+  );
+}
+
+/* ---- the exchange corner ----
+
+   Two screens, the same shape as the candy exchange above: pick what you are
+   handing over, then pick what you want back and how many times to do it. */
+
+let swapFrom = null;
+let swapTo = null;
+let swapQty = 1;
+
+function openExchangeCorner() {
+  swapFrom = null;
+  swapTo = null;
+  swapQty = 1;
+  renderExchangeCorner();
+  openSheet('lab-exchange');
+}
+
+function renderExchangeCorner() {
+  const body = $('#lab-exchange-body');
+  const hint = $('#lab-exchange-hint');
+  const title = $('#lab-exchange-title');
+  body.innerHTML = '';
+
+  const deals = store.exchangeOptions();
+  const deal = swapFrom ? deals.find(d => d.from === swapFrom) : null;
+
+  // Step 1: what are you handing over?
+  if (!deal) {
+    title.textContent = 'Exchange corner';
+    hint.textContent = 'What would you like to trade in? The number on each is how many you are holding.';
+
+    const grid = el('div', { class: 'grid' });
+    for (const d of deals) {
+      grid.append(el('button', {
+        class: 'cell item-cell tappable',
+        disabled: d.max < 1,
+        onclick: () => { swapFrom = d.from; swapTo = null; swapQty = 1; renderExchangeCorner(); }
+      },
+        d.have ? el('span', { class: 'qty', text: String(d.have) }) : null,
+        el('img', { src: itemImage(d.from), alt: '' }),
+        el('span', { class: 'nm', text: itemName(d.from) }),
+        el('span', {
+          class: 'use-hint',
+          text: d.max >= 1
+            ? `${d.cost} per trade · up to ${d.max}`
+            : `Need ${d.cost}, you have ${d.have}`
+        })
+      ));
+    }
+    body.append(
+      grid,
+      el('p', { class: 'hint', text: 'Every trade is a loss on paper. It exists so a drawer full of Potions can become something you will actually use.' })
+    );
+    return;
+  }
+
+  // Step 2: what do you want back, and how many times?
+  const want = swapTo ? deal.to.find(t => t.item === swapTo) : null;
+  const max = Math.max(1, deal.max);
+  swapQty = Math.max(1, Math.min(max, swapQty));
+
+  title.textContent = `Trading in ${itemName(deal.from)}`;
+  hint.textContent = want
+    ? `${deal.cost} ${itemName(deal.from)} buys ${want.qty} ${itemName(want.item)}. Choose how many times.`
+    : `You have ${deal.have}, enough for ${deal.max} trade${deal.max === 1 ? '' : 's'}. What would you like back?`;
+
+  const choices = el('div', { class: 'grid' });
+  for (const t of deal.to) {
+    choices.append(el('button', {
+      class: 'cell item-cell tappable' + (swapTo === t.item ? ' picked' : ''),
+      onclick: () => { swapTo = t.item; swapQty = 1; renderExchangeCorner(); }
+    },
+      el('img', { src: itemImage(t.item), alt: '' }),
+      el('span', { class: 'nm', text: itemName(t.item) }),
+      el('span', { class: 'use-hint', text: `${deal.cost} → ${t.qty}` })
+    ));
+  }
+
+  body.append(
+    el('div', { class: 'det-head' },
+      el('img', { src: itemImage(deal.from), alt: itemName(deal.from) }),
+      el('div', { class: 'det-title' },
+        el('h3', { text: itemName(deal.from) }),
+        el('div', { class: 'det-tags' },
+          el('span', { class: 'tag', text: `${deal.have} held` }),
+          el('span', { class: 'tag', text: `${deal.cost} per trade` }),
+          el('span', { class: 'tag', text: `max ${deal.max}` })
+        )
+      )
+    ),
+    choices
+  );
+
+  if (!want) {
+    body.append(
+      el('div', { class: 'btn-row' },
+        el('button', {
+          class: 'btn ghost',
+          onclick: () => { swapFrom = null; swapTo = null; renderExchangeCorner(); }
+        }, 'Trade something else')
+      )
+    );
+    return;
+  }
+
+  const spend = deal.cost * swapQty;
+  const gain = want.qty * swapQty;
+
+  body.append(
+    el('div', { class: 'qty-picker' },
+      el('button', {
+        class: 'btn ghost', disabled: swapQty <= 1,
+        'aria-label': 'One fewer trade',
+        onclick: () => { swapQty--; renderExchangeCorner(); }
+      }, '−'),
+      el('div', { class: 'qty-read' },
+        el('b', { text: String(swapQty) }),
+        el('span', { class: 'muted small', text: swapQty === 1 ? 'trade' : 'trades' })
+      ),
+      el('button', {
+        class: 'btn ghost', disabled: swapQty >= deal.max,
+        'aria-label': 'One more trade',
+        onclick: () => { swapQty++; renderExchangeCorner(); }
+      }, '+')
+    ),
+    el('div', { class: 'det-rows' },
+      el('div', { class: 'det-row' },
+        el('span', { text: '➖' }),
+        el('span', { text: `${itemName(deal.from)} handed over` }),
+        el('b', { text: num(spend) })
+      ),
+      el('div', { class: 'det-row' },
+        el('span', { text: '➕' }),
+        el('span', { text: `${itemName(want.item)} received` }),
+        el('b', { text: num(gain) })
+      ),
+      el('div', { class: 'det-row' },
+        el('span', { text: '📦' }),
+        el('span', { text: `${itemName(deal.from)} left after` }),
+        el('b', { text: num(deal.have - spend) })
+      )
+    ),
+    el('div', { class: 'btn-row' },
+      el('button', {
+        class: 'btn ghost',
+        onclick: () => { swapTo = null; swapQty = 1; renderExchangeCorner(); }
+      }, 'Pick another'),
+      el('button', {
+        class: 'btn primary',
+        onclick: () => {
+          const r = store.exchangeItems(deal.from, want.item, swapQty);
+          if (!r.ok) {
+            toast(r.reason === 'noLab' ? 'Place your Research Lab first'
+              : r.reason === 'items' ? `You need ${r.need} ${itemName(deal.from)}`
+              : 'That trade is not available', 'bad');
+            return;
+          }
+          toast(`Traded ${r.spent} ${itemName(r.from)} for ${r.gained} ${itemName(r.to)}`, 'good', 3600);
+          // Back to the item list, which re-reads what is left.
+          swapTo = null;
+          swapQty = 1;
+          if (store.exchangeMax(deal.from) < 1) swapFrom = null;
+          renderExchangeCorner();
+          renderResearchLab(true);
+          refresh?.();
+        }
+      }, `Trade ${spend} for ${gain}`)
+    ),
+    el('p', { class: 'hint', text: 'Everything you get goes straight to your Items storage.' })
   );
 }
 
@@ -1077,7 +1272,7 @@ function renderInfo(tab = 'basics') {
         el('li', { html: 'Only one incense and one Stardust Magnet can run at a time. <b>Rare Incense</b> and <b>Shiny Incense</b> share the incense slot, so no two incenses can ever stack.' }),
         el('li', { html: `<b>Rare Incense</b> spawns on the same 2-minute rhythm but with far better odds: ${rareIncenseLine()}. Compare that to a wild spawn at ${wildOddsLine()}.` }),
         el('li', { html: `<b>Incubators</b> let you hatch eggs by walking. The plain <b>Incubator</b> is reusable — it ties up until the egg hatches, then you can use it again. A <b>Single Use Incubator</b> is consumed the moment you start it. You get a plain incubator at player level 5, and single use incubators from raid wins (${pct(RAID_REWARD.incubatorChance)}, or <b>guaranteed</b> from a rarity ${RAID_BONUS_RARITIES.join(' or ')} boss) and several missions.` }),
-        el('li', { html: `The <b>Research Lab</b> is a building rather than a consumable. Pin it to the map, like a Breeding Centre, then visit it to trade spare candy for <b>Stat Boosters</b>. <b>Move lab</b> picks it back up if you want it elsewhere. You earn it from the lifetime mission <b>Reach level 7 and register 70 creatures</b>.` }),
+        el('li', { html: `The <b>Research Lab</b> is a building rather than a consumable. Pin it to the map, like a Breeding Centre, then visit it to trade spare candy for <b>Stat Boosters</b> or use the <b>Exchange corner</b> to swap items you are sitting on for ones you need. <b>Move lab</b> picks it back up if you want it elsewhere. You earn it from the lifetime mission <b>Reach level 7 and register 70 creatures</b>.` }),
         el('li', { html: `<b>Rare Incense</b> is the hardest one to come by: a <b>${pct(raidRareIncenseChance(RAID_BONUS_RARITIES[0]))}</b> drop from rarity ${RAID_BONUS_RARITIES.join(' and ')} raids, a handful of missions, and one <b>every level from player level ${RARE_INCENSE_FROM_LEVEL}</b> onwards.` }),
         el('li', { html: `<b>Shiny Incense</b> spawns creatures on the same rhythm and at the same wild odds as a plain Incense, but pins the shiny rate to a flat <b>${pct(SHINY_INCENSE_ODDS)}</b> for everything you catch or hatch while it runs. Because it <b>replaces</b> the normal odds it does not stack with a <b>Shiny Bonanza</b>. It comes from <b>Exclusive Raids</b> (a <b>${pct(EXCLUSIVE_RAID_REWARD.shinyIncenseChance)}</b> chance per win) and a few missions.` })
       )
@@ -1159,6 +1354,16 @@ function renderInfo(tab = 'basics') {
         el('li', { html: `One creature can take <b>${MAX_STAT_BOOSTS}</b> boosts in total across all four stats. Eight into Attack and twelve into Defence and that creature is finished; the sheet shows how many are left.` }),
         el('li', { html: 'Grunt battles also drop them occasionally, so you can get started before the lab.' }),
         el('li', { html: 'Pinned it somewhere you have stopped visiting? <b>Move lab</b> puts it back in your Items so you can place it again anywhere. The lab holds nothing, so there is never anything to collect first.' })
+      ),
+      el('h4', { text: 'The Exchange corner' }),
+      el('p', { html: 'The lab\'s second counter trades <b>items</b> rather than candy, for when you are drowning in Potions and out of discs. Tap the lab, then <b>Exchange corner</b>, pick what you are handing over, pick what you want back, and set how many trades with <b>−</b> and <b>+</b>.' }),
+      el('ul', {},
+        ...ITEM_EXCHANGES.map(d => el('li', {
+          html: `<b>${d.cost} ${itemName(d.from, d.cost)}</b> → ${
+            d.to.map(t => `${t.qty} ${itemName(t.item, t.qty)}`).join(' or ')}`
+        })),
+        el('li', { html: 'The rate is <b>always in the lab\'s favour</b> — six or three in, one or two out. That is the point: it clears a shelf you are never going to use, it does not manufacture discs.' }),
+        el('li', { html: 'Trades are <b>all or nothing</b>. If you cannot cover the full amount the button will not let you, so you never hand items over for a part payment.' })
       ),
       el('h4', { text: 'Levelling up' }),
       el('p', { html: `Costs stardust <i>and</i> candy of that creature's family — from ${CANDY_ICON} ${CREATURE_LEVEL_COST[2].candy} + ${DUST_ICON} ${num(CREATURE_LEVEL_COST[2].stardust)} for level 2 up to ${CANDY_ICON} ${CREATURE_LEVEL_COST[MAX_CREATURE_LEVEL].candy} + ${DUST_ICON} ${num(CREATURE_LEVEL_COST[MAX_CREATURE_LEVEL].stardust)} for level ${MAX_CREATURE_LEVEL}.` }),

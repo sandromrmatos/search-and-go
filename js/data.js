@@ -278,6 +278,74 @@ export const totalBoosts = boosts =>
 
 export const boostsLeft = boosts => Math.max(0, MAX_STAT_BOOSTS - totalBoosts(boosts));
 
+/* ---------------------------------------------------------------
+   Exchange Corner
+
+   The Research Lab's second counter: hand over a pile of one everyday item and
+   pick something else back. Every deal is deliberately lossy — six of a common
+   item for two of another, or three of a scarcer one — so it is a way out of a
+   drawer full of Potions, never a way to farm discs.
+
+   `cost` is how many of `from` one trade takes; each entry in `to` is what a
+   single trade pays out.
+   --------------------------------------------------------------- */
+
+export const ITEM_EXCHANGES = [
+  {
+    from: 'potion', cost: 6,
+    to: [
+      { item: 'capture_disc', qty: 2 },
+      { item: 'revive', qty: 2 },
+      { item: 'ultra_disc', qty: 1 },
+      { item: 'single_use_incubator', qty: 1 }
+    ]
+  },
+  {
+    from: 'revive', cost: 6,
+    to: [
+      { item: 'capture_disc', qty: 2 },
+      { item: 'potion', qty: 2 },
+      { item: 'ultra_disc', qty: 1 },
+      { item: 'single_use_incubator', qty: 1 }
+    ]
+  },
+  {
+    from: 'capture_disc', cost: 6,
+    to: [
+      { item: 'revive', qty: 2 },
+      { item: 'potion', qty: 2 },
+      { item: 'ultra_disc', qty: 1 },
+      { item: 'single_use_incubator', qty: 1 }
+    ]
+  },
+  {
+    from: 'ultra_disc', cost: 3,
+    to: [
+      { item: 'capture_disc', qty: 2 },
+      { item: 'revive', qty: 2 },
+      { item: 'potion', qty: 2 },
+      { item: 'single_use_incubator', qty: 1 }
+    ]
+  },
+  {
+    from: 'single_use_incubator', cost: 3,
+    to: [
+      { item: 'capture_disc', qty: 2 },
+      { item: 'revive', qty: 2 },
+      { item: 'potion', qty: 2 },
+      { item: 'ultra_disc', qty: 1 }
+    ]
+  }
+];
+
+/** The deal for handing over this item, or null if it cannot be traded in. */
+export const itemExchange = fromId =>
+  ITEM_EXCHANGES.find(x => x.from === fromId) || null;
+
+/** What one trade of `fromId` pays out in `toId`, or null if that is not offered. */
+export const itemExchangeOption = (fromId, toId) =>
+  itemExchange(fromId)?.to.find(t => t.item === toId) || null;
+
 /** Total XP needed to reach each player level. */
 export const PLAYER_LEVEL_XP = {
   1: 0, 2: 25, 3: 100, 4: 250, 5: 1000, 6: 2000, 7: 3500, 8: 6000,

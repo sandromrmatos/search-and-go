@@ -633,6 +633,12 @@ a { color: var(--accent); }
 
 /* ---- Research Lab ---- */
 .lab-recipe { margin: 0 12px; max-width: 220px; }
+/* The Exchange corner has no item picture of its own, so it gets a glyph in the
+   same square the artwork would fill. */
+.lab-swap {
+  display: grid; place-items: center; width: 100%; aspect-ratio: 1;
+  font-size: 34px; line-height: 1; color: var(--accent);
+}
 /* − [ 3 ] + row for choosing how many boosters to make */
 .qty-picker {
   display: flex; align-items: center; justify-content: center; gap: 14px;
