@@ -973,9 +973,10 @@ function initUI() {
   $('#filter-type').addEventListener('change', e => { store.setUI({ filterType: e.target.value }); renderCollection(); });
   $('#filter-stage').addEventListener('change', e => { store.setUI({ filterStage: e.target.value }); renderCollection(); });
   $('#filter-rarity').addEventListener('change', e => { store.setUI({ filterRarity: e.target.value }); renderCollection(); });
+  $('#filter-ability').addEventListener('change', e => { store.setUI({ filterAbility: e.target.value }); renderCollection(); });
   $('#collection-sort').addEventListener('change', () => renderCollection());
   $('#filter-reset').addEventListener('click', () => {
-    store.setUI({ filterType: '', filterStage: '', filterRarity: '' });
+    store.setUI({ filterType: '', filterStage: '', filterRarity: '', filterAbility: '' });
     if ($('#collection-sort')) $('#collection-sort').value = 'id';
     renderCollection();
   });

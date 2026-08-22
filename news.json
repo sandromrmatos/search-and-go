@@ -95,5 +95,20 @@
       "**Your breeding centre tells you when candy is ready.** A gold pip appears on the map pin the moment any slot hits its 5-candy cap, with a number on it if more than one is waiting. The slot is highlighted and marked FULL inside the sheet too.",
       "**Buildings can be moved.** Both the Breeding Centre and the Research Lab now have a **Move** button that puts them back in your Items so you can pin them somewhere better. The centre needs every pair collected first — creatures left inside would have nowhere to come back to."
     ]
+  },
+  {
+    "at": "2026-08-22 10:30",
+    "title": "Creature abilities are here",
+    "body": [
+      "**Some creatures now have an ability.** An ability is a permanent trait that makes a creature hit harder, or hold up better, whenever a particular condition is true — and does nothing at all when it is not. **16 creatures** have one to begin with, and more will follow.",
+      "**Where to find them.** The Collection has a new **Ability** filter: set it to **✦ Has an ability** to see exactly who has one. Open any creature and tap the **✦ button** under its picture to read what its ability does and what sets it off.",
+      "**What can set one off.** The opposing creature's **type**, **stage**, **rarity** or **set**; the **temperature**, **cloud cover**, **humidity** or **wind** where you are; the **time** of day, the **day** of the week, the **month** — and new in this update, **daylight**, meaning whether the sun is up where you are. One ability can hold several conditions at once, sometimes pulling in opposite directions.",
+      "**Shadowflit and Flutterwing — Night Owl.** They deal **50% more** damage at night, and take **50% more** in daylight. Day or night comes from the same weather reading the HUD chip shows, so it follows real sunrise and sunset rather than a fixed clock.",
+      "**A few of the others.** **Toxiforge** deals 40% more against Mechanic creatures. **Mystikeon** deals 40% more against rarity 4 and 5. **Notreclast** takes 40% less from Stage 1. **Gelibara** deals 40% more in December, January and February, and takes 40% more in July, August and September. **Brasquente** deals 50% more at 25°C or above and 50% less below 5°C. **Beanknight** deals 40% more at weekends.",
+      "**The team picker tells you which ones will actually help.** While you are choosing a team for a raid or a grunt battle, each tile now carries a marker: a lit **✦** means that creature's ability **will** apply in this battle, a hollow **✧** means it has one that **will not**, and no marker means it has none. Tap and hold still previews its moves as before.",
+      "**Sort by it.** The picker's sort list has a new **Ability in this battle** option that brings the creatures whose abilities fire to the front. It already knows who you are about to fight — the boss for a raid, all three creatures for a grunt — as well as the weather and the clock, so the answer is the real one rather than a guess. When an ability only fires against part of a grunt's team, the marker says so when you hold on it.",
+      "**In the fight.** Abilities announce themselves as creatures take the field and again whenever a new opponent steps up, and the log says whether one **triggered** or **not triggered**, along with the reason. If several conditions fire at once their effects multiply, and the total is capped between **0.25×** and **4×**, so no stack can trivialise a battle.",
+      "**One thing worth knowing.** The weather-based ones need a weather reading to work from. With no reading they simply do not fire — the game never guesses at the conditions."
+    ]
   }
 ]

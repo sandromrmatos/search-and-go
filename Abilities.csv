@@ -1,0 +1,23 @@
+id_output,Name,Ability Name,Ability Description,Effect,Percent,Trigger,Value,Min,Max
+Galactic Adventures_43.png,Cloudboss,Grey Sky,,deal more,40,cloud cover,,80,
+Elemental Awakening_18,Zephyrquill,Light as a Feather,,deal more,50,wind,,30,
+Elemental Awakening_35,Galaktikreme,Sweet Dessert,,deal more,35,time,,12,14
+Elemental Awakening_35,Galaktikreme,Sweet Dessert,,deal more,35,time,,19,21
+Galactic Adventures_41.png,Goggly,Rain Immunity,,take less,75,humidity,,70,
+Elemental Awakening_29,Shadowflit,Night Owl,,deal more,50,daylight,Night,,
+Elemental Awakening_29,Shadowflit,Night Owl,,take more,50,daylight,Day,,
+Elemental Awakening_32,Flutterwing,Night Owl,,deal more,50,daylight,Night,,
+Elemental Awakening_32,Flutterwing,Night Owl,,take more,50,daylight,Day,,
+Exclusive_13.png,Gelibara,Cold Blooded,,deal more,40,month,"December, January, February",,
+Exclusive_13.png,Gelibara,Cold Blooded,,take more,40,month,"July, August, September",,
+Elemental Awakening_19,Aeruffin,Extreme Heat,,deal less,50,temperature,,20,
+Elemental Awakening_63,Orbitmelon,Smoothie Season,,deal more,30,month,"July, August, September",,
+Elemental Awakening_67,Toxiforge,Strong as Steel,,deal more,40,opposing type,Mechanic,,
+Elemental Awakening_11,Mystikeon,Giant Slayer,,deal more,40,opposing rarity,"4,5",,
+Galactic Adventures_68.png,Notreclast,Hard as Rock,,take less,40,opposing stage,1,,
+Galactic Adventures_60.png,Beanknight,Weekend Warrior,,deal more,40,day,"Saturday, Sunday",,
+Exclusive_08.png,Penseraph,Set Hunter,,deal more,25,opposing set,Elemental Awakening,,
+Exclusive_11.png,Brasquente,Ascendent Lava,,deal more,50,temperature,,25,
+Exclusive_11.png,Brasquente,Ascendent Lava,,deal less,50,temperature,,,5
+Elemental Awakening_17,Psydrake,Dragon Fever,,deal more,35,opposing type,Mystic,,
+Elemental Awakening_17,Psydrake,Dragon Fever,,deal more,20,day,"Monday, Wednesday, Friday",,

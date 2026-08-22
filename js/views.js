@@ -159,8 +159,22 @@ const SORTERS = {
   total:  (a, b) => (statTotal(a) - statTotal(b)) || order(a) - order(b),
   shiny:  (a, b) => (Number(!!b.shiny) - Number(!!a.shiny)) || order(a) - order(b),
   favourite: (a, b) => (Number(!!b.favourite) - Number(!!a.favourite)) || order(a) - order(b),
+  ability: (a, b) => (abilityRank(b) - abilityRank(a)) || order(a) - order(b),
   recent: (a, b) => a.capturedAt - b.capturedAt
 };
+
+/**
+ * How useful a creature's ability is, biggest first. Outside a battle there is
+ * nothing to judge relevance against, so all this can say is whether there is
+ * an ability at all; the battle picker swaps in a ranker that knows who the
+ * opponent is and can put the ones that will actually fire on top.
+ */
+let abilityRank = c => (sp(c)?.ability ? 1 : 0);
+
+/** Battle-aware ranking for the ability sort. Pass nothing to go back to plain. */
+export function setAbilityRanker(fn) {
+  abilityRank = typeof fn === 'function' ? fn : c => (sp(c)?.ability ? 1 : 0);
+}
 const sp = c => species(c.speciesId);
 const order = c => sp(c)?.order ?? 0;
 const rar = c => sp(c)?.rarity ?? familyRarity(c.speciesId) ?? 0;
@@ -1375,6 +1389,8 @@ export function renderCollection() {
   $('#filter-type').value = ui.filterType || '';
   $('#filter-stage').value = ui.filterStage || '';
   $('#filter-rarity').value = ui.filterRarity || '';
+  const abilityFilter = $('#filter-ability');
+  if (abilityFilter) abilityFilter.value = ui.filterAbility || '';
 
   // Shiny mode is a completion view: the same species list, but showing the
   // shiny artwork for the ones you have caught shiny and a silhouette for the
@@ -1395,6 +1411,8 @@ export function renderCollection() {
     if (ui.filterType && s.type !== ui.filterType) return false;
     if (ui.filterStage && String(s.stage) !== String(ui.filterStage)) return false;
     if (ui.filterRarity && String(s.rarity ?? '') !== String(ui.filterRarity)) return false;
+    if (ui.filterAbility === 'yes' && !s.ability) return false;
+    if (ui.filterAbility === 'no' && s.ability) return false;
     return true;
   });
 

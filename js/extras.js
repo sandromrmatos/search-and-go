@@ -13,6 +13,7 @@ import {
   ESSENCE_MIN_LEVEL, ESSENCE_WINDOW_HOURS, ESSENCE_SPAWN_MS,
   ESSENCE_RING_CANDY, ESSENCE_PIN_BANDS, ESSENCE_SEEKER_CHANCE,
   ESSENCE_MAX_RARITY, essenceDifficulty,
+  ABILITY_MULTIPLIER_MIN, ABILITY_MULTIPLIER_MAX,
   STAT_BOOSTER_ITEM, MAX_STAT_BOOSTS, statBoosterCost, STAT_BOOSTER_CANDY_COST,
   ITEM_EXCHANGES,
   SUPER_INCUBATOR, incubatorDiscount, ITEM_DROP_FULL_HEAL_CHANCE,
@@ -1309,6 +1310,16 @@ function renderInfo(tab = 'basics') {
         el('li', { html: '<b>Neutral</b> is not resisted by anything.' })
       ),
       el('p', { html: 'The two charts are separate — being strong against something does not mean it is weak back. <b>Mechanic</b> hits Neutral hardest but is resisted by the other three, so it is the biggest gamble in the game.' }),
+      el('h4', { text: 'Abilities' }),
+      el('p', { html: `Some creatures carry an <b>ability</b>: a permanent trait that makes them hit harder, or hold up better, whenever a particular condition is true — and does nothing at all when it is not. <b>${DB.abilities.size}</b> creatures have one so far. Filter your <b>Collection</b> by <b>Ability</b> to see which, and tap the <b>✦</b> button on a creature to read it.` }),
+      el('ul', {},
+        el('li', { html: 'A condition can be about your <b>opponent</b> — its type, stage, rarity or set — or about the <b>world</b>: temperature, cloud cover, humidity, wind, the time of day, the day of the week, the month, or whether it is <b>day or night</b> where you are.' }),
+        el('li', { html: 'One ability can hold <b>several conditions</b>, sometimes opposite ones: dealing more damage in the cold and less in the heat, for instance.' }),
+        el('li', { html: 'Choosing a team, each tile shows a <b>✦</b> when that creature\'s ability <b>will</b> apply in this battle and a <b>✧</b> when it has one that <b>will not</b>. Nothing means no ability. Sorting by <b>Ability in this battle</b> brings the useful ones to the front — the picker already knows the opposing side, the weather and the clock.' }),
+        el('li', { html: 'Abilities are read out as a creature <b>takes the field</b> and again whenever a <b>new opponent</b> steps up, so an opponent-based one can switch on part-way through a grunt battle. The log says whether it triggered, and why.' }),
+        el('li', { html: `Several conditions firing at once <b>multiply</b>, and the total is capped between <b>${ABILITY_MULTIPLIER_MIN}×</b> and <b>${ABILITY_MULTIPLIER_MAX}×</b>.` }),
+        el('li', { html: 'The weather-based ones need a <b>weather reading</b>. Without one they do not fire — the game never guesses the conditions.' })
+      ),
       el('h4', { text: 'After the battle' }),
       el('ul', {},
         el('li', { html: 'Damage is kept, including if you <b>leave part-way through</b> — you will be asked to confirm first. A hurt creature needs a <b>Potion</b>, a fainted one needs a <b>Revive</b>. You can heal and revive from the team picker without leaving the battle.' }),
@@ -1399,8 +1410,6 @@ function renderInfo(tab = 'basics') {
   if (tab === 'soon') {
     out.push(
       el('p', { html: 'A lot of exciting new features are coming soon to the game!' }),
-      el('h4', { text: 'Creature abilities' }),
-      el('p', { html: 'Very soon, some of your creatures that might not seem as strong might get more useful than you think, as they gain an <b>exclusive ability</b> that will make them very strong or very resistant in certain circumstances.' }),
       el('h4', { text: 'More mythicals' }),
       el('p', { html: `<b>Astralyon</b> is the first <b>Mythical</b>, rarity ${MYTHICAL_RARITY}, and more will follow. Each will have its own way of being found, and like Astralyon their buff moves raise several stats at once.` }),
       el('h4', { text: 'More candy' }),

@@ -7,15 +7,17 @@
 import {
   species, RARITY_NAMES, STAT_LABELS, BATTLE_TEAM_SIZE, familyName,
   statsFor, raidBossStats, RAID_CAPTURE_LEVEL, raidModifiers, EXCLUSIVE_RAID_REWARD,
-  eggLabel, buffMoveText
+  eggLabel, buffMoveText, abilityOutlook, abilityOutlookLabel
 } from './data.js';
 
 /** "+50%" style label straight from the raid modifier table. */
 const bossPct = (key, exclusive = false) =>
   `+${Math.round((raidModifiers(exclusive)[key] - 1) * 100)}%`;
 import { store, creatureStats, maxHpOf, hpOf, isFainted } from './state.js';
-import { sortedForPicker } from './views.js';
-import { Battle, buildRaidBattle, buildGruntBattle, battlerFromEnemySpec } from './battle.js';
+import { sortedForPicker, setAbilityRanker } from './views.js';
+import {
+  Battle, buildRaidBattle, buildGruntBattle, battlerFromEnemySpec, battleEnv
+} from './battle.js';
 import { itemImage, itemName } from './items.js';
 import { playCapture } from './anim.js';
 import {
@@ -103,6 +105,10 @@ export function closeBattle() {
 
   $('#battle').classList.add('hidden');
   ctx = null;
+  // The ability sort goes back to its plain "has one at all" meaning, since
+  // there is no longer a battle to judge relevance against.
+  outlookCache = new Map();
+  setAbilityRanker(null);
   onFinished?.();
 }
 
@@ -322,6 +328,61 @@ function showPicker() {
 /* Paging for the roster, same 30-per-page rule as Storage. */
 let pickPage = 0;
 
+/* ---------------------------------------------------------------
+   Which abilities matter in this battle
+
+   The opposing side is already known while the player is choosing, and so are
+   the clock and the weather, so every ability can be judged before a single
+   move is made. Worked out once per render and cached by species, because a
+   page of thirty creatures is often the same handful of species.
+   --------------------------------------------------------------- */
+
+let outlookCache = new Map();
+
+/** Every species the player's team could end up facing in this battle. */
+function battleOpponents() {
+  if (!ctx) return [];
+  if (ctx.kind === 'raid') {
+    const sp = ctx.raid ? species(ctx.raid.speciesId) : null;
+    return sp ? [sp] : [];
+  }
+  return (ctx.grunt?.team || []).map(t => species(t.speciesId)).filter(Boolean);
+}
+
+/** Rebuilds the cache for the current world. Called at the top of each render. */
+function refreshOutlooks() {
+  const env = battleEnv();
+  const opponents = battleOpponents();
+  outlookCache = new Map();
+  for (const c of store.battleReady()) {
+    const sp = species(c.speciesId);
+    if (!sp || outlookCache.has(sp.id)) continue;
+    outlookCache.set(sp.id, abilityOutlook(sp.ability, {
+      opponents, now: env.now, weather: env.weather
+    }));
+  }
+}
+
+const outlookFor = c => outlookCache.get(c?.speciesId) || null;
+
+/** Sort key: fires here, then has one that will not fire, then has none. */
+function outlookRank(c) {
+  const look = outlookFor(c);
+  if (!look?.has) return 0;
+  return look.applies ? 2 : 1;
+}
+
+/** The ✦ badge for a picker cell, or null when the creature has no ability. */
+function abilityBadge(c) {
+  const look = outlookFor(c);
+  if (!look?.has) return null;
+  return el('span', {
+    class: 'ab-badge' + (look.applies ? ' on' : ' off'),
+    title: abilityOutlookLabel(look),
+    text: look.applies ? '✦' : '✧'
+  });
+}
+
 function goToPickPage(page, grid = null) {
   const total = store.battleReady().length;
   const next = clampPage(page, total);
@@ -332,6 +393,10 @@ function goToPickPage(page, grid = null) {
 
 function renderPicker() {
   const grid = $('#bt-pick-grid');
+  // Work out what every ability would do in this battle before sorting, so the
+  // "Ability in this battle" order and the badges agree with each other.
+  refreshOutlooks();
+  setAbilityRanker(outlookRank);
   // Sort the whole roster, then page it, so page 1 is the real top of the order.
   // Shares Storage's sorter and its saved choice, so the options, the order and
   // the direction toggle all behave the way they do in Storage.
@@ -352,6 +417,7 @@ function renderPicker() {
   empty.classList.toggle('hidden', all.length > 0);
   empty.textContent = 'No creatures are fit to battle. Heal or revive them below, or catch some more.';
 
+  renderAbilityLegend(all);
   renderPickCare();
 
   grid.innerHTML = '';
@@ -381,6 +447,7 @@ function renderPicker() {
       el('span', { class: 'lvl', text: 'Lv' + c.level }),
       c.shiny ? el('span', { class: 'shiny-star', text: '★' }) : null,
       c.favourite ? el('span', { class: 'fav-star', text: '♥' }) : null,
+      abilityBadge(c),
       el('img', { src: sp.spritePath(c.shiny), alt: sp.name, loading: 'lazy' }),
       el('span', { class: 'nm', text: sp.name }),
       el('span', { class: `sub t-${sp.type}`, text: sp.type }),
@@ -409,6 +476,28 @@ function renderPicker() {
     onLeft: () => goToPickPage(pickPage + 1, grid),
     onRight: () => goToPickPage(pickPage - 1, grid)
   }, { key: 'pickPage' });
+}
+
+/**
+ * Says what the two badges mean, and only when there is a badge on screen to
+ * explain. Counts across the whole roster rather than the visible page, so the
+ * numbers match what sorting by ability would bring to the front.
+ */
+function renderAbilityLegend(all) {
+  const host = $('#bt-ability-legend');
+  if (!host) return;
+  const withAbility = all.filter(c => outlookFor(c)?.has);
+  if (!withAbility.length) {
+    host.classList.add('hidden');
+    host.innerHTML = '';
+    return;
+  }
+  const live = withAbility.filter(c => outlookFor(c).applies).length;
+  host.classList.remove('hidden');
+  host.innerHTML =
+    `<span class="ab-badge on">✦</span> applies in this battle (<b>${live}</b>) · ` +
+    `<span class="ab-badge off">✧</span> has an ability that will not (<b>${withAbility.length - live}</b>). ` +
+    `Sort by <b>Ability in this battle</b> to bring them to the front.`;
 }
 
 /**

@@ -462,7 +462,9 @@ export function battleEnv() {
       temperature: r ? r.celsius : null,
       cloudCover: r ? r.cloudCover : null,
       humidity: r ? r.humidity : null,
-      wind: r ? r.windSpeed : null
+      wind: r ? r.windSpeed : null,
+      // Whether the sun is up, for the daylight trigger. null when unknown.
+      isDay: r ? r.isDay : null
     }
   };
 }

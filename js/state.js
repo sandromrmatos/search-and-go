@@ -155,6 +155,8 @@ function blankState() {
     ui: {
       storageTab: 'creatures', storageSort: 'id', storageDir: 1, storagePage: 0,
       filterType: '', filterStage: '', filterRarity: '', setIndex: 0,
+      /** Collection ability filter: '' for all, 'yes' or 'no'. */
+      filterAbility: '',
       // Hides the ticked-off points on the map. They stay live underneath and
       // keep their spot reserved — this only stops them being drawn.
       hideCollectedPoints: false,

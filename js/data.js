@@ -479,7 +479,7 @@ export const BATTLE_TEAM_SIZE = 3;
    previewed on a storage sheet without pretending a battle is happening.
    --------------------------------------------------------------- */
 
-export const ABILITIES_CSV_FILE = 'Abilities Search and Go.csv';
+export const ABILITIES_CSV_FILE = 'Abilities.csv';
 
 /** The four things an ability can do, and which multiplier each one moves. */
 export const ABILITY_EFFECTS = {
@@ -491,8 +491,19 @@ export const ABILITY_EFFECTS = {
 
 /** Triggers that read a list of allowed values out of the `Value` column. */
 export const ABILITY_LIST_TRIGGERS = [
-  'opposing type', 'opposing stage', 'opposing rarity', 'opposing set', 'day', 'month'
+  'opposing type', 'opposing stage', 'opposing rarity', 'opposing set',
+  'day', 'month', 'daylight'
 ];
+/**
+ * Triggers that depend on who is standing opposite. Everything else can be
+ * judged from the clock and the weather alone, which is what lets the team
+ * picker say whether an ability will do anything before a battle starts.
+ */
+export const ABILITY_OPPONENT_TRIGGERS = [
+  'opposing type', 'opposing stage', 'opposing rarity', 'opposing set'
+];
+/** The only two values the daylight trigger accepts. */
+export const DAYLIGHT_VALUES = ['Day', 'Night'];
 /** Triggers that read `Min` / `Max` instead. */
 export const ABILITY_RANGE_TRIGGERS = [
   'temperature', 'time', 'cloud cover', 'humidity', 'wind'
@@ -533,11 +544,15 @@ export const MONTH_NAMES_LONG = [
 export function abilityWeather(ctx = {}) {
   const w = ctx.weather || {};
   const pick = v => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  const flag = v => (typeof v === 'boolean' ? v : null);
   return {
     temperature: pick(w.temperature ?? ctx.temperature),
     cloudCover: pick(w.cloudCover),
     humidity: pick(w.humidity),
-    wind: pick(w.wind)
+    wind: pick(w.wind),
+    // Daylight is a flag rather than a reading, so it gets its own passthrough.
+    // null means the reading is missing, which switches the trigger off.
+    isDay: flag(w.isDay ?? ctx.isDay)
   };
 }
 
@@ -631,6 +646,15 @@ export function evaluateClause(clause, ctx = {}) {
       else active = h >= min || h < max;
       return { active, reason: `the time is ${hourLabel(h)}` };
     }
+    case 'daylight': {
+      // Whether the sun is up where the player is, straight from the weather
+      // reading. Same rule as every other reading: no data, no trigger.
+      if (weather.isDay == null) return { active: false, reason: 'daylight unavailable' };
+      return {
+        active: has(weather.isDay ? 'Day' : 'Night'),
+        reason: weather.isDay ? 'it is daytime' : 'it is night'
+      };
+    }
     case 'day': {
       const name = DAY_NAMES_LONG[now.getDay()];
       return { active: has(name), reason: `it is ${name}` };
@@ -718,6 +742,8 @@ export function clauseConditionText(clause) {
       if (clause.min != null) return `the time is after ${hourLabel(clause.min)}`;
       return 'any time';
     }
+    case 'daylight':
+      return `it is ${join(list.map(v => (String(v).toLowerCase() === 'day' ? 'daytime' : 'night')))}`;
     case 'day': return `it is ${join(list)}`;
     case 'month': return `it is ${join(list)}`;
     default: return 'an unknown condition';
@@ -733,6 +759,68 @@ export function abilityText(ability) {
   if (!ability) return '';
   if (ability.description) return ability.description;
   return ability.clauses.map(clauseText).join(' ');
+}
+
+/** True when any clause depends on who is standing opposite. */
+export const abilityNeedsOpponent = ability =>
+  !!ability?.clauses.some(c => ABILITY_OPPONENT_TRIGGERS.includes(c.trigger));
+
+/**
+ * Would this ability actually do anything in a battle that has not started yet?
+ *
+ * The clock and the weather are already known, and so is the opposing side — a
+ * raid has one boss, a grunt brings three — so every clause can be judged up
+ * front. Opponent clauses are checked against each creature the player could
+ * meet, which is why the answer carries `against` out of `total`: an ability
+ * that only fires against one of three is still worth taking, but it is not the
+ * same as one that fires against all of them.
+ *
+ * @param {object|null} ability
+ * @param {object} ctx
+ * @param {object[]} [ctx.opponents] species the ability might face
+ * @param {Date}     [ctx.now]
+ * @param {object}   [ctx.weather]
+ */
+export function abilityOutlook(ability, { opponents = [], now = new Date(), weather = {} } = {}) {
+  const out = {
+    ability: ability || null,
+    has: !!ability,
+    applies: false,
+    against: 0,
+    total: 0,
+    needsOpponent: abilityNeedsOpponent(ability),
+    detail: ''
+  };
+  if (!ability) return out;
+
+  // With nothing known to fight, judge it on the world alone.
+  const foes = opponents.length ? opponents : [null];
+  out.total = foes.length;
+
+  const reads = foes.map(op => evaluateAbility(ability, { opponent: op, now, weather }));
+  const hits = reads.filter(r => r.anyActive);
+  out.against = hits.length;
+  out.applies = hits.length > 0;
+
+  // What fired, or — when nothing did — why not.
+  const source = out.applies ? hits[0] : reads[0];
+  const parts = out.applies
+    ? source.clauses.filter(c => c.active).map(c => `${clauseEffectText(c.clause)} — ${c.reason}`)
+    : source.clauses.map(c => `${clauseEffectText(c.clause)} needs ${clauseConditionText(c.clause)}`);
+  out.detail = parts.join('; ');
+
+  return out;
+}
+
+/** One line for a tooltip: what the ability will or will not do in this battle. */
+export function abilityOutlookLabel(look) {
+  if (!look?.has) return '';
+  const name = look.ability.name;
+  if (!look.applies) return `${name} — will not apply in this battle. ${look.detail}.`;
+  const scope = look.needsOpponent && look.total > 1 && look.against < look.total
+    ? ` against ${look.against} of their ${look.total}`
+    : '';
+  return `${name} — applies in this battle${scope}: ${look.detail}.`;
 }
 
 /* Raid bosses are beefed up versions of a normal creature. */
@@ -1670,6 +1758,18 @@ function buildAbilities(rows) {
     if (ABILITY_LIST_TRIGGERS.includes(trigger) && !values.length) {
       DB.warnings.push(`Abilities line ${line}: "${trigger}" needs a Value`);
       return;
+    }
+    // Daylight has exactly two legal values, and a typo would otherwise parse
+    // happily and then silently never fire.
+    if (trigger === 'daylight') {
+      const bad = values.filter(v =>
+        !DAYLIGHT_VALUES.some(d => d.toLowerCase() === String(v).toLowerCase()));
+      if (bad.length) {
+        DB.warnings.push(
+          `Abilities line ${line}: "daylight" takes ${DAYLIGHT_VALUES.join(' or ')}, ` +
+          `not "${bad.join(', ')}"`);
+        return;
+      }
     }
     if (ABILITY_RANGE_TRIGGERS.includes(trigger) && min == null && max == null) {
       DB.warnings.push(`Abilities line ${line}: "${trigger}" needs a Min or a Max`);
