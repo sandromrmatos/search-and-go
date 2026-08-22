@@ -826,6 +826,28 @@ a { color: var(--accent); }
   position: absolute; top: 5px; left: 50%; transform: translateX(-50%);
   font-size: 12px; color: var(--accent2); text-shadow: 0 0 8px #ffd166;
 }
+/* ---- held items ---- */
+.tag-held { color: #a8f0d0; background: #4ade8022; border-color: #4ade8066; }
+.tag-consumable { color: #ffd9a8; background: #ffb03c22; border-color: #ffb03c66; }
+.cell.held-consumable { border-color: #ffb03c55; }
+.cell .held-gain { color: #b9ffd0; font-weight: 700; }
+.boost-tag.held-tag { color: #a8f0d0; background: #4ade8018; border-color: #4ade8055; }
+/* held item lines in the battle log, in the same green as the tag */
+.bt-log .held-log { color: #a8f0d0; }
+.bt-log .held-log b { color: #d6ffe9; }
+/* the slot on a creature's own sheet */
+.held-slot {
+  display: flex; align-items: center; gap: 11px;
+  padding: 9px 11px; border-radius: 12px;
+  background: #ffffff0a; border: 1px solid var(--line);
+}
+.held-slot.empty { border-style: dashed; }
+.held-slot .held-ico { font-size: 22px; color: var(--muted); width: 34px; text-align: center; }
+.held-slot .held-ico-img { width: 34px; height: 34px; object-fit: contain; flex: 0 0 auto; }
+.held-slot .held-lines { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.held-slot .held-lines b { font-size: 13px; }
+.held-slot .btn { flex: 0 0 auto; padding: 7px 11px; font-size: 12px; }
+
 /* ---- ability status in the battle team picker ----
    Top-right is free in a picker cell (.rar and .qty are collection/item only).
    Two different glyphs as well as two different colours, so the states are

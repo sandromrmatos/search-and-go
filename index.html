@@ -107,9 +107,10 @@
         </div>
       </div>
 
-      <div class="tabs">
+      <div class="tabs" id="storage-tabs">
         <button class="tab active" data-tab="creatures">Creatures</button>
         <button class="tab" data-tab="items">Items</button>
+        <button class="tab" data-tab="held">Held items</button>
         <button class="tab" data-tab="eggs">Eggs</button>
       </div>
 
@@ -153,6 +154,14 @@
         <div id="items-grid" class="grid items-grid"></div>
         <p id="items-empty" class="empty">
           No items yet. Spinning discs and rotating <b>!</b> points on the map hand them out.
+        </p>
+      </div>
+      <div id="tab-held" class="hidden">
+        <p id="held-hint" class="hint"></p>
+        <div id="held-grid" class="grid items-grid"></div>
+        <p id="held-empty" class="empty">
+          No held items yet. They drop from <b>raids</b> and one arrives every week
+          for logging in.
         </p>
       </div>
       <div id="tab-eggs" class="hidden">
@@ -645,6 +654,20 @@
     <h3>🔬 Research Lab</h3>
     <p id="lab-hint" class="muted small"></p>
     <div id="lab-body"></div>
+  </div>
+</div>
+
+<!-- ============ HELD ITEM PICKER ============
+     Serves both directions: pick an item for a creature, or a creature for an
+     item. Stacks on top of whatever opened it. -->
+<div id="held-pick" class="sheet-wrap hidden">
+  <div class="sheet-backdrop" data-close="held-pick"></div>
+
+  <div class="sheet">
+    <button class="sheet-close" data-close="held-pick">✕</button>
+    <h3 id="held-pick-title">Held items</h3>
+    <p id="held-pick-hint" class="muted small"></p>
+    <div id="held-pick-body"></div>
   </div>
 </div>
 

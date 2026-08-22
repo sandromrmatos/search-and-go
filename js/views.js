@@ -7,6 +7,7 @@ import {
   STAT_GROWTH_PER_LEVEL,
   species, familyRoot, familyName, familyRarity, levelUpCost, moveLevelFor, statsFor,
   familyRootsMatching,
+  heldItem, heldItemImage, heldItemRequirement, heldStatBonus,
   fullLearnset, finalEvolutionOf,
   breedingSlotsFor, BREEDING_UNLOCK_LEVEL, bonanzaState,
   isRelaxHour, relaxHourEndsIn, RELAX_HOUR_LABEL, RULES, BUDDY_KM_PER_CANDY,
@@ -20,6 +21,7 @@ import { renderEggs, renderEggTabBadge, openEggPickerFor } from './eggs.js';
 import { store, creatureStats, maxHpOf, hpOf, isFainted, isHurt } from './state.js';
 
 import { Persist } from './persist.js';
+import { cloudStatus } from './cloud.js';
 import { playEvolution } from './anim.js';
 import { ITEMS, itemImage, itemName, itemsInOrder, INCENSE_ITEMS, effectSlotForItem } from './items.js';
 import { Weather, temperatureLabel, weatherRows, conditionOf } from './weather.js';
@@ -203,29 +205,43 @@ export function statTotal(c) {
    --------------------------------------------------------------- */
 export function renderStorageTabs() {
   const want = store.s.ui.storageTab;
-  const tab = (want === 'items' || want === 'eggs') ? want : 'creatures';
-  $$('.tabs .tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  const tab = (want === 'items' || want === 'eggs' || want === 'held') ? want : 'creatures';
+  $$('#storage-tabs .tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   $('#tab-creatures').classList.toggle('hidden', tab !== 'creatures');
   $('#tab-items').classList.toggle('hidden', tab !== 'items');
+  $('#tab-held').classList.toggle('hidden', tab !== 'held');
   $('#tab-eggs').classList.toggle('hidden', tab !== 'eggs');
   renderEggTabBadge();
 
-  const itemTab = $('.tabs .tab[data-tab="items"]');
+  const itemTab = $('#storage-tabs .tab[data-tab="items"]');
   const total = store.ownedItems().reduce((a, x) => a + x.qty, 0);
   itemTab.innerHTML = 'Items';
   if (total) itemTab.append(el('span', { class: 'tab-badge', text: String(total) }));
+
+  // The held badge counts the ones on creatures too, so it reads as "how many
+  // you own" rather than "how many are spare".
+  const heldTab = $('#storage-tabs .tab[data-tab="held"]');
+  if (heldTab) {
+    heldTab.innerHTML = 'Held items';
+    const held = store.heldItemTotal;
+    if (held) heldTab.append(el('span', { class: 'tab-badge', text: String(held) }));
+  }
 
   // The header count follows whatever the grid is showing, family filter and
   // search box included, so the two can never disagree.
   const filtered = !!store.s.ui.storageFamily || !!storageQuery();
   const shown = filtered ? storageMatchesNow().length : store.s.storage.length;
+  const spareHeld = store.ownedHeldItems().reduce((a, x) => a + x.qty, 0);
+  const wornHeld = store.s.storage.filter(c => c.held).length;
   $('#storage-count').textContent = tab === 'items'
     ? `${total} item${total === 1 ? '' : 's'}`
-    : tab === 'eggs'
-      ? `${store.normalEggs.length}/${MAX_EGGS} + ${store.exclusiveEggs.length}/${MAX_EXCLUSIVE_EGGS} eggs`
-      : filtered
-        ? `${shown} of ${store.s.storage.length} shown`
-        : `${store.s.storage.length} stored`;
+    : tab === 'held'
+      ? (wornHeld ? `${spareHeld} spare · ${wornHeld} being held` : `${spareHeld} spare`)
+      : tab === 'eggs'
+        ? `${store.normalEggs.length}/${MAX_EGGS} + ${store.exclusiveEggs.length}/${MAX_EXCLUSIVE_EGGS} eggs`
+        : filtered
+          ? `${shown} of ${store.s.storage.length} shown`
+          : `${store.s.storage.length} stored`;
 }
 
 /* The sorted creature list, cached so prev/next arrows can walk it. */
@@ -314,6 +330,7 @@ export function setStorageFamilyAll(on) {
 export function renderStorage() {
   renderStorageTabs();
   if (store.s.ui.storageTab === 'items') return renderItems();
+  if (store.s.ui.storageTab === 'held') return renderHeldItems();
   if (store.s.ui.storageTab === 'eggs') return renderEggs();
 
   const grid = $('#storage-grid');
@@ -626,6 +643,271 @@ export function renderItems() {
       el('span', { class: 'use-hint', text: def.soon ? 'Coming soon' : tappable ? 'Tap to use' : 'Used automatically' })
     ));
   }
+}
+
+/* ===============================================================
+   HELD ITEMS TAB
+
+   Two ways in, because both are natural: from an item, to find a creature that
+   can carry it, and from a creature, to find something for it to carry.
+   =============================================================== */
+
+export function renderHeldItems() {
+  const grid = $('#held-grid');
+  const owned = store.ownedHeldItems();
+  const worn = store.s.storage.filter(c => c.held);
+
+  $('#held-empty').classList.toggle('hidden', owned.length > 0 || worn.length > 0);
+  const hint = $('#held-hint');
+  if (hint) {
+    hint.innerHTML = owned.length || worn.length
+      ? 'A creature carries one held item at a time. Tap an item to give it to a creature, '
+        + 'or open a creature and use its held item slot. '
+        + '<b>Consumables</b> are spent by the thing they help with and cannot be taken back off.'
+      : '';
+    hint.classList.toggle('hidden', !hint.innerHTML);
+  }
+
+  grid.innerHTML = '';
+  const frag = document.createDocumentFragment();
+
+  for (const { def, qty } of owned) {
+    const eligible = store.creaturesEligibleFor(def.id).length;
+    frag.append(el('button', {
+      class: 'cell item-cell tappable' + (def.consumable ? ' held-consumable' : ''),
+      onclick: () => openHeldItemSheet(def.id)
+    },
+      el('span', { class: 'qty', text: String(qty) }),
+      el('img', { src: heldItemImage(def.id), alt: def.name, loading: 'lazy' }),
+      el('span', { class: 'nm', text: def.name }),
+      el('span', {
+        class: 'use-hint',
+        text: eligible
+          ? `${eligible} can hold it`
+          : (heldItemRequirement(def.id) || 'None eligible')
+      })
+    ));
+  }
+
+  // The ones already out on creatures, so the tab accounts for everything you
+  // own rather than only what is spare.
+  if (worn.length) {
+    frag.append(el('p', { class: 'sheet-h4', text: `Being held (${worn.length})` }));
+    const wornGrid = el('div', { class: 'grid items-grid' });
+    for (const c of worn) {
+      const def = heldItem(c.held);
+      const s = sp(c);
+      if (!def || !s) continue;
+      wornGrid.append(el('button', {
+        class: 'cell item-cell tappable',
+        onclick: () => openCreatureSheet(c.uid)
+      },
+        el('img', { src: heldItemImage(def.id), alt: def.name, loading: 'lazy' }),
+        el('span', { class: 'nm', text: def.name }),
+        el('span', { class: 'use-hint', text: c.nickname || s.name })
+      ));
+    }
+    frag.append(wornGrid);
+  }
+
+  grid.append(frag);
+}
+
+/** What a held item does, and a way to hand it to a creature. */
+export function openHeldItemSheet(itemId) {
+  const def = heldItem(itemId);
+  if (!def) return;
+  const qty = store.heldItemCount(itemId);
+  const eligible = store.creaturesEligibleFor(itemId);
+  const req = heldItemRequirement(itemId);
+
+  const body = $('#sheet-body');
+  body.innerHTML = '';
+  appendAll(body,
+    el('div', { class: 'det-head' },
+      el('img', { src: heldItemImage(itemId), alt: def.name }),
+      el('div', { class: 'det-title' },
+        el('h3', { text: def.name }),
+        el('div', { class: 'det-tags' },
+          el('span', { class: 'tag tag-held', text: '◈ Held item' }),
+          req ? el('span', { class: 'tag', text: req }) : null,
+          def.consumable ? el('span', { class: 'tag tag-consumable', text: 'Consumable' }) : null,
+          el('span', { class: 'tag', text: `${qty} spare` })
+        )
+      )
+    ),
+    el('p', { text: def.blurb }),
+    def.consumable
+      ? el('p', { class: 'hint', text: 'Once you give this to a creature it cannot come back off — it is used up by the thing it helps with.' })
+      : el('p', { class: 'hint', text: 'You can take this back off a creature at any time.' }),
+    el('div', { class: 'btn-row' },
+      el('button', {
+        class: 'btn primary',
+        disabled: qty < 1 || !eligible.length,
+        onclick: () => { closeSheet('sheet'); openHeldCreaturePicker(itemId); }
+      }, eligible.length ? 'Give to a creature' : 'No creature can hold it')
+    ),
+    !eligible.length && qty > 0
+      ? el('p', { class: 'hint', html: req
+          ? `Nothing in your storage is <b>${req}</b> and free to carry something. A creature can only hold one item at a time.`
+          : 'Every creature you own is already carrying something.' })
+      : null
+  );
+  openSheet('sheet');
+}
+
+/** Direction one: an item is chosen, now pick the creature. */
+export function openHeldCreaturePicker(itemId) {
+  const def = heldItem(itemId);
+  if (!def) return;
+  const eligible = sortedForPicker(store.creaturesEligibleFor(itemId));
+  const req = heldItemRequirement(itemId);
+
+  $('#held-pick-title').textContent = `Who gets the ${def.name}?`;
+  $('#held-pick-hint').textContent = req
+    ? `${req}. Creatures already carrying something are not shown.`
+    : 'Creatures already carrying something are not shown.';
+
+  const body = $('#held-pick-body');
+  body.innerHTML = '';
+
+  if (!eligible.length) {
+    body.append(el('p', { class: 'empty', text: 'No creature in your storage can hold this one.' }));
+    openSheet('held-pick');
+    return;
+  }
+
+  const grid = el('div', { class: 'grid' });
+  for (const c of eligible) {
+    const s = sp(c);
+    const before = creatureStats(c);
+    // What it would actually do for this creature, worked out on the spot.
+    const gain = def.effect === 'stat' ? `${STAT_LABELS[def.stat]} ${before[def.stat]} → ${before[def.stat] + def.amount}` : '';
+    grid.append(el('button', {
+      class: 'cell',
+      onclick: () => {
+        const r = store.giveHeldItem(c.uid, itemId);
+        if (!r.ok) {
+          toast(r.reason === 'ineligible' ? r.why : 'Could not give that item', 'bad');
+          return;
+        }
+        toast(`${c.nickname || s.name} is holding the ${def.name}`, 'good', 3200);
+        closeSheet('held-pick');
+        refreshAll();
+      }
+    },
+      el('span', { class: 'lvl', text: 'Lv' + c.level }),
+      c.shiny ? el('span', { class: 'shiny-star', text: '★' }) : null,
+      c.favourite ? el('span', { class: 'fav-star', text: '♥' }) : null,
+      el('img', { src: s.spritePath(c.shiny), alt: s.name, loading: 'lazy' }),
+      el('span', { class: 'nm', text: c.nickname || s.name }),
+      el('span', { class: `sub t-${s.type}`, text: s.type }),
+      gain ? el('span', { class: 'sub held-gain', text: gain }) : null
+    ));
+  }
+  body.append(grid);
+  openSheet('held-pick');
+}
+
+/** Direction two: a creature is chosen, now pick the item. */
+export function openHeldItemPickerFor(uid) {
+  const c = store.creature(uid);
+  const s = c ? sp(c) : null;
+  if (!c || !s) return;
+  const options = store.heldItemOptionsFor(uid);
+
+  $('#held-pick-title').textContent = `What should ${c.nickname || s.name} hold?`;
+  $('#held-pick-hint').textContent = options.some(o => !o.ok)
+    ? 'Greyed out items do not suit this creature. It can carry one at a time.'
+    : 'It can carry one at a time.';
+
+  const body = $('#held-pick-body');
+  body.innerHTML = '';
+
+  if (!options.length) {
+    body.append(el('p', { class: 'empty', text: 'You have no spare held items. They drop from raids, and one arrives every week for logging in.' }));
+    openSheet('held-pick');
+    return;
+  }
+
+  const before = creatureStats(c);
+  const grid = el('div', { class: 'grid items-grid' });
+  for (const { def, qty, ok, reason } of options) {
+    const gain = ok && def.effect === 'stat'
+      ? `${STAT_LABELS[def.stat]} ${before[def.stat]} → ${before[def.stat] + def.amount}`
+      : '';
+    grid.append(el('button', {
+      class: 'cell item-cell' + (ok ? ' tappable' : ' passive'),
+      disabled: !ok,
+      onclick: () => {
+        const r = store.giveHeldItem(uid, def.id);
+        if (!r.ok) { toast(r.reason === 'ineligible' ? r.why : 'Could not give that item', 'bad'); return; }
+        toast(`${c.nickname || s.name} is holding the ${def.name}`, 'good', 3200);
+        closeSheet('held-pick');
+        renderCreatureSheet();
+        refreshAll();
+      }
+    },
+      el('span', { class: 'qty', text: String(qty) }),
+      el('img', { src: heldItemImage(def.id), alt: def.name, loading: 'lazy' }),
+      el('span', { class: 'nm', text: def.name }),
+      el('span', { class: 'use-hint', text: ok ? (gain || 'Tap to give') : reason })
+    ));
+  }
+  body.append(
+    grid,
+    el('p', { class: 'hint', text: 'A consumable cannot be taken back off once given — it is spent by the thing it helps with.' })
+  );
+  openSheet('held-pick');
+}
+
+/**
+ * The held item slot on a creature's own sheet: what it is carrying and a way
+ * to take it back, or a way to give it something.
+ */
+function heldItemRow(c) {
+  const def = c.held ? heldItem(c.held) : null;
+  if (!def) {
+    const spare = store.heldItemOptionsFor(c.uid);
+    const usable = spare.filter(o => o.ok).length;
+    return el('div', { class: 'held-slot empty' },
+      el('span', { class: 'held-ico', text: '◈' }),
+      el('div', { class: 'held-lines' },
+        el('b', { text: 'No held item' }),
+        el('span', {
+          class: 'muted small',
+          text: !spare.length ? 'You have none spare yet'
+            : usable ? `${usable} of your ${spare.length} would suit it`
+              : 'None of your spares suit this creature'
+        })
+      ),
+      el('button', {
+        class: 'btn ghost',
+        disabled: !usable,
+        onclick: () => openHeldItemPickerFor(c.uid)
+      }, 'Give one')
+    );
+  }
+
+  return el('div', { class: 'held-slot' },
+    el('img', { class: 'held-ico-img', src: heldItemImage(def.id), alt: def.name }),
+    el('div', { class: 'held-lines' },
+      el('b', { text: def.name }),
+      el('span', { class: 'muted small', text: def.blurb })
+    ),
+    def.consumable
+      ? el('span', { class: 'tag tag-consumable', text: 'Consumable' })
+      : el('button', {
+        class: 'btn ghost',
+        onclick: () => {
+          const r = store.takeHeldItem(c.uid);
+          if (!r.ok) { toast('That one cannot come back off', 'bad'); return; }
+          toast(`${def.name} back in your held items`, 'good');
+          renderCreatureSheet();
+          refreshAll();
+        }
+      }, 'Take back')
+  );
 }
 
 /** Item detail: explains it, and offers the right way to use it. */
@@ -1020,6 +1302,9 @@ function renderCreatureSheet() {
     // ---- stats with the +10% / -10% arrows ----
     abilityButton(s),
 
+    el('h4', { class: 'sheet-h4', text: 'Held item' }),
+    heldItemRow(c),
+
     el('h4', { class: 'sheet-h4', text: 'Stats' }),
     el('div', { class: 'det-rows' }, ...statRows(c)),
     el('p', { class: 'hint', text: `Stat modifier: ${STAT_LABELS[c.statMod.up]} up 10%, ${STAT_LABELS[c.statMod.down]} down 10%. Each level adds ${Math.round(STAT_GROWTH_PER_LEVEL * 100)}% of the base stat.` }),
@@ -1205,6 +1490,7 @@ export function openAbilitySheet(speciesId) {
 function statRows(c) {
   const stats = creatureStats(c);
   const boosts = store.boostsOf(c);
+  const held = heldStatBonus(c, sp(c));
   const rows = STAT_KEYS.map(k => {
     const arrow = c.statMod.up === k ? 'up' : c.statMod.down === k ? 'down' : '';
     return el('div', { class: 'stat-row' },
@@ -1214,6 +1500,8 @@ function statRows(c) {
       el('span', { class: 'val', text: num(stats[k]) }),
       // How much of this figure came from Stat Boosters, if any.
       boosts[k] ? el('span', { class: 'boost-tag', text: `+${boosts[k]}` }) : null,
+      // And from a held item, so a +10 is never a mystery.
+      held[k] ? el('span', { class: 'boost-tag held-tag', text: `◈ +${held[k]}` }) : null,
       el('span', { class: `arrow ${arrow}`, text: arrow === 'up' ? '▲' : arrow === 'down' ? '▼' : '' })
     );
   });
@@ -1885,6 +2173,14 @@ export function renderSaveStatus() {
   else bits.push('This browser cannot write device files directly — use "Download backup" to keep a copy.');
   bits.push(st.persisted ? 'Browser storage is marked persistent.' : 'Browser storage is not persistent (may be evicted under pressure).');
   if (store.lastSavedAt) bits.push(`Last saved ${new Date(store.lastSavedAt).toLocaleTimeString()}.`);
+  // The daily cloud copy. Deliberately last: it is a safety net, not the
+  // primary save, and saying so keeps expectations right.
+  const cloud = cloudStatus(store.s);
+  bits.push(cloud.backedUpToday
+    ? 'Backed up to the cloud today.'
+    : cloud.error
+      ? 'Cloud backup unavailable right now.'
+      : 'Cloud backup happens once a day.');
   $('#save-status').textContent = bits.join(' ');
 
   // Keep the red guard banner in step with the live state.

@@ -16,7 +16,7 @@
 import {
   damageOf, effectivenessOf, statsFor, raidBossStats, species,
   evaluateAbility, clauseEffectText, clauseConditionText, buffStatsLabel,
-  STAT_KEYS, STAT_LABELS, BATTLE_TEAM_SIZE, moveLevelFor
+  STAT_KEYS, STAT_LABELS, BATTLE_TEAM_SIZE, moveLevelFor, heldItem
 } from './data.js';
 import { Weather } from './weather.js';
 import { creatureStats, maxHpOf, hpOf } from './state.js';
@@ -28,7 +28,7 @@ import { creatureStats, maxHpOf, hpOf } from './state.js';
 let seq = 0;
 
 export class Battler {
-  constructor({ key, uid, speciesId, level, shiny, stats, hp, moves, label }) {
+  constructor({ key, uid, speciesId, level, shiny, stats, hp, moves, label, held = null }) {
     this.key = key ?? `b${++seq}`;
     this.uid = uid ?? null;              // set for the player's own creatures
     this.speciesId = speciesId;
@@ -42,9 +42,17 @@ export class Battler {
     this.hp = Math.max(0, Math.min(stats.hp, hp ?? stats.hp));
     this.moves = moves;
     this.buffs = {};                      // stat -> cumulative multiplier
+    /**
+     * What it walked in carrying. The stat items are already baked into
+     * `stats`; this is here for the ones that do something during the fight,
+     * and so the log can announce it.
+     */
+    this.held = held || null;
   }
 
   get species() { return species(this.speciesId); }
+  /** The held item definition, or null. */
+  get heldDef() { return this.held ? heldItem(this.held) : null; }
   get type() { return this.species?.type || 'Neutral'; }
   get fainted() { return this.hp <= 0; }
   get spritePath() { return this.species?.spritePath(this.shiny) || ''; }
@@ -84,7 +92,8 @@ export function battlerFromCreature(c) {
     shiny: c.shiny,
     stats: creatureStats(c),
     hp: hpOf(c),
-    moves: sp.movesAt(c.level, c.moveUnlock)
+    moves: sp.movesAt(c.level, c.moveUnlock),
+    held: c.held || null
   });
 }
 
@@ -197,6 +206,9 @@ export class Battle {
 
     /** The pairing the last ability read was made for, so it is not repeated. */
     this._abilityPairing = null;
+
+    /** Creatures whose held item has already been announced. */
+    this._heldAnnounced = new Set();
   }
 
   /* ---- abilities ---- */
@@ -256,6 +268,31 @@ export class Battle {
     return events;
   }
 
+  /**
+   * "X is holding a Y" for whoever has just taken the field. Each creature is
+   * announced once per battle rather than every turn, so a long fight does not
+   * repeat itself, and it fires for both sides — a raid boss never holds
+   * anything today, but nothing here assumes that.
+   */
+  heldLines() {
+    const events = [];
+    for (const side of ['player', 'enemy']) {
+      const self = side === 'player' ? this.playerActive : this.enemyActive;
+      if (!self?.heldDef) continue;
+      if (this._heldAnnounced.has(self.key)) continue;
+      this._heldAnnounced.add(self.key);
+      events.push({
+        type: 'held',
+        side,
+        actor: self.key,
+        actorLabel: self.label,
+        item: self.heldDef.name,
+        detail: self.heldDef.blurb
+      });
+    }
+    return events;
+  }
+
   get playerActive() { return this.player[this.playerIndex] || null; }
   get enemyActive() { return this.enemy[this.enemyIndex] || null; }
 
@@ -284,8 +321,10 @@ export class Battle {
     this.turn++;
     const events = [{ type: 'turn', turn: this.turn }];
 
-    // On the first turn, and after any switch, say what the abilities are doing
-    // before anything swings. Returns nothing when the pairing is unchanged.
+    // On the first turn, and after any switch, say what is being carried and
+    // what the abilities are doing before anything swings. Both return nothing
+    // when there is no news.
+    events.push(...this.heldLines());
     events.push(...this.abilityLines());
 
     // Speed decides who swings first; equal speed is a coin flip.
@@ -379,12 +418,30 @@ export class Battle {
       { dealMultiplier, takeMultiplier }
     );
     const hpBefore = target.hp;
-    target.takeDamage(dmg);
+
+    /**
+     * A Miracle Coin turns one lethal blow into a survivable one, but only from
+     * full health. A creature already carrying damage dies like anything else,
+     * which is what stops it being a free extra life every turn.
+     */
+    let dealt = dmg;
+    let saved = null;
+    if (target.heldDef?.effect === 'survive'
+      && target.hp === target.maxHp
+      && dmg >= target.hp) {
+      dealt = target.hp - 1;
+      saved = target.heldDef.name;
+    }
+
+    target.takeDamage(dealt);
 
     events.push({
       type: 'damage', side, actor: actor.key, target: target.key,
       targetLabel: target.label,
-      amount: dmg,
+      amount: dealt,
+      // The blow it would have been, so the log can say what was survived.
+      wouldHaveBeen: saved ? dmg : null,
+      savedBy: saved,
       superEffective: eff.superEffective,
       notVeryEffective: eff.notVeryEffective,
       // Named so the UI can say why a number looked surprising.
@@ -424,8 +481,12 @@ export class Battle {
       }
     }
     // A new creature on either side means every opponent-based clause has to be
-    // read again — for both of them, not just the one that changed.
-    if (switched) events.push(...this.abilityLines());
+    // read again — for both of them, not just the one that changed — and the
+    // newcomer's held item gets its introduction.
+    if (switched) {
+      events.push(...this.heldLines());
+      events.push(...this.abilityLines());
+    }
     return events;
   }
 

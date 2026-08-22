@@ -1334,6 +1334,187 @@ export const BREEDING_HOURS = { 1: 12, 2: 12, 3: 18, 4: 24, 5: 36, 6: 48 };
 
 export const BREEDING_CANDY_CAP = 5;
 
+
+/* ---------------------------------------------------------------
+   Held items
+
+   A creature can carry exactly one held item. Some are gated on the creature's
+   type, its stage or its level, so most items only suit part of the roster.
+   Stat bonuses are flat and applied after level growth, the same way a Stat
+   Booster is, so "+10 Attack" reads as exactly +10 on the sheet.
+
+   Two are consumables: they are spent by the thing they help with rather than
+   handed back, so they cannot be taken off a creature once given.
+   --------------------------------------------------------------- */
+
+export const HELD_ITEM_DIR = 'held items';
+
+/** One per type, three flavours: the bulk of the list. */
+const TYPE_TRINKETS = [
+  { suffix: 'gem',    label: 'Gem',    stat: 'attack',  amount: 10, order: 20 },
+  { suffix: 'shield', label: 'Shield', stat: 'defence', amount: 10, order: 30 },
+  { suffix: 'cog',    label: 'Cog',    stat: 'speed',   amount: 10, order: 40 }
+];
+
+function buildHeldItems() {
+  const out = {};
+  const add = def => { out[def.id] = def; };
+
+  add({
+    id: 'miracle_coin', name: 'Miracle Coin', image: 'miracle_coin.png', order: 10,
+    effect: 'survive',
+    blurb: 'At full health, an attack that would knock this creature out leaves it on 1 HP instead. '
+      + 'Once it has taken any damage at all it can be knocked out like anything else.'
+  });
+
+  for (const t of TYPE_TRINKETS) {
+    for (const type of TYPES) {
+      add({
+        id: `${type.toLowerCase()}_${t.suffix}`,
+        name: `${type} ${t.label}`,
+        image: `${type.toLowerCase()}_${t.suffix}.png`,
+        order: t.order,
+        effect: 'stat', stat: t.stat, amount: t.amount,
+        requireType: type,
+        blurb: `+${t.amount} ${STAT_LABELS[t.stat]} for a ${type} creature. Only a ${type} creature can hold it.`
+      });
+    }
+  }
+
+  add({
+    id: 'growth_crystal', name: 'Growth Crystal', image: 'growth_crystal.png', order: 50,
+    effect: 'stat', stat: 'hp', amount: 20,
+    requireStage: 2, returnOnEvolve: true,
+    blurb: '+20 HP for a Stage 2 creature. Only a Stage 2 creature can hold it, and it comes '
+      + 'straight back to your storage if that creature evolves.'
+  });
+  add({
+    id: 'strength_sigil', name: 'Strength Sigil', image: 'strength_sigil.png', order: 60,
+    effect: 'stat', stat: 'attack', amount: 20,
+    requireLevel: 8,
+    blurb: '+20 Attack, for a creature at level 8 or above.'
+  });
+
+  add({
+    id: 'breeding_amulet', name: 'Breeding Amulet', image: 'breeding_amulet.png', order: 70,
+    effect: 'breeding', consumable: true,
+    blurb: 'Put two creatures that are both holding one into the Breeding Centre and their candy '
+      + 'arrives twice as fast. Both halves of the pair need one. Used up once that pair has '
+      + `earned ${BREEDING_CANDY_CAP} candy.`
+  });
+  add({
+    id: 'candy_pouch', name: 'Candy Pouch', image: 'candy_pouch.png', order: 80,
+    effect: 'buddy', consumable: true,
+    blurb: 'While this creature is your buddy it needs half the usual distance to earn a candy. '
+      + 'Used up the moment it earns one.'
+  });
+
+  return out;
+}
+
+export const HELD_ITEMS = buildHeldItems();
+
+export const heldItem = id => HELD_ITEMS[id] || null;
+export const isHeldItem = id => !!HELD_ITEMS[id];
+export const isConsumableHeldItem = id => !!HELD_ITEMS[id]?.consumable;
+export const heldItemName = id => HELD_ITEMS[id]?.name || id;
+/** The folder name has a space in it, so both halves need escaping. */
+export const heldItemImage = id => (HELD_ITEMS[id]
+  ? `${encodeURIComponent(HELD_ITEM_DIR)}/${encodeURIComponent(HELD_ITEMS[id].image)}`
+  : '');
+
+export const heldItemsInOrder = () =>
+  Object.values(HELD_ITEMS).sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+
+/** Every held item, grouped for a legend: the permanent ones and the consumables. */
+export const permanentHeldItems = () => heldItemsInOrder().filter(d => !d.consumable);
+export const consumableHeldItems = () => heldItemsInOrder().filter(d => d.consumable);
+
+/**
+ * Can this creature hold this item? Returns why not, in words, so both the
+ * "pick an item for this creature" and "pick a creature for this item" screens
+ * can explain a greyed-out row.
+ */
+export function heldItemFits(itemId, creature, sp = null) {
+  const def = HELD_ITEMS[itemId];
+  if (!def) return { ok: false, reason: 'That is not a held item' };
+  const s = sp || species(creature?.speciesId);
+  if (!creature || !s) return { ok: false, reason: 'No creature' };
+
+  if (def.requireType && s.type !== def.requireType) {
+    return { ok: false, reason: `${def.requireType} creatures only` };
+  }
+  if (def.requireStage && s.stage !== def.requireStage) {
+    return { ok: false, reason: `Stage ${def.requireStage} only` };
+  }
+  if (def.requireLevel && (Number(creature.level) || 1) < def.requireLevel) {
+    return { ok: false, reason: `Level ${def.requireLevel} or above` };
+  }
+  return { ok: true, reason: '' };
+}
+
+/* ---- where held items come from ----
+
+   A raid can pay one out, and the chance rides on the level of the boss you
+   just beat: the bands line up exactly with the levels RAID_TIERS hands out. */
+
+export const HELD_ITEM_RAID_CHANCE = [
+  { maxLevel: 4, chance: 0.01 },
+  { maxLevel: 6, chance: 0.02 },
+  { maxLevel: 8, chance: 0.04 }
+];
+/** Anything above the last band keeps the best rate rather than falling to zero. */
+export const heldItemRaidChance = level => {
+  const lv = Number(level) || 1;
+  const band = HELD_ITEM_RAID_CHANCE.find(b => lv <= b.maxLevel);
+  return band ? band.chance : HELD_ITEM_RAID_CHANCE[HELD_ITEM_RAID_CHANCE.length - 1].chance;
+};
+
+/** When one does drop, how often it is one of the two consumables. */
+export const HELD_ITEM_CONSUMABLE_CHANCE = 0.4;
+
+/**
+ * One held item at random. The consumables are drawn as a group so their share
+ * stays at HELD_ITEM_CONSUMABLE_CHANCE however many of each kind exist — there
+ * are two consumables against eighteen of the others, so rolling a flat list
+ * would almost never produce one.
+ */
+export function rollHeldItem(rng = Math.random) {
+  const pool = rng() < HELD_ITEM_CONSUMABLE_CHANCE
+    ? consumableHeldItems()
+    : permanentHeldItems();
+  const list = pool.length ? pool : heldItemsInOrder();
+  return list[Math.floor(rng() * list.length)]?.id || null;
+}
+
+/** What the restrictions are, for the item's own description. */
+export function heldItemRequirement(itemId) {
+  const def = HELD_ITEMS[itemId];
+  if (!def) return '';
+  const parts = [];
+  if (def.requireType) parts.push(`${def.requireType} type`);
+  if (def.requireStage) parts.push(`Stage ${def.requireStage}`);
+  if (def.requireLevel) parts.push(`level ${def.requireLevel}+`);
+  return parts.join(' · ');
+}
+
+/**
+ * The flat stat bonus a creature gets from what it is holding. Applied after
+ * level growth, so it is worth the same at level 1 and level 10.
+ */
+export function heldStatBonus(creature, sp = null) {
+  const out = { hp: 0, attack: 0, defence: 0, speed: 0 };
+  const def = HELD_ITEMS[creature?.held];
+  if (!def || def.effect !== 'stat') return out;
+  // An item whose conditions no longer hold simply stops paying out. Nothing
+  // can currently drift out of range except a Growth Crystal on a creature that
+  // evolved, which is handed back, but a hand-edited save should not get a bonus
+  // it has not earned either.
+  if (!heldItemFits(def.id, creature, sp).ok) return out;
+  out[def.stat] += def.amount;
+  return out;
+}
+
 /* ---------------------------------------------------------------
    Missions
    --------------------------------------------------------------- */
@@ -1488,6 +1669,12 @@ export const WEEKLY_MISSIONS = [
     id: 'weekDaily', kind: 'daysCaughtThisWeek', target: 7, xp: 50, dust: 300, discs: 2,
     items: { rare_incense: 1 },
     label: 'Catch a creature every day this week'
+  },
+  {
+    // Opening the game completes it, so it is really a weekly held item.
+    id: 'weekLogin', kind: 'loggedInThisWeek', target: 1, xp: 10, dust: 50,
+    heldItem: 'random',
+    label: 'Log in to the game this week'
   },
 
   // ---- walking ----
@@ -2678,8 +2865,13 @@ export function rollPOIOutcome(now = new Date()) {
   return weightedPick(poiOutcomeTable(now)).kind;
 }
 
-/** During Training Dojo Hour the map holds as many grunts as it can fit. */
-export const gruntsAreUncapped = (now = new Date()) => isTrainingDojo(now);
+/**
+ * During Training Dojo Hour there is no ceiling on grunts standing on ordinary
+ * POIs — a shop, an amenity, a bus stop. Parks and gardens are untouched by the
+ * event and keep MAX_ACTIVE_GRUNTS, because those grunts are scattered across
+ * the scan radius instead of standing on a point.
+ */
+export const poiGruntsAreUncapped = (now = new Date()) => isTrainingDojo(now);
 
 /* ---------------------------------------------------------------
    Calendar
@@ -2722,7 +2914,7 @@ export const CALENDAR_EVENTS = [
     start: TRAINING_DOJO_START,
     end: TRAINING_DOJO_END,
     onDay: d => d.getDay() === TRAINING_DOJO_DAY,
-    blurb: 'Grunts take over the map points, with no limit on how many appear.'
+    blurb: 'Grunts take over shops and amenities, with no limit on how many of those appear.'
   },
   {
     id: 'creatureSpotlight',
@@ -2908,7 +3100,7 @@ export function playerProgress(xp) {
  * Effective stats for one stored creature.
  * base -> stat modifier (+/-10%) -> linear 5%-per-level growth.
  */
-export function statsFor(sp, level = 1, statMod = null, boosts = null) {
+export function statsFor(sp, level = 1, statMod = null, boosts = null, extra = null) {
   const out = {};
   const growth = 1 + STAT_GROWTH_PER_LEVEL * (Math.max(1, level) - 1);
   for (const k of STAT_KEYS) {
@@ -2917,8 +3109,11 @@ export function statsFor(sp, level = 1, statMod = null, boosts = null) {
       if (statMod.up === k) v *= 1.1;
       if (statMod.down === k) v *= 0.9;
     }
-    // Rounded first, then the flat boost, so a +1 booster reads as +1 on screen.
-    out[k] = Math.max(1, Math.round(v * growth)) + (Number(boosts?.[k]) || 0);
+    // Rounded first, then the flat additions, so a +1 booster reads as +1 on
+    // screen and a +10 held item reads as +10 at every level.
+    out[k] = Math.max(1, Math.round(v * growth))
+      + (Number(boosts?.[k]) || 0)
+      + (Number(extra?.[k]) || 0);
   }
   return out;
 }

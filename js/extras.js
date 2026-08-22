@@ -14,6 +14,8 @@ import {
   ESSENCE_RING_CANDY, ESSENCE_PIN_BANDS, ESSENCE_SEEKER_CHANCE,
   ESSENCE_MAX_RARITY, essenceDifficulty,
   ABILITY_MULTIPLIER_MIN, ABILITY_MULTIPLIER_MAX,
+  heldItemName, heldItemsInOrder, heldItemRequirement, heldItemRaidChance,
+  HELD_ITEM_RAID_CHANCE, HELD_ITEM_CONSUMABLE_CHANCE, consumableHeldItems,
   STAT_BOOSTER_ITEM, MAX_STAT_BOOSTS, statBoosterCost, STAT_BOOSTER_CANDY_COST,
   ITEM_EXCHANGES,
   SUPER_INCUBATOR, incubatorDiscount, ITEM_DROP_FULL_HEAL_CHANCE,
@@ -251,6 +253,14 @@ function missionRow(m) {
               text: `🌌 Unlocks ${GALACTIC_SET_NAME} rarity ${m.def.unlockGalacticRarity} (${RARITY_NAMES[m.def.unlockGalacticRarity]})`
             })
           : null,
+        m.def.heldItem
+          ? el('span', {
+              class: 'r reward-unlock',
+              text: m.def.heldItem === 'random'
+                ? '◈ A random held item'
+                : `◈ ${heldItemName(m.def.heldItem)}`
+            })
+          : null,
         m.def.grantEgg
           ? el('span', { class: 'r reward-unlock', text: `🥚 ${eggLabel(m.def.grantEgg)}` })
           : null
@@ -285,6 +295,9 @@ function claim(id) {
       'good', 5000);
   }
   if (r.egg) toast(`A ${eggLabel(r.egg.type)} was added to your Eggs`, 'good', 4200);
+  if (r.heldReward) {
+    toast(`◈ ${r.heldReward.name} — it is in your Held items`, 'good', 4200);
+  }
   if (r.levelUp.levelledUp) toast(`Player level ${r.levelUp.to}!`, 'good', 3200);
   renderMissions();
   refresh?.();
@@ -1151,7 +1164,7 @@ function renderInfo(tab = 'basics') {
       el('p', { html: 'Two events take over the map for a short window each week. While one is running its odds <b>replace</b> the usual table rather than adding to it, and a chip on the map counts down the time left. Remember the map only re-rolls every few minutes, so points that appeared before the event started keep whatever they were.' }),
       el('ul', {},
         el('li', { html: `<b>${RAID_INVASION_LABEL}</b> — ${weeklyWindowLabel(RAID_INVASION_DAY, RAID_INVASION_START, RAID_INVASION_END)}. Every <b>disc point</b> hands over <b>${itemListLine(RAID_INVASION_DISC_BONUS)}</b> on top of its usual drop, and <b>${pct(RAID_INVASION_DOUBLE_CHANCE)}</b> of the time it gives <b>two</b> instead. The odds become: ${poiOddsLine(POI_OUTCOMES_RAID_INVASION)}. There is <b>no "nothing"</b> slice, so every point in range turns into something, and <b>${POI_OUTCOMES_RAID_INVASION.filter(x => x.kind === 'raid' || x.kind === 'exraid').reduce((a, b) => a + b.weight, 0)}%</b> of them are raids.` }),
-        el('li', { html: `<b>${TRAINING_DOJO_LABEL}</b> — ${weeklyWindowLabel(TRAINING_DOJO_DAY, TRAINING_DOJO_START, TRAINING_DOJO_END)}. Grunts take over the ordinary map points: this is the only time a shop or amenity becomes a grunt instead of loot, and they stand right at the point rather than being scattered like park grunts. The odds become: ${poiOddsLine(POI_OUTCOMES_TRAINING_DOJO)}. The usual <b>cap of ${RULES.MAX_ACTIVE_GRUNTS} grunts</b> on the map does not apply for these 30 minutes — there is <b>no limit</b>, so the map holds as many as there are places to put them. Parks and gardens keep rolling on top.` })
+        el('li', { html: `<b>${TRAINING_DOJO_LABEL}</b> — ${weeklyWindowLabel(TRAINING_DOJO_DAY, TRAINING_DOJO_START, TRAINING_DOJO_END)}. Grunts take over the ordinary map points: this is the only time a shop or amenity becomes a grunt instead of loot, and they stand right at the point rather than being scattered like park grunts. The odds become: ${poiOddsLine(POI_OUTCOMES_TRAINING_DOJO)}. There is <b>no limit</b> on these for the 30 minutes, so every point in range can be one — but they still have to <b>come from a point</b>, and still keep <b>${RULES.MIN_GRUNT_SEPARATION_M} m</b> from each other. <b>Parks and gardens are not part of the event</b>: they roll as they always do, scattered across the scan radius and capped at <b>${RULES.MAX_ACTIVE_GRUNTS}</b> between them.` })
       ),
       el('h4', { text: SPOTLIGHT_LABEL }),
       el('p', { html: `Every <b>${weeklyWindowLabel(SPOTLIGHT_DAY, SPOTLIGHT_START, SPOTLIGHT_END)}</b> one creature takes over the map. Which one rotates weekly — the <b>📅 Calendar</b> button in the News tab always shows the next few and who is featured.` }),
@@ -1310,6 +1323,20 @@ function renderInfo(tab = 'basics') {
         el('li', { html: '<b>Neutral</b> is not resisted by anything.' })
       ),
       el('p', { html: 'The two charts are separate — being strong against something does not mean it is weak back. <b>Mechanic</b> hits Neutral hardest but is resisted by the other three, so it is the biggest gamble in the game.' }),
+      el('h4', { text: 'Held items' }),
+      el('p', { html: `A creature can carry <b>one held item</b>. They live in their own <b>Held items</b> tab in your Storage, and most only suit part of your roster — the tab and the creature's own slot both say why something is greyed out.` }),
+      el('ul', {},
+        el('li', { html: `<b>Gems, Shields and Cogs</b> — one per type, and only that type can hold one. <b>+10 Attack</b>, <b>+10 Defence</b> and <b>+10 Speed</b> respectively. Every stat figure here is added <b>after level growth</b>, so it is worth the same at level 1 as at level ${MAX_CREATURE_LEVEL}.` }),
+        el('li', { html: 'A <b>Miracle Coin</b> turns a knockout into a survival at <b>1 HP</b>, but only from <b>full health</b>. Already hurt and it dies like anything else.' }),
+        el('li', { html: 'A <b>Growth Crystal</b> is <b>+20 HP</b> for a <b>Stage 2</b> creature, and returns itself to your storage if that creature evolves. A <b>Strength Sigil</b> is <b>+20 Attack</b> from <b>level 8</b>.' }),
+        el('li', { html: `<b>Consumables</b> cannot be taken back off. A <b>Breeding Amulet</b> on <b>both</b> halves of a breeding pair halves the wait per candy, and both are spent once that pair has made its ${BREEDING_CANDY_CAP}. A <b>Candy Pouch</b> halves your <b>buddy's</b> walk and is spent on the next candy it earns.` }),
+        el('li', { html: `Beating a <b>raid</b> can drop one: ${HELD_ITEM_RAID_CHANCE.map((b, i) => {
+          const from = i === 0 ? 3 : HELD_ITEM_RAID_CHANCE[i - 1].maxLevel + 1;
+          return `<b>${pct(b.chance)}</b> at boss level ${from}–${b.maxLevel}`;
+        }).join(' · ')}. When one drops it is a <b>${pct(HELD_ITEM_CONSUMABLE_CHANCE)}</b> chance of a consumable and otherwise one of the rest.` }),
+        el('li', { html: 'The weekly <b>Log in to the game this week</b> mission pays a <b>random</b> one, so there is always at least one a week.' }),
+        el('li', { html: 'A creature carrying something <b>announces it</b> as it takes the field in a battle, and releasing a creature hands its item back rather than destroying it.' })
+      ),
       el('h4', { text: 'Abilities' }),
       el('p', { html: `Some creatures carry an <b>ability</b>: a permanent trait that makes them hit harder, or hold up better, whenever a particular condition is true — and does nothing at all when it is not. <b>${DB.abilities.size}</b> creatures have one so far. Filter your <b>Collection</b> by <b>Ability</b> to see which, and tap the <b>✦</b> button on a creature to read it.` }),
       el('ul', {},

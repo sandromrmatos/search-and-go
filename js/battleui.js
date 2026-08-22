@@ -7,7 +7,7 @@
 import {
   species, RARITY_NAMES, STAT_LABELS, BATTLE_TEAM_SIZE, familyName,
   statsFor, raidBossStats, RAID_CAPTURE_LEVEL, raidModifiers, EXCLUSIVE_RAID_REWARD,
-  eggLabel, buffMoveText, abilityOutlook, abilityOutlookLabel
+  eggLabel, buffMoveText, abilityOutlook, abilityOutlookLabel, heldItemImage
 } from './data.js';
 
 /** "+50%" style label straight from the raid modifier table. */
@@ -601,8 +601,10 @@ function startFight() {
     ? `A rarity ${ctx.raid.rarity}${ctx.raid.exclusive ? ' exclusive' : ''} ${species(ctx.raid.speciesId).name} towers over you.`
     : `“${ctx.grunt.phrase}”`);
 
-  // Abilities announce themselves as the creatures take the field, before the
-  // first move is chosen, so the player can pick knowing what is in play.
+  // Held items and abilities announce themselves as the creatures take the
+  // field, before the first move is chosen, so the player can pick knowing
+  // what is in play.
+  for (const e of ctx.battle.heldLines()) logHeld(e);
   for (const e of ctx.battle.abilityLines()) logAbility(e);
 
   step('arena');
@@ -699,6 +701,12 @@ function logAbility(e) {
   );
 }
 
+/** "Your X walked in holding a Y." Its own colour, like an ability line. */
+function logHeld(e) {
+  const who = e.side === 'player' ? 'Your' : 'The opposing';
+  logLine(`<span class="held-log">◈ ${who} <b>${e.actorLabel}</b> is holding a <b>${e.item}</b>.</span>`);
+}
+
 function logLine(html, cls = '') {
   const log = $('#bt-log');
   log.append(el('p', { class: cls, html }));
@@ -730,6 +738,12 @@ async function playTurn(moveIndex) {
         e.superEffective ? `<span class="crit">Super effective!</span> ${hit}`
         : e.notVeryEffective ? `<span class="resist">Not very effective…</span> ${hit}`
         : hit);
+      // A Miracle Coin turning a knockout into a survival is the most
+      // surprising thing that can happen to a health bar, so it gets its say.
+      if (e.savedBy) {
+        logLine(`<span class="held-log">◈ <b>${e.wouldHaveBeen}</b> damage would have knocked it out — `
+          + `its <b>${e.savedBy}</b> left it on <b>1 HP</b>.</span>`);
+      }
       refreshHpOnly();
       await sleep(420);
     } else if (e.type === 'buff') {
@@ -761,6 +775,9 @@ async function playTurn(moveIndex) {
     } else if (e.type === 'ability') {
       logAbility(e);
       await sleep(520);
+    } else if (e.type === 'held') {
+      logHeld(e);
+      await sleep(420);
     }
   }
 
@@ -829,7 +846,11 @@ function renderResult() {
       rewards.bonus ? { icon: '🎁', label: `Bonus ${itemName(rewards.bonus)}` } : null,
       // Guaranteed drops: raid revives + incubator, grunt potions/revives
       ...Object.entries(rewards.items || {}).map(([id, n]) => ({ img: itemImage(id), label: `+${n} ${itemName(id, n)}` })),
-      rewards.egg ? { icon: '🥚', label: `A ${eggLabel(rewards.egg.type)}` } : null
+      rewards.egg ? { icon: '🥚', label: `A ${eggLabel(rewards.egg.type)}` } : null,
+      // A held item is rare enough to deserve its own artwork in the list.
+      rewards.heldDrop
+        ? { img: heldItemImage(rewards.heldDrop.id), label: `◈ ${rewards.heldDrop.name}` }
+        : null
     ].filter(Boolean);
     body.append(el('div', { class: 'rewards' }, ...chips.map(r =>
       el('span', { class: 'reward' },

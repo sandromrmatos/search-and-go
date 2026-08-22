@@ -35,6 +35,7 @@ import { setMissionsRenderer, setShopRenderer } from './views.js';
 import { initShop, renderShop } from './shop.js';
 import { renderNews, renderNewsBadge, loadNews, openCalendar } from './news.js';
 import { initEggs, maybePromptHatch, showEggDropPopup } from './eggs.js';
+import { backupOncePerDay } from './cloud.js';
 import { $, $$, el, toast, wireSheetClosers, openSheet, closeSheet, num } from './ui.js';
 
 const CANDY_ICON = '🍬';
@@ -209,6 +210,10 @@ async function boot() {
       return;
     }
 
+    // Opening the game is what the weekly login mission asks for, so stamp it
+    // as soon as the save is in hand.
+    if (store.markLoggedIn()) dlog('Weekly login mission stamped');
+
     msg('Setting up…');
     setMissionsRenderer(renderMissions);
     setShopRenderer(renderShop);
@@ -245,6 +250,22 @@ async function boot() {
     // The news file is small and optional, so let it land in the background —
     // the badge appears once it has.
     loadNews().then(renderNewsBadge);
+
+    // One cloud copy of the save per day, also in the background. It never
+    // blocks play and never interrupts it: a failure is logged and forgotten,
+    // because the local save is still the real one.
+    backupOncePerDay(store.s).then(r => {
+      if (r.ok) {
+        // cloud.js stamped the day onto the save, so persist that.
+        store.touch('cloud-backup');
+        dlog(`Cloud backup written (${r.bytes} bytes)`);
+      } else if (r.reason === 'already-today') {
+        dlog('Cloud backup: already done today');
+      } else {
+        dlog(`Cloud backup skipped: ${r.reason}${r.error ? ' — ' + r.error : ''}`);
+      }
+      renderSaveStatus();
+    });
 
     $('#boot').classList.add('hidden');
     $('#app').classList.remove('hidden');
@@ -934,7 +955,9 @@ function initUI() {
   });
 
   // ---- storage tabs ----
-  $$('.tabs .tab').forEach(btn => btn.addEventListener('click', () => {
+  // Scoped to the storage row: the info and mission sheets also use .tabs, and
+  // a click in either used to blank the storage tab as a side effect.
+  $$('#storage-tabs .tab').forEach(btn => btn.addEventListener('click', () => {
     store.setUI({ storageTab: btn.dataset.tab });
     renderStorage();
   }));

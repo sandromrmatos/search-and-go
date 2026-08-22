@@ -24,7 +24,7 @@ import {
   RULES, randInt, rollSpawnSpecies, rollPOIOutcome, rollDiscDrop, rollItemDrop,
   rollRaid, rollExclusiveRaid, rollShiny, species, gruntLevelRange, GRUNT_CHARACTERS, GRUNT_PHRASES,
   BATTLE_TEAM_SIZE, DB, chance, RARE_INCENSE_WEIGHTS, RARITY_WEIGHTS,
-  isRaidInvasion, applyRaidInvasionBonus, gruntsAreUncapped,
+  isRaidInvasion, applyRaidInvasionBonus,
   rollWildSpecies, isCreatureSpotlight, spotlightSpecies, dueSpotlightSpawn, familyRarity,
   essenceEligible, ESSENCE_MAX_RARITY,
   SPOTLIGHT_LABEL, SPOTLIGHT_SPAWN_MS, ESSENCE_SPAWN_MS
@@ -223,11 +223,17 @@ export async function runScan(pos, { force = false, forceKind = null, alwaysGrun
     // of the park bookkeeping: it is an extra, so it must not use up one of
     // the MAX_ACTIVE_GRUNTS slots or push a park grunt out of the way. It is
     // still in `taken`, so nothing else spawns on top of it.
-    const parkGrunts = active.filter(p => p.kind === 'grunt' && p.source !== 'window');
-    const gruntSpots = parkGrunts.map(p => ({ lat: p.lat, lng: p.lng }));
-    // Counted across both loops below: a dojo grunt standing on a shop is as
-    // real as one in a park, so it has to be in the same tally.
-    let liveGrunts = gruntSpots.length;
+    const parkGrunts = active.filter(p =>
+      p.kind === 'grunt' && p.source !== 'window' && p.source !== 'poi');
+    // Every live grunt, whatever put it there, so nothing spawns on top of one
+    // and they all keep their distance from each other.
+    const gruntSpots = active
+      .filter(p => p.kind === 'grunt' && p.source !== 'window')
+      .map(p => ({ lat: p.lat, lng: p.lng }));
+    // Only park grunts count against the park ceiling. A Training Dojo grunt
+    // standing on a shop is uncapped by design, so counting it here would let
+    // the event starve the parks it is supposed to leave alone.
+    let liveParkGrunts = parkGrunts.length;
 
     const created = [];
     const counts = { creature: 0, discs: 0, items: 0, raid: 0, exraid: 0, grunt: 0 };
@@ -259,13 +265,13 @@ export async function runScan(pos, { force = false, forceKind = null, alwaysGrun
           skipped.gruntTooClose++;
           continue;
         }
-        point = makeGruntPoint(poi, now, store.level);
+        // Tagged so the park ceiling below can tell the two kinds apart.
+        point = { ...makeGruntPoint(poi, now, store.level), source: 'poi' };
       }
       if (!point) continue;
 
       created.push(point);
       counts[kind]++;
-      if (kind === 'grunt') liveGrunts++;
       occupiedPOIs.add(poi.id);
       taken.push({ lat: poi.lat, lng: poi.lng });
       // A dojo grunt is a real grunt: parks must keep their distance from it.
@@ -278,9 +284,11 @@ export async function runScan(pos, { force = false, forceKind = null, alwaysGrun
     // several rolls and holds that many grunts, topped up on every scan, and
     // they are scattered across the whole scan radius like any other spawn.
     const rollsPerPark = rule('GRUNT_ROLLS_PER_PARK', 3);
-    // Training Dojo Hour lifts the ceiling completely: for those 30 minutes the
-    // map holds as many grunts as there are places to put them.
-    const maxGrunts = gruntsAreUncapped(nowDate) ? Infinity : rule('MAX_ACTIVE_GRUNTS', 6);
+    // Parks keep their ceiling at all times, Training Dojo Hour included. The
+    // event is about ordinary POIs taking grunts over; park grunts scatter
+    // across the whole scan radius rather than standing on a point, so lifting
+    // this would fill the map with grunts standing in the middle of nowhere.
+    const maxGrunts = rule('MAX_ACTIVE_GRUNTS', 6);
     // How many live grunts each park is already responsible for.
     const gruntsPerPOI = new Map();
     for (const p of parkGrunts) {
@@ -295,17 +303,20 @@ export async function runScan(pos, { force = false, forceKind = null, alwaysGrun
       const gruntChance = park.isGarden ? RULES.GARDEN_GRUNT_CHANCE : RULES.GRUNT_CHANCE;
 
       for (let roll = 0; roll < slots; roll++) {
-        if (liveGrunts >= maxGrunts) { skipped.gruntCap++; break; }
+        if (liveParkGrunts >= maxGrunts) { skipped.gruntCap++; break; }
         if (!alwaysGrunt && !chance(gruntChance)) { skipped.gruntRoll++; continue; }
 
         const spawnPt = findGruntSpot(pos, taken, gruntSpots);
         if (!spawnPt) { skipped.gruntTooClose++; continue; }
 
         // Override the POI lat/lng: the park's own centre is not usable.
-        const point = makeGruntPoint({ ...park, lat: spawnPt.lat, lng: spawnPt.lng }, now, store.level);
+        const point = {
+          ...makeGruntPoint({ ...park, lat: spawnPt.lat, lng: spawnPt.lng }, now, store.level),
+          source: 'park'
+        };
         created.push(point);
         counts.grunt++;
-        liveGrunts++;
+        liveParkGrunts++;
         taken.push(spawnPt);
         gruntSpots.push(spawnPt);
       }

@@ -25,6 +25,8 @@ import {
   emptyBoosts, totalBoosts, boostsLeft, MAX_STAT_BOOSTS, STAT_BOOSTER_ITEM,
   statBoosterCost, STAT_KEYS,
   ITEM_EXCHANGES, itemExchange, itemExchangeOption,
+  HELD_ITEMS, heldItem, isHeldItem, heldItemFits, heldStatBonus, heldItemsInOrder,
+  heldItemRaidChance, rollHeldItem,
   SHOP_ITEMS, shopItem, COINS_PER_AD
 } from './data.js';
 import { ITEMS, item as itemDef } from './items.js';
@@ -73,6 +75,8 @@ export const essenceWindowKey = (d = new Date()) => `${dayKey(d)}#${essenceWindo
 
 const blankWeekly = () => ({
   week: weekKey(), capturesWeek: 0, metresWeek: 0, days: {}, claimed: {},
+  /** 1 once the game has been opened this week. */
+  loggedIn: 0,
   /** Essence harvests that paid candy this week. */
   essenceWeek: 0
 });
@@ -102,6 +106,8 @@ function blankState() {
     coins: 0,
     candy: {},          // familyRootId -> candy
     inventory: { capture_disc: 5 },      // start with 5 capturing discs
+    /** Held items not currently on a creature. id -> count. */
+    heldItems: {},
     storage: [],        // individual creatures
     registered: {},     // speciesId -> first registered at
     shinyCaught: {},   // speciesId -> true when a shiny of this species has been caught
@@ -113,6 +119,8 @@ function blankState() {
     researchLab: null,  // { lat, lng, placedAt }
     /** Galactic Adventures rarities opened by the Set missions. Never resets. */
     galacticUnlocked: [],
+    /** The local day the save was last copied to the cloud, or null. */
+    cloudBackupDay: null,
     buddy: null,        // { uid, metres, candyEarned, since }
     eggs: [],           // { id, type, collectedAt, metres, incubator: itemId|null }
     nextEggId: 1,
@@ -183,7 +191,9 @@ function blankState() {
 export function creatureStats(c) {
   const sp = species(c.speciesId);
   if (!sp) return { hp: 1, attack: 1, defence: 1, speed: 1 };
-  return statsFor(sp, c.level, c.statMod, c.boosts);
+  // A held item is the last thing added, alongside the boosters, so its figure
+  // is worth exactly as much at level 1 as at level 10.
+  return statsFor(sp, c.level, c.statMod, c.boosts, heldStatBonus(c, sp));
 }
 
 export const maxHpOf = c => creatureStats(c).hp;
@@ -213,6 +223,7 @@ export function migrate(raw) {
     ...base, ...raw,
     candy: { ...(raw.candy || {}) },
     inventory: { ...(raw.inventory || {}) },
+    heldItems: { ...(raw.heldItems || {}) },
     registered: { ...(raw.registered || {}) },
     shinyCaught: { ...(raw.shinyCaught || {}) },
     caughtCount: { ...(raw.caughtCount || {}) },
@@ -260,9 +271,13 @@ export function migrate(raw) {
         statMod: validStatMod(c.statMod) || rollStatModifier(),
         moveUnlock: validUnlock(c.moveUnlock) || { 3: 0, 4: 0 },
         boosts: validBoosts(c.boosts),
+        // Only ever a known held item id, so a renamed or removed item cannot
+        // leave a creature holding something that no longer exists.
+        held: isHeldItem(c.held) ? c.held : null,
         breeding: c.breeding ?? null,
         hp: c.hp == null ? null : Math.max(0, Number(c.hp) || 0),
-        favourite: !!c.favourite
+        favourite: !!c.favourite,
+        nickname: typeof c.nickname === 'string' && c.nickname.trim() ? c.nickname.trim() : null
       };
       // clamp stale HP against the current max
       const max = maxHpOf(out);
@@ -274,6 +289,14 @@ export function migrate(raw) {
   for (const k of Object.keys(s.inventory)) {
     if (!ITEMS[k]) delete s.inventory[k];
     else s.inventory[k] = Math.max(0, Math.floor(Number(s.inventory[k]) || 0));
+  }
+  // ---- held items waiting to be given out ----
+  for (const k of Object.keys(s.heldItems)) {
+    if (!isHeldItem(k)) delete s.heldItems[k];
+    else {
+      const n = Math.max(0, Math.floor(Number(s.heldItems[k]) || 0));
+      if (n) s.heldItems[k] = n; else delete s.heldItems[k];
+    }
   }
 
   // ---- map points ----
@@ -370,6 +393,10 @@ export function migrate(raw) {
   s.weekly.capturesWeek = Math.max(0, Math.floor(Number(s.weekly.capturesWeek) || 0));
   s.weekly.metresWeek = Math.max(0, Number(s.weekly.metresWeek) || 0);
   s.weekly.essenceWeek = Math.max(0, Math.floor(Number(s.weekly.essenceWeek) || 0));
+  s.weekly.loggedIn = s.weekly.loggedIn ? 1 : 0;
+
+  // ---- cloud backup stamp ----
+  s.cloudBackupDay = typeof s.cloudBackupDay === 'string' ? s.cloudBackupDay : null;
   if (s.weekly.week !== weekKey()) s.weekly = blankWeekly();
 
   // ---- grunt window stamp ----
@@ -645,7 +672,15 @@ class Store {
   buddyMetresPerCandy() {
     const c = this.buddy;
     if (!c) return 0;
-    return buddyMetresPerCandy(familyRarity(c.speciesId));
+    const full = buddyMetresPerCandy(familyRarity(c.speciesId));
+    // A Candy Pouch halves the walk. It is spent on the next candy earned, so
+    // this only ever applies to one of them.
+    return this.buddyHasPouch() ? Math.round(full / 2) : full;
+  }
+
+  /** Is the current buddy carrying a Candy Pouch? */
+  buddyHasPouch() {
+    return this.buddy?.held === 'candy_pouch';
   }
 
   /**
@@ -656,20 +691,28 @@ class Store {
     const c = this.buddy;
     if (!c) return { candy: 0, progressed: false };
 
-    const per = this.buddyMetresPerCandy();
     const b = this.s.buddy;
     b.metres = (Number(b.metres) || 0) + metres;
 
+    // Re-read the distance each time round: a Candy Pouch is spent by the first
+    // candy it helps earn, so the rest of a long walk is back to full price.
     let candy = 0;
+    let pouchSpent = false;
+    let per = this.buddyMetresPerCandy();
     while (per > 0 && b.metres >= per) {
       b.metres -= per;
       candy++;
+      if (this.buddyHasPouch()) {
+        this.consumeHeldItem(c.uid);
+        pouchSpent = true;
+        per = this.buddyMetresPerCandy();
+      }
     }
     if (candy > 0) {
       this.addCandy(c.speciesId, candy);
       b.candyEarned = (Number(b.candyEarned) || 0) + candy;
     }
-    return { candy, progressed: true };
+    return { candy, progressed: true, pouchSpent };
   }
 
   /** How far the buddy still has to walk for its next candy, in metres. */
@@ -1384,6 +1427,17 @@ class Store {
     if (chance(raidIncubatorChance(rarity))) drop(RAID_REWARD.incubatorItem);
     if (chance(raidRareIncenseChance(rarity))) drop(RAID_REWARD.rareIncenseItem);
 
+    // A held item, on odds set by how strong the boss was. Kept out of `items`
+    // because held items live in their own drawer, not the ordinary inventory.
+    let heldDrop = null;
+    if (chance(heldItemRaidChance(raid.level))) {
+      const id = rollHeldItem();
+      if (id) {
+        this.addHeldItem(id, 1);
+        heldDrop = heldItem(id);
+      }
+    }
+
     // Exclusive raids add two independent bonus rolls on top of everything a
     // normal raid pays. The egg can be lost to full exclusive storage.
     let egg = null;
@@ -1401,6 +1455,7 @@ class Store {
     this.touch('raid-win', { immediate: true });
     return {
       xp, dust, levelUp, items, exclusive, egg, eggBlocked,
+      heldDrop,
       sunday: isStardustSunday()
     };
   }
@@ -1517,6 +1572,10 @@ class Store {
     this.spendCandy(from.id, check.cost);
     c.speciesId = to.id;
     c.evolvedAt = Date.now();
+    // A Growth Crystal is Stage 2 only, so growing out of one hands it back.
+    // Done before the HP is carried over, or the creature would keep 20 HP it
+    // is no longer entitled to.
+    const heldBack = this.returnUnfitHeldItem(uid);
     if (c.hp != null) c.hp = Math.max(0, hpBefore + (maxHpOf(c) - maxBefore));
 
     const isNew = this.register(to.id);
@@ -1544,12 +1603,18 @@ class Store {
     if (this.isBuddy(uid)) return { ok: false, reason: 'buddy' };
 
     const i = this.s.storage.findIndex(x => x.uid === uid);
+    // Whatever it was carrying comes off first, or releasing it would quietly
+    // destroy the item too.
+    const reclaimed = this._reclaimHeldItem(c);
     this.s.storage.splice(i, 1);
     const sp = species(c.speciesId);
     const total = this.addCandy(c.speciesId, CANDY_ON_DELETE);
     this.s.stats.deletes++;
     this.touch('delete', { immediate: true });
-    return { ok: true, sp, candy: CANDY_ON_DELETE, candyTotal: total, familyRootId: familyRoot(c.speciesId) };
+    return {
+      ok: true, sp, candy: CANDY_ON_DELETE, candyTotal: total,
+      familyRootId: familyRoot(c.speciesId), reclaimed
+    };
   }
 
   toggleFavourite(uid) {
@@ -1560,16 +1625,33 @@ class Store {
     return c.favourite;
   }
 
+  /**
+   * A released creature's held item goes back in the drawer rather than
+   * vanishing with it. A consumable is the exception — it is already spoken for
+   * — so it is lost, the same as it would be if the creature had used it.
+   */
+  _reclaimHeldItem(c) {
+    if (!c?.held) return null;
+    const def = heldItem(c.held);
+    const id = c.held;
+    c.held = null;
+    if (def && !def.consumable) this.addHeldItem(id, 1);
+    return def ? { item: def, returned: !def.consumable } : null;
+  }
+
   /** Mass release: skips favourites and breeding creatures. Returns total candy gained. */
   massRelease(uids) {
     let totalCandy = 0;
     const released = [];
+    const reclaimed = [];
     for (const uid of uids) {
       const c = this.creature(uid);
       if (!c || c.favourite || c.shiny || c.breeding != null) continue;
       if (this.isBuddy(uid)) continue;   // your buddy is never released in bulk
       const i = this.s.storage.findIndex(x => x.uid === uid);
       if (i === -1) continue;
+      const back = this._reclaimHeldItem(c);
+      if (back?.returned) reclaimed.push(back.item);
       this.s.storage.splice(i, 1);
       this.addCandy(c.speciesId, CANDY_ON_DELETE);
       totalCandy += CANDY_ON_DELETE;
@@ -1577,7 +1659,7 @@ class Store {
       this.s.stats.deletes++;
     }
     if (released.length) this.touch('delete', { immediate: true });
-    return { released: released.length, candy: totalCandy };
+    return { released: released.length, candy: totalCandy, reclaimed };
   }
 
   /* ---------------- map points ---------------- */
@@ -1715,6 +1797,19 @@ class Store {
     return { ok: true, candy: won, candyTotal, seeker, species: sp };
   }
 
+  /**
+   * Stamps "the game was opened this week", which is all the weekly login
+   * mission asks for. Called once at boot; rolls the week first so a stale
+   * bucket cannot leave it looking already done.
+   */
+  markLoggedIn() {
+    if (this.s.weekly.week !== weekKey()) this.s.weekly = blankWeekly();
+    if (this.s.weekly.loggedIn) return false;
+    this.s.weekly.loggedIn = 1;
+    this.touch('login', { immediate: true });
+    return true;
+  }
+
   /** Counts a paying harvest towards the weekly mission, rolling the week. */
   bumpEssenceWeek(n = 1) {
     if (this.s.weekly.week !== weekKey()) this.s.weekly = blankWeekly();
@@ -1837,6 +1932,137 @@ class Store {
       candyLeft: this.candyFor(speciesId),
       species: sp
     };
+  }
+
+  /* ---------------- held items ----------------
+     Held items live in their own drawer rather than the ordinary inventory:
+     they are never consumed by tapping them, they are given to a creature and
+     come back when you take them off. A creature holds at most one. */
+
+  heldItemCount(id) { return this.s.heldItems[id] || 0; }
+
+  /** Every held item you have spare, with its definition, in display order. */
+  ownedHeldItems() {
+    return heldItemsInOrder()
+      .filter(def => this.heldItemCount(def.id) > 0)
+      .map(def => ({ def, qty: this.heldItemCount(def.id) }));
+  }
+
+  /** How many of everything, spare plus on creatures — the tab badge. */
+  get heldItemTotal() {
+    const spare = Object.values(this.s.heldItems).reduce((a, b) => a + b, 0);
+    return spare + this.s.storage.filter(c => c.held).length;
+  }
+
+  addHeldItem(id, n = 1) {
+    if (!isHeldItem(id) || n <= 0) return 0;
+    this.s.heldItems[id] = this.heldItemCount(id) + n;
+    this.touch('held-item');
+    return this.s.heldItems[id];
+  }
+
+  /** Takes `n` out of the drawer. False when there are not that many. */
+  spendHeldItem(id, n = 1) {
+    if (this.heldItemCount(id) < n) return false;
+    this.s.heldItems[id] -= n;
+    if (this.s.heldItems[id] <= 0) delete this.s.heldItems[id];
+    return true;
+  }
+
+  /** The item a creature is carrying, as a definition, or null. */
+  heldItemOf(uid) {
+    const c = this.creature(uid);
+    return c?.held ? heldItem(c.held) : null;
+  }
+
+  /**
+   * Every spare item this creature is allowed to hold, plus the ones it is not,
+   * with the reason — the picker greys those out rather than hiding them, so
+   * the restrictions are learnable.
+   */
+  heldItemOptionsFor(uid) {
+    const c = this.creature(uid);
+    if (!c) return [];
+    const sp = species(c.speciesId);
+    return this.ownedHeldItems().map(({ def, qty }) => {
+      const fit = heldItemFits(def.id, c, sp);
+      return { def, qty, ok: fit.ok, reason: fit.reason };
+    });
+  }
+
+  /** The other direction: which of your creatures could hold this item. */
+  creaturesEligibleFor(itemId) {
+    if (!isHeldItem(itemId)) return [];
+    return this.s.storage.filter(c => {
+      if (c.held) return false;                     // one item each
+      return heldItemFits(itemId, c, species(c.speciesId)).ok;
+    });
+  }
+
+  /** Gives a spare item to a creature. */
+  giveHeldItem(uid, itemId) {
+    const c = this.creature(uid);
+    if (!c) return { ok: false, reason: 'missing' };
+    if (!isHeldItem(itemId)) return { ok: false, reason: 'unknown' };
+    if (c.held) return { ok: false, reason: 'holding', held: c.held };
+    if (this.heldItemCount(itemId) < 1) return { ok: false, reason: 'none' };
+
+    const fit = heldItemFits(itemId, c, species(c.speciesId));
+    if (!fit.ok) return { ok: false, reason: 'ineligible', why: fit.reason };
+
+    this.spendHeldItem(itemId, 1);
+    c.held = itemId;
+    this.touch('held-item', { immediate: true });
+    return { ok: true, item: heldItem(itemId), creature: c };
+  }
+
+  /**
+   * Takes an item back off a creature. Consumables cannot come back — they are
+   * spent by the thing they help with, so handing one over is a commitment.
+   */
+  takeHeldItem(uid) {
+    const c = this.creature(uid);
+    if (!c) return { ok: false, reason: 'missing' };
+    if (!c.held) return { ok: false, reason: 'empty' };
+    const def = heldItem(c.held);
+    if (def?.consumable) return { ok: false, reason: 'consumable', item: def };
+
+    const id = c.held;
+    c.held = null;
+    this.addHeldItem(id, 1);
+    this.touch('held-item', { immediate: true });
+    return { ok: true, item: def };
+  }
+
+  /**
+   * Spends whatever a creature is holding, for the consumables. The item does
+   * not come back to the drawer — that is the whole point of a consumable.
+   */
+  consumeHeldItem(uid) {
+    const c = this.creature(uid);
+    if (!c?.held) return null;
+    const def = heldItem(c.held);
+    c.held = null;
+    this.touch('held-item', { immediate: true });
+    return def;
+  }
+
+  /**
+   * Hands back anything a creature is no longer allowed to hold. Called after
+   * evolving: a Growth Crystal is Stage 2 only, so a creature that grows out of
+   * it should not quietly keep the HP.
+   */
+  returnUnfitHeldItem(uid) {
+    const c = this.creature(uid);
+    if (!c?.held) return null;
+    const def = heldItem(c.held);
+    if (!def || heldItemFits(def.id, c, species(c.speciesId)).ok) return null;
+    // A consumable that no longer fits is simply lost rather than banked.
+    const id = c.held;
+    c.held = null;
+    if (!def.consumable) this.addHeldItem(id, 1);
+    this.touch('held-item', { immediate: true });
+    return { item: def, returned: !def.consumable };
   }
 
   /* ---------------- exchange corner ---------------- */
@@ -1963,13 +2189,26 @@ class Store {
     return { ok: true, index };
   }
 
+  /**
+   * Both halves of a pair have to be carrying a Breeding Amulet for it to
+   * count. One on its own does nothing, which is the point of the item.
+   */
+  breedingPairHasAmulets(slot) {
+    const uids = slot?.uids || [];
+    if (uids.length < 2) return false;
+    return uids.every(uid => this.creature(uid)?.held === 'breeding_amulet');
+  }
+
   /** Candy a slot has generated so far, capped. */
   breedingProgress(slot, now = Date.now()) {
     const rarity = familyRarity(slot.speciesId);
-    const every = breedingIntervalMs(rarity);
+    const halved = this.breedingPairHasAmulets(slot);
+    const every = halved
+      ? Math.round(breedingIntervalMs(rarity) / 2)
+      : breedingIntervalMs(rarity);
     const earned = Math.min(BREEDING_CANDY_CAP, Math.floor((now - slot.startedAt) / every));
     const nextAt = earned >= BREEDING_CANDY_CAP ? null : slot.startedAt + (earned + 1) * every;
-    return { earned, cap: BREEDING_CANDY_CAP, every, nextAt, rarity };
+    return { earned, cap: BREEDING_CANDY_CAP, every, nextAt, rarity, halved };
   }
 
   /** Collect a pair back and bank whatever candy they made. */
@@ -1981,9 +2220,16 @@ class Store {
     const { earned } = this.breedingProgress(slot, now);
     if (earned > 0) this.addCandy(slot.speciesId, earned);
 
+    // The amulets are spent once the pair has earned its full run of candy.
+    // Collected early and they survive, still held, for another go.
+    const amulets = this.breedingPairHasAmulets(slot);
+    const amuletsSpent = amulets && earned >= BREEDING_CANDY_CAP;
+
     for (const uid of slot.uids) {
       const c = this.creature(uid);
-      if (c) c.breeding = null;
+      if (!c) continue;
+      c.breeding = null;
+      if (amuletsSpent) this.consumeHeldItem(uid);
     }
     this.s.breeding.slots.splice(index, 1);
     // slot indices shifted — repoint the creatures still inside
@@ -1995,7 +2241,10 @@ class Store {
     });
 
     this.touch('breeding', { immediate: true });
-    return { ok: true, candy: earned, speciesId: slot.speciesId, uids: slot.uids };
+    return {
+      ok: true, candy: earned, speciesId: slot.speciesId, uids: slot.uids,
+      halved: amulets, amuletsSpent
+    };
   }
 
   /* ---------------- missions ---------------- */
@@ -2079,6 +2328,8 @@ class Store {
       case 'essenceToday':
         return this.s.daily.date === dayKey() ? (this.s.daily.essenceToday || 0) : 0;
       case 'essenceWeek': return this.weekly.essenceWeek || 0;
+      // Opening the game is the whole task, so this is stamped at boot.
+      case 'loggedInThisWeek': return this.weekly.loggedIn || 0;
       default: return 0;
     }
   }
@@ -2166,6 +2417,17 @@ class Store {
       this.syncGalacticUnlocks();
     }
 
+    // A mission can pay out a held item at random. Rolled on claim rather than
+    // fixed in the table, so the weekly one is a different surprise each week.
+    let heldReward = null;
+    if (m.def.heldItem) {
+      const id = m.def.heldItem === 'random' ? rollHeldItem() : m.def.heldItem;
+      if (isHeldItem(id)) {
+        this.addHeldItem(id, 1);
+        heldReward = heldItem(id);
+      }
+    }
+
     // Some missions hand over an egg. The mythical egg ignores storage limits,
     // so a full bag can never cost the player a one-off reward.
     let egg = null;
@@ -2188,7 +2450,7 @@ class Store {
     return {
       ok: true, xp: m.def.xp, dust, levelUp, label: m.def.label,
       discs: bonusDiscs, items: bonusItems,
-      unlockedRarity, egg
+      unlockedRarity, egg, heldReward
     };
   }
 

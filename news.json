@@ -110,5 +110,24 @@
       "**In the fight.** Abilities announce themselves as creatures take the field and again whenever a new opponent steps up, and the log says whether one **triggered** or **not triggered**, along with the reason. If several conditions fire at once their effects multiply, and the total is capped between **0.25×** and **4×**, so no stack can trivialise a battle.",
       "**One thing worth knowing.** The weather-based ones need a weather reading to work from. With no reading they simply do not fire — the game never guesses at the conditions."
     ]
+  },
+  {
+    "at": "2026-08-22 19:40",
+    "title": "Held items: give your creatures something to carry",
+    "body": [
+      "**A new Held items tab** sits in your Storage, next to Creatures, Items and Eggs. A creature can carry **one held item** at a time, and most items only suit part of your roster — some are locked to a **type**, some to a **stage**, some to a **level**.",
+      "**Two ways to hand one over.** Tap an item in the new tab and you get every creature that can hold it, with the exact stat change it would make. Or open a creature and use its **Held item** slot to see your spares, with the ones that do not suit it greyed out and the reason why. Taking an item back off is one tap — except for the consumables, which cannot come back.",
+      "**Gems, Shields and Cogs.** One of each per type, and only a creature of that type can hold it. A **Gem** gives **+10 Attack**, a **Shield** **+10 Defence**, a **Cog** **+10 Speed**. The figure is added after level growth, so +10 is worth exactly +10 at level 1 and at level 10.",
+      "**Miracle Coin.** If an attack would knock the holder out **from full health**, it survives on **1 HP** instead. Once it has taken any damage at all it can be knocked out in one hit like anything else, so it rewards going into a fight fresh.",
+      "**Growth Crystal.** **+20 HP**, for a **Stage 2** creature only. Evolve that creature to Stage 3 and the crystal comes straight back to your storage rather than being wasted.",
+      "**Strength Sigil.** **+20 Attack** for a creature at **level 8 or above**.",
+      "**Breeding Amulet — consumable.** Put two creatures that are **both** holding one into the Breeding Centre and their candy arrives **twice as fast**. One amulet on its own does nothing. Both are used up once that pair has earned its full **5 candy**; collect them early and the amulets survive for another go.",
+      "**Candy Pouch — consumable.** While the holder is your **buddy** it needs **half the usual distance** to earn a candy. The pouch is spent the moment it earns one, so it is worth saving for a rarer buddy with a longer walk.",
+      "**Where they come from.** Beat a **raid** and there is a chance of one, depending on the boss's level: **1%** at level 3 or 4, **2%** at level 5 or 6, **4%** at level 7 or 8. When one drops there is a **40%** chance it is one of the two consumables and **60%** it is one of the others.",
+      "**And one a week, guaranteed.** A new weekly mission — **Log in to the game this week** — pays a **random held item** on top of 10 XP and 50 stardust. Opening the game completes it.",
+      "**In battle.** A creature carrying something says so as it takes the field, and the log names the item. If a Miracle Coin saves one, the log says what the hit would have been and that it was left on 1 HP.",
+      "**Training Dojo Hour, corrected.** During the hour grunts still take over shops, amenities and the other ordinary map points with **no limit** on how many of those appear. **Parks and gardens are no longer part of it**: they roll as they always do, scattered across your scan radius and capped at 6 between them. Previously the event lifted that cap too, which filled the map with grunts standing nowhere near a point.",
+      "**Your save now has a cloud backup.** Once a day, in the background, your progress is copied to a private cloud record. It is a safety net for a lost or wiped phone — the save in your browser, and the save file you can link in Profile, are still the ones the game actually uses. Nothing to set up and nothing to log into."
+    ]
   }
 ]
