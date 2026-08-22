@@ -290,53 +290,58 @@ export const boostsLeft = boosts => Math.max(0, MAX_STAT_BOOSTS - totalBoosts(bo
    single trade pays out.
    --------------------------------------------------------------- */
 
-export const ITEM_EXCHANGES = [
-  {
-    from: 'potion', cost: 6,
-    to: [
-      { item: 'capture_disc', qty: 2 },
-      { item: 'revive', qty: 2 },
-      { item: 'ultra_disc', qty: 1 },
-      { item: 'single_use_incubator', qty: 1 }
-    ]
-  },
-  {
-    from: 'revive', cost: 6,
-    to: [
-      { item: 'capture_disc', qty: 2 },
-      { item: 'potion', qty: 2 },
-      { item: 'ultra_disc', qty: 1 },
-      { item: 'single_use_incubator', qty: 1 }
-    ]
-  },
-  {
-    from: 'capture_disc', cost: 6,
-    to: [
-      { item: 'revive', qty: 2 },
-      { item: 'potion', qty: 2 },
-      { item: 'ultra_disc', qty: 1 },
-      { item: 'single_use_incubator', qty: 1 }
-    ]
-  },
-  {
-    from: 'ultra_disc', cost: 3,
-    to: [
-      { item: 'capture_disc', qty: 2 },
-      { item: 'revive', qty: 2 },
-      { item: 'potion', qty: 2 },
-      { item: 'single_use_incubator', qty: 1 }
-    ]
-  },
-  {
-    from: 'single_use_incubator', cost: 3,
-    to: [
-      { item: 'capture_disc', qty: 2 },
-      { item: 'revive', qty: 2 },
-      { item: 'potion', qty: 2 },
-      { item: 'ultra_disc', qty: 1 }
-    ]
+/**
+ * The everyday items, all interchangeable at the same rate: hand over six, take
+ * two of another back. A Full Heal counts as one of these, so it trades exactly
+ * like a Potion in both directions.
+ */
+export const EXCHANGE_EVERYDAY_ITEMS = ['potion', 'revive', 'capture_disc', 'full_heal'];
+/** The scarcer pair: three of one buys two everyday items, or one of the other. */
+export const EXCHANGE_SCARCE_ITEMS = ['ultra_disc', 'single_use_incubator'];
+
+export const EXCHANGE_EVERYDAY_COST = 6;
+export const EXCHANGE_SCARCE_COST = 3;
+export const EXCHANGE_EVERYDAY_PAYOUT = 2;
+export const EXCHANGE_SCARCE_PAYOUT = 1;
+
+/**
+ * Built from the two lists rather than written out, so every deal stays
+ * symmetrical: adding an item to a list gives it a trade-in of its own and adds
+ * it as a payout everywhere else in one go. Nothing can be traded for itself.
+ */
+function buildItemExchanges() {
+  const out = [];
+
+  for (const from of EXCHANGE_EVERYDAY_ITEMS) {
+    out.push({
+      from,
+      cost: EXCHANGE_EVERYDAY_COST,
+      to: [
+        ...EXCHANGE_EVERYDAY_ITEMS
+          .filter(id => id !== from)
+          .map(item => ({ item, qty: EXCHANGE_EVERYDAY_PAYOUT })),
+        ...EXCHANGE_SCARCE_ITEMS.map(item => ({ item, qty: EXCHANGE_SCARCE_PAYOUT }))
+      ]
+    });
   }
-];
+
+  for (const from of EXCHANGE_SCARCE_ITEMS) {
+    out.push({
+      from,
+      cost: EXCHANGE_SCARCE_COST,
+      to: [
+        ...EXCHANGE_EVERYDAY_ITEMS.map(item => ({ item, qty: EXCHANGE_EVERYDAY_PAYOUT })),
+        ...EXCHANGE_SCARCE_ITEMS
+          .filter(id => id !== from)
+          .map(item => ({ item, qty: EXCHANGE_SCARCE_PAYOUT }))
+      ]
+    });
+  }
+
+  return out;
+}
+
+export const ITEM_EXCHANGES = buildItemExchanges();
 
 /** The deal for handing over this item, or null if it cannot be traded in. */
 export const itemExchange = fromId =>
@@ -892,8 +897,15 @@ export const RAID_REWARD = {
   incubatorChanceByRarity: { 4: 1, 5: 1 },
   rareIncenseItem: 'rare_incense',
   rareIncenseChanceByRarity: { 4: 0.25, 5: 0.25 },
-  always: { revive: 2, full_heal: 1 }   // every raid win, win or catch
+  always: { revive: 2 }   // every raid win, win or catch
 };
+
+/**
+ * A Full Heal from a raid or a grunt win is a coin flip rather than a
+ * certainty. Both use the same figure so the two never drift apart.
+ */
+export const WIN_FULL_HEAL_CHANCE = 0.5;
+export const WIN_FULL_HEAL_ITEM = 'full_heal';
 
 /** Odds of a Single Use Incubator dropping from a boss of this rarity. */
 export const raidIncubatorChance = rarity =>
@@ -920,8 +932,11 @@ export const EXCLUSIVE_RAID_REWARD = {
 
 export const GRUNT_REWARD = {
   dust: [70, 95],
-  /** Handed over on every win, on top of the healing supplies below. */
-  always: { full_heal: 1 },
+  /**
+   * Nothing is unconditional beyond the healing supplies below and the Full
+   * Heal coin flip — see WIN_FULL_HEAL_CHANCE.
+   */
+  always: {},
   bonus: [
     { weight: 5,  item: 'incense' },
     { weight: 5,  item: 'stardust_magnet' },

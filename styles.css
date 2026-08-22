@@ -1389,6 +1389,14 @@ a { color: var(--accent); }
   transition: width .1s linear;
 }
 .ad-sim-inner .btn { margin-top: 12px; }
+/* the real offer panel: a link rather than a countdown */
+.ad-offer .ad-sim-inner { border-color: #4ade8055; }
+/* An <a> styled as a button needs the button's own layout rules back. */
+a.ad-link {
+  display: block; text-align: center; text-decoration: none;
+  margin-top: 14px; padding: 12px 14px;
+}
+a.ad-link:active { transform: scale(.98); }
 
 /* ============================================================
    NEWS

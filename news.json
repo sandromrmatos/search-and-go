@@ -129,5 +129,14 @@
       "**Training Dojo Hour, corrected.** During the hour grunts still take over shops, amenities and the other ordinary map points with **no limit** on how many of those appear. **Parks and gardens are no longer part of it**: they roll as they always do, scattered across your scan radius and capped at 6 between them. Previously the event lifted that cap too, which filled the map with grunts standing nowhere near a point.",
       "**Your save now has a cloud backup.** Once a day, in the background, your progress is copied to a private cloud record. It is a safety net for a lost or wiped phone — the save in your browser, and the save file you can link in Profile, are still the ones the game actually uses. Nothing to set up and nothing to log into."
     ]
+  },
+  {
+    "at": "2026-08-23 12:20",
+    "title": "Watch an ad for a coin, and Full Heals join the Exchange corner",
+    "body": [
+      "**Watch an ad.** The Shop's earn button is now **Watch an ad**. Tap it and a small panel offers you a link; open the link and the advert appears in a **separate tab**, with your 🪙 coin paid the moment you open it. Your game stays exactly where it was, so you can come straight back. Still one coin an ad, still no daily limit on earning, and nothing ever starts on its own.",
+      "**A Full Heal from a win is now a coin flip.** Raid wins and grunt wins each carry a **Full Heal 50%** of the time instead of every time. Nothing else about those rewards changed: a raid win still always pays **2 Revives**, a grunt win still always pays healing supplies, and a potion or revive point still carries a Full Heal **10%** of the time.",
+      "**Full Heals now trade at the Exchange corner**, at exactly the same rate as Potions in both directions. **6 Full Heals** buys 2 Potions, 2 Revives, 2 Capturing Discs, 1 Ultra Capture Disc or 1 Single Use Incubator — and every other deal now offers Full Heals back, so 6 Potions, 6 Revives or 6 Capturing Discs each buy **2 Full Heals**, as do 3 Ultra Capture Discs or 3 Single Use Incubators."
+    ]
   }
 ]

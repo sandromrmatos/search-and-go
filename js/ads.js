@@ -1,63 +1,57 @@
 /* ============================================================
-   ads.js — rewarded video, behind one small interface
+   ads.js — the "watch an ad" reward, behind one small interface
 
-   The game is a web app, so the ad product is Google's Ad Placement API
-   (AdSense for HTML5 games), driven through `window.adBreak` / `window.adConfig`
-   which index.html defines. See https://developers.google.com/ad-placement/apis
+   The product here is an Adsterra **smartlink**: a single URL that Adsterra
+   resolves to whatever offer suits the visitor. It is a link, not a video
+   player, so the flow is:
 
-   Everything the Shop needs is funnelled through `Ads.showRewarded()`, and the
-   ad is served by whichever provider is available at runtime:
+     the player taps "Watch an ad" in the Shop
+       -> a panel explains the deal and shows one hyperlink
+       -> tapping the link opens the offer in a new tab
+       -> that click is the reward, and the coin is paid
 
-     'adsense'  the Ad Placement API is on the page. This is production.
-     'native'   a native shell injected a bridge on `window.SearchAndGoAds`.
-                Only used if the game is ever wrapped for an app store.
-     'sim'      neither — a clearly labelled stand-in so the Shop is playable
-                on localhost, where the real API can never fill.
+   Why the reward lands on the click: a smartlink hands the visitor off to a
+   third-party page we cannot see into. There is no completion callback, no
+   view event, nothing to poll — the click is the only thing our page can
+   honestly observe. So that is what pays.
 
-   Two things worth knowing about the Ad Placement API, because they shape the
-   code below:
+   This replaced Google's Ad Placement API, which needed an approved AdSense
+   account. Everything the Shop needs still comes through `Ads.showRewarded()`,
+   so the Shop did not have to change.
 
-     1. It uses "inversion of control": `adBreak()` declares a *place* an ad
-        could show, and Google decides whether one actually does. When there is
-        no ad, none of the callbacks fire except `adBreakDone`. So no-fill is
-        detected there, not by asking "is an ad ready".
-     2. The reward is only earned when `adViewed` fires. `adDismissed` means the
-        player bailed out early and must not be paid.
+     'smartlink'  the real thing. Works anywhere, including GitHub Pages.
+     'native'     a native shell injected a bridge on `window.SearchAndGoAds`.
+                  Only used if the game is ever wrapped for an app store.
+     'sim'        forced with `?ads=sim`, for exercising the "no reward" path.
 
    Nothing else in the codebase knows what an ad is.
    ============================================================ */
 
 import { el, $ } from './ui.js';
 
-/** How long the stand-in pretends to play, in ms. */
-const SIM_MS = 5000;
-
 /**
- * Give up on the Ad Placement API after this long. Without it a blocked or
- * never-loading script would leave the Shop button spinning forever, because
- * queued `adsbygoogle` pushes simply never run.
+ * The Adsterra smartlink. One URL, and Adsterra decides what the visitor sees.
  */
-const ADSENSE_TIMEOUT_MS = 20_000;
+export const SMARTLINK_URL =
+  'https://www.profitableratecpmnetwork.com/w4724usqvx?key=1fad09fcebbf1318b834a0022bf3370d';
+
+/** How long the stand-in pretends to run, in ms. */
+const SIM_MS = 5000;
 
 /** Resolved reasons the Shop shows a message for. */
 export const AD_FAILURES = {
-  dismissed: 'Ad closed early — no coin this time.',
+  dismissed: 'No coin this time — the link was not opened.',
   nofill: 'No ad available right now. Try again in a minute.',
-  error: 'The ad could not be loaded. Try again in a minute.',
+  error: 'The ad could not be opened. Try again in a minute.',
   timeout: 'The ad did not load. Check you are online and try again.',
-  busy: 'An ad is already playing.'
+  busy: 'An ad is already open.'
 };
 
 let playing = false;
-let configured = false;
 
 const bridge = () => (typeof window !== 'undefined' ? window.SearchAndGoAds : null) || null;
-const hasAdSense = () => typeof window !== 'undefined' && typeof window.adBreak === 'function';
 
-/**
- * `?ads=sim` forces the stand-in, `?ads=real` forces the real thing. Handy for
- * checking the production path from a phone, or the fallback from a live build.
- */
+/** `?ads=sim` forces the stand-in so the no-reward path stays testable. */
 function override() {
   try {
     const v = new URLSearchParams(location.search).get('ads');
@@ -65,38 +59,23 @@ function override() {
   } catch { return null; }
 }
 
-/**
- * The Ad Placement API only ever fills on an approved, publicly reachable site.
- * On localhost it would no-fill every single time, which makes the Shop
- * impossible to test, so the stand-in wins there instead.
- */
-function isLocal() {
-  try {
-    const h = location.hostname;
-    return !h || h === 'localhost' || h === '127.0.0.1' || h === '[::1]' || location.protocol === 'file:';
-  } catch { return false; }
-}
-
 export const Ads = {
-  /** 'native' | 'adsense' | 'sim'. */
+  /** 'native' | 'smartlink' | 'sim'. */
   get provider() {
-    const forced = override();
-    if (forced === 'sim') return 'sim';
+    if (override() === 'sim') return 'sim';
     if (bridge()) return 'native';
-    if (hasAdSense() && (forced === 'real' || !isLocal())) return 'adsense';
-    return 'sim';
+    return 'smartlink';
   },
 
   /** True when a real ad network is behind this, so the UI can drop the notice. */
   get isReal() { return this.provider !== 'sim'; },
 
-  /** An ad is on screen right now. */
+  /** The panel is on screen right now. */
   get playing() { return playing; },
 
   /**
-   * Whether the next request is likely to fill. The Ad Placement API refuses to
-   * answer that by design — it decides per placement — so this is only ever
-   * false when a native bridge says its cache is empty.
+   * A smartlink is a plain URL, so there is nothing to have ready or not — it
+   * is always available. A native bridge can still say its cache is empty.
    */
   get ready() {
     const b = bridge();
@@ -104,31 +83,17 @@ export const Ads = {
     try { return b.isReady ? !!b.isReady() : true; } catch { return true; }
   },
 
-  /**
-   * Tells the ad provider to keep one warm. Safe to call repeatedly and never
-   * throws — a failed preload is not worth surfacing to the player.
-   */
+  /** Nothing to warm up for a link. Kept so the Shop's call site is unchanged. */
   preload() {
     const b = bridge();
     if (b?.preload) {
       try { b.preload(); } catch { /* ignore */ }
-      return;
-    }
-    if (!hasAdSense() || configured) return;
-    configured = true;
-    try {
-      // `sound: 'off'` because the game has no music of its own to duck, and
-      // preloading keeps the Shop button from waiting on a cold fetch.
-      window.adConfig({ preloadAdBreaks: 'on', sound: 'off' });
-    } catch (err) {
-      configured = false;
-      console.warn('[ads] adConfig failed:', err);
     }
   },
 
   /**
-   * Plays one rewarded ad. Resolves `{ ok: true }` only when the reward was
-   * actually earned, so a dismissed or unfilled ad never pays out.
+   * Offers one ad. Resolves `{ ok: true }` only when the player actually opened
+   * the link, so closing the panel never pays out.
    */
   async showRewarded() {
     if (playing) return { ok: false, reason: 'busy' };
@@ -136,8 +101,8 @@ export const Ads = {
     try {
       const p = this.provider;
       const res = p === 'native' ? await bridge().showRewarded()
-        : p === 'adsense' ? await adSenseRewarded()
-        : await simulatedAd();
+        : p === 'sim' ? await simulatedAd()
+        : await smartlinkAd();
       // Trust nothing: a malformed answer counts as no reward.
       if (res && res.ok === true) return { ok: true };
       return { ok: false, reason: (res && res.reason) || 'dismissed' };
@@ -146,58 +111,61 @@ export const Ads = {
       return { ok: false, reason: 'error' };
     } finally {
       playing = false;
-      this.preload();
     }
   }
 };
 
 /* ---------------------------------------------------------------
-   The Ad Placement API
+   The smartlink panel
 
-   The player has already opted in by tapping "Watch a video" in the Shop, and
-   that button is the reward prompt the policy asks for, so `beforeReward` calls
-   `showAdFn()` straight away rather than putting a second prompt on screen.
+   A real `<a href target="_blank">` rather than a scripted `window.open`, for
+   two reasons: a genuine user click on an anchor is never caught by a popup
+   blocker, and `rel="noopener"` means the offer page gets no handle on this
+   one. The reward is granted on that click.
    --------------------------------------------------------------- */
-function adSenseRewarded() {
+function smartlinkAd() {
   return new Promise(resolve => {
-    let settled = false;
-    let viewed = false;
+    let done = false;
 
     const finish = out => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
+      if (done) return;
+      done = true;
+      window.removeEventListener('keydown', onKey);
+      wrap.remove();
       resolve(out);
     };
 
-    const timer = setTimeout(() => finish({ ok: false, reason: 'timeout' }), ADSENSE_TIMEOUT_MS);
+    const onKey = e => { if (e.key === 'Escape') finish({ ok: false, reason: 'dismissed' }); };
 
-    try {
-      window.adBreak({
-        type: 'reward',
-        name: 'shop_coin',
+    const link = el('a', {
+      class: 'btn primary wide ad-link',
+      href: SMARTLINK_URL,
+      target: '_blank',
+      rel: 'noopener noreferrer',
+      // The click is the reward. Left as the anchor's own navigation rather
+      // than being cancelled, so the offer really does open.
+      onclick: () => {
+        // Let the new tab open first, then pay and close the panel.
+        setTimeout(() => finish({ ok: true }), 120);
+      }
+    }, '👉  Click here for the reward');
 
-        // No sound or game loop to pause — the Shop is a static list — but the
-        // callbacks are still declared so the API has the full placement.
-        beforeAd: () => {},
-        afterAd: () => {},
+    const wrap = el('div', { class: 'ad-sim ad-offer' },
+      el('div', { class: 'ad-sim-inner' },
+        el('div', { class: 'ad-sim-ico', text: '🎁' }),
+        el('h3', { text: 'Watch an ad for a coin' }),
+        el('p', { class: 'muted small', text: 'The link below opens an advert in a new tab. Opening it earns your coin — you can come straight back here afterwards.' }),
+        link,
+        el('p', { class: 'hint', text: 'The advert is served by Adsterra and opens in a separate tab, so your game stays exactly where it is.' }),
+        el('button', {
+          class: 'btn ghost',
+          onclick: () => finish({ ok: false, reason: 'dismissed' })
+        }, 'No thanks')
+      )
+    );
 
-        beforeReward: showAdFn => {
-          // Already opted in. If this throws, adBreakDone still resolves us.
-          try { showAdFn(); } catch (err) { console.warn('[ads] showAdFn failed:', err); }
-        },
-
-        adViewed: () => { viewed = true; finish({ ok: true }); },
-        adDismissed: () => finish({ ok: false, reason: 'dismissed' }),
-
-        // Always called, even when no ad was shown, so this is what catches
-        // a no-fill. If adViewed already ran, this is a no-op.
-        adBreakDone: () => finish({ ok: false, reason: viewed ? 'dismissed' : 'nofill' })
-      });
-    } catch (err) {
-      console.warn('[ads] adBreak threw:', err);
-      finish({ ok: false, reason: 'error' });
-    }
+    ($('#app') || document.body).append(wrap);
+    window.addEventListener('keydown', onKey);
   });
 }
 
@@ -205,7 +173,7 @@ function adSenseRewarded() {
    The stand-in
 
    Deliberately obvious: it says what it is, and it can be cancelled so the
-   "dismissed, no reward" path is exercisable without a real network.
+   "dismissed, no reward" path is exercisable without opening a real offer.
    --------------------------------------------------------------- */
 function simulatedAd() {
   return new Promise(resolve => {
@@ -228,7 +196,7 @@ function simulatedAd() {
         el('div', { class: 'ad-sim-tag', text: 'PLACEHOLDER' }),
         el('div', { class: 'ad-sim-ico', text: '📺' }),
         el('h3', { text: 'Simulated ad' }),
-        el('p', { class: 'muted small', text: 'Real ads only run on the published site, so this stands in for the video here. Watch it through to earn the coin.' }),
+        el('p', { class: 'muted small', text: 'A stand-in for the real advert, used when ads are forced off. Let it finish to earn the coin.' }),
         el('div', { class: 'ad-sim-bar' }, bar),
         el('p', { class: 'hint' }, secs, ' remaining'),
         el('button', {

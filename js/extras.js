@@ -18,7 +18,7 @@ import {
   HELD_ITEM_RAID_CHANCE, HELD_ITEM_CONSUMABLE_CHANCE, consumableHeldItems,
   STAT_BOOSTER_ITEM, MAX_STAT_BOOSTS, statBoosterCost, STAT_BOOSTER_CANDY_COST,
   ITEM_EXCHANGES,
-  SUPER_INCUBATOR, incubatorDiscount, ITEM_DROP_FULL_HEAL_CHANCE,
+  SUPER_INCUBATOR, incubatorDiscount, ITEM_DROP_FULL_HEAL_CHANCE, WIN_FULL_HEAL_CHANCE,
   MAX_CREATURE_LEVEL, CREATURE_LEVEL_COST, POI_OUTCOMES, POI_OUTCOMES_WEEKEND, SHINY_ODDS,
   POI_OUTCOMES_RAID_INVASION, POI_OUTCOMES_TRAINING_DOJO,
   RAID_INVASION_LABEL, RAID_INVASION_DAY, RAID_INVASION_START, RAID_INVASION_END,
@@ -1259,7 +1259,7 @@ function renderInfo(tab = 'basics') {
     out.push(el('p', { text: 'Items live in the Items tab of your Storage. Tap one to use it.' }));
     out.push(
       el('h4', { text: 'The Shop' }),
-      el('p', { html: `The <b>Shop</b> tab trades <b>${COIN_ICON} coins</b> for consumables. You earn a coin by <b>watching a short video</b> — one coin per video, and there is no limit on how many you watch. Coins never expire, so an unspent one is still there tomorrow.` }),
+      el('p', { html: `The <b>Shop</b> tab trades <b>${COIN_ICON} coins</b> for consumables. Tap <b>Watch an ad</b> and the advert opens in a new tab — that earns you a coin, and there is no limit on how many you do. Your game stays put while the other tab is open. Coins never expire, so an unspent one is still there tomorrow.` }),
       el('ul', {},
         ...SHOP_ITEMS.map(s => el('li', {
           html: `<b>${s.qty > 1 ? s.qty + ' ' : ''}${itemName(s.item, s.qty)}</b> — ${COIN_ICON} ${s.coins} coin${s.coins === 1 ? '' : 's'}, up to <b>${s.limit}</b> a day.`
@@ -1279,7 +1279,7 @@ function renderInfo(tab = 'basics') {
       el('ul', {},
         el('li', { html: 'No Capturing Disc means no catching — you will be told when you tap a creature.' }),
         el('li', { html: 'Potions cannot be used during a battle, or on a creature that has fainted.' }),
-        el('li', { html: `A <b>Full Heal</b> takes one creature straight to full HP however hurt it is, so it beats spending five potions on the same creature. It cannot revive a fainted one. Every <b>raid</b> and every <b>grunt</b> win gives one, and a potion or revive point carries one <b>${pct(ITEM_DROP_FULL_HEAL_CHANCE)}</b> of the time. In the battle team picker you get both buttons — <b>Heal all</b> spends potions, <b>Full Heal</b> spends these, worst hurt first — so you choose which to burn.` }),
+        el('li', { html: `A <b>Full Heal</b> takes one creature straight to full HP however hurt it is, so it beats spending five potions on the same creature. It cannot revive a fainted one. Every <b>raid</b> and <b>grunt</b> win carries one <b>${pct(WIN_FULL_HEAL_CHANCE)}</b> of the time, and a potion or revive point <b>${pct(ITEM_DROP_FULL_HEAL_CHANCE)}</b> of the time. In the battle team picker you get both buttons — <b>Heal all</b> spends potions, <b>Full Heal</b> spends these, worst hurt first — so you choose which to burn.` }),
         el('li', { html: `A <b>Super Incubator</b> works like a Single Use Incubator but cuts the distance the egg needs by <b>${Math.round(incubatorDiscount(SUPER_INCUBATOR) * 100)}%</b>: a 10 km egg hatches after 7.5 km, a 5 km after 3.75 km, a 15 km after 11.25 km. The discount is fixed when you put the egg in. They come from <b>grunt</b> wins (<b>30%</b>) and a couple of daily missions.` }),
         el('li', { html: `A <b>${itemName('molten_seeker')}</b> widens how far you can reach from <b>${RULES.CAPTURE_RANGE_M} m</b> to <b>${RULES.SEEKER_RANGE_M} m</b> for <b>${Math.round(RULES.SEEKER_DURATION_MS / 60_000)} minutes</b> — creatures, discs, raids, grunts and your buildings all become tappable from twice as far. It has its <b>own effect slot</b>, so it runs happily alongside an incense and a Stardust Magnet, and if it overlaps <b>${RELAX_HOUR_LABEL}</b> the wider of the two wins. It comes from <b>Essence Harvesting</b> (a <b>${pct(ESSENCE_SEEKER_CHANCE)}</b> chance whenever you win candy) and a few missions.` }),
         el('li', { html: `A <b>Stat Booster</b> adds a permanent <b>+1</b> to one stat of one creature. Tap one in your Items, pick the creature, then pick the stat — you see the current figure and what it becomes before confirming. It is applied <b>after everything else</b>, so +1 stays exactly +1 no matter how much the creature levels or evolves. One creature can hold <b>${MAX_STAT_BOOSTS}</b> boosts in total across all four stats. Make them at the <b>Research Lab</b>, or pick them up from <b>grunt</b> wins (<b>10%</b>).` }),
@@ -1351,7 +1351,8 @@ function renderInfo(tab = 'basics') {
       el('ul', {},
         el('li', { html: 'Damage is kept, including if you <b>leave part-way through</b> — you will be asked to confirm first. A hurt creature needs a <b>Potion</b>, a fainted one needs a <b>Revive</b>. You can heal and revive from the team picker without leaving the battle.' }),
         el('li', { html: `Every raid win always gives ${itemListLine(RAID_REWARD.always)}. Every grunt always gives healing supplies: ${GRUNT_ITEM_DROPS.map(d => `<b>${d.weight}%</b> ${Object.entries(d.items).map(([id, n]) => `${n} ${itemName(id, n)}`).join(' + ')}`).join(' · ')}.` }),
-        el('li', { html: `A grunt win also <b>always</b> hands over ${itemListLine(GRUNT_REWARD.always)}, and rolls separately for each of these: ${GRUNT_REWARD.extras.map(x => `<b>${pct(x.chance)}</b> a ${itemName(x.item)}`).join(' · ')}. The rolls are independent, so one win can pay both, either or neither.` }),
+        el('li', { html: `Both a <b>raid</b> win and a <b>grunt</b> win then flip a coin for a <b>${itemName('full_heal')}</b> — <b>${pct(WIN_FULL_HEAL_CHANCE)}</b> each time, rolled separately for each win.` }),
+        el('li', { html: `A grunt win also rolls separately for each of these: ${GRUNT_REWARD.extras.map(x => `<b>${pct(x.chance)}</b> a ${itemName(x.item)}`).join(' · ')}. The rolls are independent, so one win can pay both, either or neither.` }),
         el('li', { html: `Beat a raid boss and you can catch it with an <b>Ultra Capture Disc</b> — it arrives at level ${RAID_CAPTURE_LEVEL} with two bonus candy.` }),
         el('li', { html: `A raid boss is no ordinary creature: <b>×${RAID_BOSS_MODIFIERS.hp} HP</b>, and <b>+${Math.round((RAID_BOSS_MODIFIERS.attack - 1) * 100)}%</b> Attack, Defence and Speed.` }),
         el('li', { html: `A rarity ${[1, 2, 3].join(', ')} raid win has a <b>${pct(RAID_REWARD.incubatorChance)}</b> chance of dropping a <b>Single Use Incubator</b>.` }),

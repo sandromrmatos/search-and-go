@@ -14,20 +14,8 @@
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
 <link rel="stylesheet" href="styles.css" />
 
-<!-- ============ ADS: AdSense Ad Placement API (H5 games) ============
-     Serves the rewarded video behind the Shop's "Watch a video" button.
-     js/ads.js drives it through window.adBreak / window.adConfig, which are the
-     documented entry points: https://developers.google.com/ad-placement/apis
-
-     The glue below is defined synchronously so calls made before the async
-     script lands are queued on `adsbygoogle` rather than lost. -->
-<script async
-  src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3087746799420474"
-  crossorigin="anonymous"></script>
-<script>
-  window.adsbygoogle = window.adsbygoogle || [];
-  window.adBreak = window.adConfig = function (o) { window.adsbygoogle.push(o); };
-</script>
+<!-- Ads are an Adsterra smartlink, which is just a hyperlink rendered by
+     js/ads.js when the player asks for one. Nothing to load up front. -->
 </head>
 <body>
 

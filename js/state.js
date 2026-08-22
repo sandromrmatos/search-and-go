@@ -17,6 +17,7 @@ import {
   BREEDING_CANDY_CAP, BREEDING_UNLOCK_LEVEL,
   dustInRange, weightedPick, GRUNT_REWARD, levelUpRewardsFor,
   buddyMetresPerCandy, stardustMultiplier, isStardustSunday, RAID_REWARD,
+  WIN_FULL_HEAL_CHANCE, WIN_FULL_HEAL_ITEM,
   raidIncubatorChance, raidRareIncenseChance, EXCLUSIVE_RAID_REWARD,
   rollGruntItems, RARE_INCENSE_WEIGHTS,
   EGG_TYPES, MAX_EGGS, EGG_DROP_CHANCE, EGG_HATCH_LEVEL, INCUBATOR_ITEMS, REUSABLE_INCUBATOR,
@@ -1424,6 +1425,8 @@ class Store {
     };
 
     for (const [id, n] of Object.entries(RAID_REWARD.always || {})) drop(id, n);
+    // A Full Heal is a coin flip, not a certainty.
+    if (chance(WIN_FULL_HEAL_CHANCE)) drop(WIN_FULL_HEAL_ITEM);
     if (chance(raidIncubatorChance(rarity))) drop(RAID_REWARD.incubatorItem);
     if (chance(raidRareIncenseChance(rarity))) drop(RAID_REWARD.rareIncenseItem);
 
@@ -1487,6 +1490,10 @@ class Store {
     // Plus the guaranteed drop, and the independent extra rolls on top.
     for (const [id, n] of Object.entries(GRUNT_REWARD.always || {})) {
       items[id] = (items[id] || 0) + n;
+    }
+    // A Full Heal is a coin flip here too, on the same odds as a raid.
+    if (chance(WIN_FULL_HEAL_CHANCE)) {
+      items[WIN_FULL_HEAL_ITEM] = (items[WIN_FULL_HEAL_ITEM] || 0) + 1;
     }
     for (const extra of GRUNT_REWARD.extras || []) {
       if (chance(extra.chance)) items[extra.item] = (items[extra.item] || 0) + 1;

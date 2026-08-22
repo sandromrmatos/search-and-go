@@ -45,7 +45,7 @@ export function renderShop() {
     el('p', { class: 'hint', html: allCapped
       ? `You have bought everything the shop offers today. The limits reset at <b>midnight</b>, in <b>${untilMidnightLabel()}</b>.`
       : `Every row has its own <b>daily limit</b>, shown on the right. They all reset at <b>midnight</b>, in <b>${untilMidnightLabel()}</b>. Coins are <b>yours to keep</b> — they never expire, so an unspent one is still there tomorrow.` }),
-    Ads.isReal ? null : el('p', { class: 'hint bad', text: 'Real ads only run on the published site. Here, "Watch a video" plays a labelled placeholder so the Shop can still be used.' })
+    Ads.isReal ? null : el('p', { class: 'hint bad', text: 'Ads are switched off with ?ads=sim, so "Watch an ad" plays a labelled placeholder instead.' })
   );
 }
 
@@ -61,14 +61,13 @@ function earnCard() {
     class: 'btn primary wide',
     disabled: Ads.playing,
     onclick: watchForCoin
-  }, Ads.playing ? 'Ad playing…' : '📺  Watch a video');
+  }, Ads.playing ? 'Ad open…' : '🎁  Watch an ad');
 
   return el('div', { class: 'card shop-earn' },
     el('h3', { text: 'Earn coins' }),
-    el('p', { class: 'muted small', html: `Watch a short video and you get <b>${COINS_PER_AD} ${COIN_ICON} coin</b>. Watch as many as you like — there is no daily limit on <i>earning</i>, only on what each item can be bought for in a day.` }),
+    el('p', { class: 'muted small', html: `Open one advert and you get <b>${COINS_PER_AD} ${COIN_ICON} coin</b>. As many as you like — there is no daily limit on <i>earning</i>, only on what each item can be bought for in a day.` }),
     btn,
-    el('p', { class: 'hint', text: 'You only get the coin if you watch the video through to the end. There is not always one available — if none turns up, try again in a minute.' }),
-    Ads.ready ? null : el('p', { class: 'hint', text: 'No video is ready just yet. Give it a moment and try again.' })
+    el('p', { class: 'hint', text: 'The advert opens in a new tab and the coin is yours as soon as you open it. Your game stays exactly where it is, so you can come straight back.' })
   );
 }
 
@@ -130,7 +129,7 @@ function buy(id) {
   const res = store.buyShopItem(id);
   if (!res.ok) {
     if (res.reason === 'coins') {
-      toast(`You need ${COIN_ICON} ${res.need} — watch a video to top up`, 'bad');
+      toast(`You need ${COIN_ICON} ${res.need} — watch an ad to top up`, 'bad');
     } else if (res.reason === 'limit') {
       toast(`That is all you can buy of this today (${res.limit})`, 'bad');
     } else {
