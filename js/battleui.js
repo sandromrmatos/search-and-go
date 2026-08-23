@@ -903,7 +903,7 @@ async function throwUltraDisc() {
     $('#battle').classList.add('hidden');
 
     const rewards = [
-      { icon: CANDY_ICON, label: `+${res.candy} ${familyName(res.sp.id)} candy (incl. +2 raid bonus)` },
+      { icon: CANDY_ICON, label: `+${res.candy} ${familyName(res.sp.id)} candy (incl. +2 raid bonus)${res.sweet ? ', Tuesday ×2' : ''}` },
       { icon: DUST_ICON, label: `+${num(res.dust)} stardust` },
       { icon: '⭐', label: `+${res.xp} XP` },
       { icon: '📈', label: `Level ${res.creature.level}` }

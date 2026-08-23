@@ -7,7 +7,7 @@ import {
   DB, species, familyRoot, familyRarity, familyChain,
   candyForCapture, dustForCapture, xpForCapture, dustBonusFor,
   XP_ON_EVOLVE, CANDY_ON_DELETE, levelUpCost, MAX_CREATURE_LEVEL,
-  playerProgress, playerLevelFor, statsFor, rollStatModifier, rollMoveUnlock,
+  playerProgress, playerLevelFor, statsFor, rollStatModifier, rerollStatModifier, rollMoveUnlock,
   rollShiny, chance, RULES, RAID_CAPTURE_LEVEL, RAID_CAPTURE_BONUS_CANDY,
   MISSIONS, DAILY_MISSIONS, WEEKLY_MISSIONS, SET_MISSIONS,
   setGalacticUnlocked, isMythicalEgg, eggCanBeShiny, MYTHICAL_EGG_TYPE,
@@ -17,6 +17,9 @@ import {
   BREEDING_CANDY_CAP, BREEDING_UNLOCK_LEVEL,
   dustInRange, weightedPick, GRUNT_REWARD, levelUpRewardsFor,
   buddyMetresPerCandy, stardustMultiplier, isStardustSunday, RAID_REWARD,
+  candyMultiplier, isSweetToothsday,
+  MYSTERIOUS_INCENSE_ITEM, mysteriousIncenseDurationMs,
+  MYSTERIOUS_INCENSE_GRUNT_CHANCE, mysteriousIncenseRaidChance,
   WIN_FULL_HEAL_CHANCE, WIN_FULL_HEAL_ITEM,
   raidIncubatorChance, raidRareIncenseChance, EXCLUSIVE_RAID_REWARD,
   rollGruntItems, RARE_INCENSE_WEIGHTS,
@@ -1260,6 +1263,28 @@ class Store {
   /** True while a Shiny Incense is burning, which pins shiny odds to 3%. */
   isShinyIncense(now = Date.now()) { return !!this.effect('incense', now)?.shiny; }
 
+  /**
+   * The species a Mysterious Incense is pinned to, or null. Resolved through
+   * `species()` so an incense pinned to a creature that no longer exists in the
+   * data reads as unpinned rather than spawning nothing at all.
+   */
+  incenseSpecies(now = Date.now()) {
+    const id = this.effect('incense', now)?.speciesId;
+    return id ? species(id) : null;
+  }
+
+  /**
+   * Every creature a Mysterious Incense may be pointed at: registered, Stage 1,
+   * and not an Exclusive or a Mythical. Sorted by dex order so the picker reads
+   * like the Collection.
+   */
+  mysteriousIncenseCandidates() {
+    return Object.keys(this.s.registered)
+      .map(id => species(id))
+      .filter(sp => sp && sp.stage === 1 && !sp.exclusive && !sp.mythical)
+      .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+  }
+
   /** The shiny-odds options for a roll made right now. */
   shinyOpts(now = Date.now()) { return { shinyIncense: this.isShinyIncense(now) }; }
 
@@ -1268,14 +1293,30 @@ class Store {
    * incense types share the slot, so Rare Incense cannot stack with a plain
    * one. `useItemId` chooses which incense is burned.
    */
-  startEffect(kind, now = Date.now(), useItemId = null) {
+  startEffect(kind, now = Date.now(), useItemId = null, { speciesId = null } = {}) {
     const slot = EFFECT_SLOTS[kind];
     if (!slot) return { ok: false, reason: 'unknown' };
     const itemId = useItemId || slot.defaultItem;
     if (this.effect(kind, now)) return { ok: false, reason: 'active' };
     if (!this.hasItem(itemId)) return { ok: false, reason: 'noItem' };
 
-    const duration = slot.durationMs;
+    // A Mysterious Incense is the only effect whose length is not fixed by its
+    // slot: it is set by the rarity of the creature chosen, and it cannot be lit
+    // without one.
+    const mysterious = itemId === MYSTERIOUS_INCENSE_ITEM;
+    let pinned = null;
+    if (mysterious) {
+      pinned = speciesId ? species(speciesId) : null;
+      if (!pinned) return { ok: false, reason: 'noSpecies' };
+      if (!this.isRegistered(pinned.id)) return { ok: false, reason: 'notRegistered' };
+      if (pinned.stage !== 1 || pinned.exclusive || pinned.mythical) {
+        return { ok: false, reason: 'notEligible' };
+      }
+    }
+
+    const rarity = pinned ? (pinned.rarity || familyRarity(pinned.id) || 1) : 0;
+    const duration = mysterious ? mysteriousIncenseDurationMs(rarity) : slot.durationMs;
+
     this.spendItem(itemId);
     this.s.effects[kind] = {
       startedAt: now,
@@ -1283,14 +1324,19 @@ class Store {
       lastSpawnAt: kind === 'incense' ? 0 : null,
       itemId,
       rare: itemId === 'rare_incense',
-      shiny: itemId === 'shiny_incense'
+      shiny: itemId === 'shiny_incense',
+      // Only ever set for a Mysterious Incense. Every spawn is this creature.
+      speciesId: pinned ? pinned.id : null
     };
     this.touch('effect', { immediate: true });
     return {
       ok: true,
       endsAt: this.s.effects[kind].endsAt,
+      durationMs: duration,
       rare: itemId === 'rare_incense',
-      shiny: itemId === 'shiny_incense'
+      shiny: itemId === 'shiny_incense',
+      species: pinned,
+      rarity: rarity || null
     };
   }
 
@@ -1359,7 +1405,11 @@ class Store {
     // values, and a Stardust Magnet does not apply — nothing was captured.
     const fromEgg = opts.dust != null || opts.xp != null;
     const magnet = !fromEgg && this.isMagnetActive();
-    const candy = candyForCapture(rarity) + (opts.bonusCandy || 0);
+    // Sweet Toothsday doubles the lot, bonuses included: the raid capture's +2
+    // and an egg's bonus candy are as much "candy from this catch" as the base
+    // roll is. Applied last, like the Stardust Sunday multiplier.
+    const sweet = isSweetToothsday();
+    const candy = Math.round((candyForCapture(rarity) + (opts.bonusCandy || 0)) * candyMultiplier());
     const dust = opts.dust != null
       ? opts.dust + dustBonusFor(this.level)
       : dustForCapture(rarity, this.level) + (magnet ? RULES.MAGNET_BONUS_MULTIPLIER * this.level : 0);
@@ -1385,7 +1435,10 @@ class Store {
     this.touch('capture', { immediate: true });
     return {
       creature, sp, isNew, candy, dust: dustGained, xp, candyTotal, levelUp, rarity,
-      shiny: creature.shiny, magnet, origin, sunday: isStardustSunday()
+      shiny: creature.shiny, magnet, origin, sunday: isStardustSunday(),
+      // True when the candy figure above has already been doubled, so the
+      // reward screens can say why rather than just showing a bigger number.
+      sweet
     };
   }
 
@@ -1429,6 +1482,8 @@ class Store {
     if (chance(WIN_FULL_HEAL_CHANCE)) drop(WIN_FULL_HEAL_ITEM);
     if (chance(raidIncubatorChance(rarity))) drop(RAID_REWARD.incubatorItem);
     if (chance(raidRareIncenseChance(rarity))) drop(RAID_REWARD.rareIncenseItem);
+    // A Mysterious Incense, on odds that climb with the boss's rarity.
+    if (chance(mysteriousIncenseRaidChance(rarity))) drop(MYSTERIOUS_INCENSE_ITEM);
 
     // A held item, on odds set by how strong the boss was. Kept out of `items`
     // because held items live in their own drawer, not the ordinary inventory.
@@ -1494,6 +1549,10 @@ class Store {
     // A Full Heal is a coin flip here too, on the same odds as a raid.
     if (chance(WIN_FULL_HEAL_CHANCE)) {
       items[WIN_FULL_HEAL_ITEM] = (items[WIN_FULL_HEAL_ITEM] || 0) + 1;
+    }
+    // And the long shot: a Mysterious Incense.
+    if (chance(MYSTERIOUS_INCENSE_GRUNT_CHANCE)) {
+      items[MYSTERIOUS_INCENSE_ITEM] = (items[MYSTERIOUS_INCENSE_ITEM] || 0) + 1;
     }
     for (const extra of GRUNT_REWARD.extras || []) {
       if (chance(extra.chance)) items[extra.item] = (items[extra.item] || 0) + 1;
@@ -2172,6 +2231,50 @@ class Store {
       after: creatureStats(c)[stat],
       used: this.boostsUsed(c),
       left: this.boostsLeftOn(c)
+    };
+  }
+
+  /* ---------------- strength re-roll ---------------- */
+
+  canRerollStrength(uid) {
+    const c = this.creature(uid);
+    if (!c) return { ok: false, reason: 'missing' };
+    if (!this.hasItem('strength_reroll')) return { ok: false, reason: 'noItem' };
+    if (c.breeding != null) return { ok: false, reason: 'breeding' };
+    return { ok: true };
+  }
+
+  /**
+   * Spends a Strength Re-roll Stone to draw one creature's stat modifier again.
+   * The new pair is guaranteed to differ from the old one in both directions.
+   *
+   * HP is the awkward case, as with a Stat Booster: the maximum can move either
+   * way, so a creature that was on full HP stays on full, and a hurt one is
+   * clamped rather than left holding more HP than it can now have.
+   */
+  useStrengthReroll(uid) {
+    const check = this.canRerollStrength(uid);
+    if (!check.ok) return check;
+
+    const c = this.creature(uid);
+    const wasFull = c.hp == null || hpOf(c) >= maxHpOf(c);
+    const before = { ...c.statMod };
+    const beforeStats = creatureStats(c);
+
+    c.statMod = rerollStatModifier(before);
+    this.spendItem('strength_reroll');
+
+    if (wasFull) c.hp = null;
+    else c.hp = Math.max(0, Math.min(Number(c.hp) || 0, maxHpOf(c)));
+
+    this.touch('strength-reroll', { immediate: true });
+    return {
+      ok: true,
+      before,
+      after: { ...c.statMod },
+      beforeStats,
+      afterStats: creatureStats(c),
+      left: this.itemCount('strength_reroll')
     };
   }
 

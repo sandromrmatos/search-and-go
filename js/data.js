@@ -351,21 +351,34 @@ export const itemExchange = fromId =>
 export const itemExchangeOption = (fromId, toId) =>
   itemExchange(fromId)?.to.find(t => t.item === toId) || null;
 
-/** Total XP needed to reach each player level. */
+/**
+ * Total XP needed to reach each player level.
+ *
+ * Levels 2–15 are hand-tuned. From 16 on, each level's *step* is the previous
+ * step plus about 20%, rounded to the nearest thousand — so the last stretch
+ * is 24k, 29k, 35k, 42k and 50k on top of the 20k that level 15 asked for.
+ */
 export const PLAYER_LEVEL_XP = {
   1: 0, 2: 25, 3: 100, 4: 250, 5: 1000, 6: 2000, 7: 3500, 8: 6000,
-  9: 10000, 10: 15000, 11: 22000, 12: 30000, 13: 42000, 14: 60000, 15: 80000
+  9: 10000, 10: 15000, 11: 22000, 12: 30000, 13: 42000, 14: 60000, 15: 80000,
+  16: 104000, 17: 133000, 18: 168000, 19: 210000, 20: 260000
 };
 /**
  * Player level-up loot, in three layers:
  *   `every`     — granted on every single level.
  *   `fromLevel` — granted on every level at or past that threshold.
  *   `special`   — granted once, on exactly that level.
+ *
+ * The level 16 tier is what makes the last five levels worth the climb: they
+ * pay everything level 15 did plus the four items below, every time. Written as
+ * a `fromLevel` tier rather than five identical `special` blocks so raising the
+ * cap again cannot leave a level silently paying less than the one before it.
  */
 export const LEVEL_UP_REWARDS = {
   every: { capture_disc: 5, incense: 1, stardust_magnet: 1 },
   fromLevel: {
-    8: { rare_incense: 1 }
+    8: { rare_incense: 1 },
+    16: { molten_seeker: 1, shiny_incense: 1, mysterious_incense: 1, strength_reroll: 1 }
   },
   special: {
     3: { breeding_center: 1 },
@@ -400,7 +413,17 @@ export const levelUpRewardFromLevel = itemId => {
   return hit ? Number(hit[0]) : null;
 };
 
-export const MAX_PLAYER_LEVEL = 15;
+export const MAX_PLAYER_LEVEL = 20;
+
+/** Every level-up tier, lowest threshold first, for the info screen. */
+export const levelUpTiers = () =>
+  Object.entries(LEVEL_UP_REWARDS.fromLevel || {})
+    .map(([from, table]) => ({ from: Number(from), table }))
+    .sort((a, b) => a.from - b.from);
+
+/** XP needed to get from `level` to the next one, or 0 at the cap. */
+export const playerLevelStep = level =>
+  Math.max(0, (PLAYER_LEVEL_XP[level + 1] ?? PLAYER_LEVEL_XP[level] ?? 0) - (PLAYER_LEVEL_XP[level] ?? 0));
 
 /** Every player level past 1 adds this much to any stardust reward. */
 export const DUST_BONUS_PER_PLAYER_LEVEL = 3;
@@ -419,6 +442,24 @@ export const isStardustSunday = (now = new Date()) => now.getDay() === 0;
 /** What any stardust gain should be multiplied by right now. */
 export const stardustMultiplier = (now = new Date()) =>
   isStardustSunday(now) ? STARDUST_SUNDAY_MULTIPLIER : 1;
+
+/* ---------------------------------------------------------------
+   Sweet Toothsday
+
+   Every Tuesday, all day, candy from a capture, a raid capture or an egg hatch
+   is doubled. Deliberately only those three: buddy walking, the breeding centre
+   and Essence Harvesting all pay candy on a *rate* rather than per event, and
+   doubling those would quietly double the value of a walk started on Monday.
+   --------------------------------------------------------------- */
+export const SWEET_TOOTHSDAY_MULTIPLIER = 2;
+export const SWEET_TOOTHSDAY_LABEL = 'Sweet Toothsday';
+export const SWEET_TOOTHSDAY_DAY = 2;      // 0 = Sunday, so 2 = Tuesday
+
+export const isSweetToothsday = (now = new Date()) => now.getDay() === SWEET_TOOTHSDAY_DAY;
+
+/** What candy from a capture, raid capture or hatch is multiplied by right now. */
+export const candyMultiplier = (now = new Date()) =>
+  isSweetToothsday(now) ? SWEET_TOOTHSDAY_MULTIPLIER : 1;
 
 /* ---------------------------------------------------------------
    Types and battle
@@ -976,6 +1017,48 @@ export const SHINY_ODDS = {
  */
 export const SHINY_INCENSE_ODDS = 0.03;
 
+/* ---------------------------------------------------------------
+   Mysterious Incense
+
+   You choose the creature before it is lit, and every single spawn is that
+   creature. The trade is time: the rarer the creature you pick, the shorter it
+   burns, so a Legendary run is four minutes and two spawns rather than half an
+   hour. Spawn rhythm and spawn lifetime are the ordinary incense ones.
+
+   Only a creature you have already registered can be chosen, only Stage 1
+   forms, and never an Exclusive or a Mythical — those have exactly one route
+   each by design, and a repeatable incense would be a way around it.
+   --------------------------------------------------------------- */
+export const MYSTERIOUS_INCENSE_ITEM = 'mysterious_incense';
+
+/** How long it burns, by the rarity of the chosen creature. */
+export const MYSTERIOUS_INCENSE_DURATION_MS = {
+  1: 30 * 60_000,
+  2: 20 * 60_000,
+  3: 12 * 60_000,
+  4: 8 * 60_000,
+  5: 4 * 60_000
+};
+
+/** Falls back to the Common duration for anything with no rarity of its own. */
+export const mysteriousIncenseDurationMs = rarity =>
+  MYSTERIOUS_INCENSE_DURATION_MS[rarity] ?? MYSTERIOUS_INCENSE_DURATION_MS[1];
+
+/** How many spawns one run is worth, for the info screen. */
+export const mysteriousIncenseSpawns = rarity =>
+  Math.floor(mysteriousIncenseDurationMs(rarity) / RULES.INCENSE_EVERY_MS);
+
+/** Chance of one dropping from a grunt win. */
+export const MYSTERIOUS_INCENSE_GRUNT_CHANCE = 0.01;
+
+/** Chance of one dropping from a raid win, by boss rarity. */
+export const MYSTERIOUS_INCENSE_RAID_CHANCE = {
+  1: 0.01, 2: 0.01, 3: 0.02, 4: 0.03, 5: 0.04
+};
+
+export const mysteriousIncenseRaidChance = rarity =>
+  MYSTERIOUS_INCENSE_RAID_CHANCE[rarity] ?? MYSTERIOUS_INCENSE_RAID_CHANCE[1];
+
 /** Shiny Bonanza Hour: local 17:30–18:30. */
 export const BONANZA_HOUR_START = 17.5;  // 17:30
 export const BONANZA_HOUR_END = 18.5;    // 18:30
@@ -1014,6 +1097,24 @@ export const TRAINING_DOJO_LABEL = 'Training Dojo Hour';
 export const TRAINING_DOJO_DAY = 6;        // Saturday
 export const TRAINING_DOJO_START = 13.5;   // 13:30
 export const TRAINING_DOJO_END = 14;       // 14:00
+
+/* ---------------------------------------------------------------
+   Galactic Adventures Take Over: Thursdays 18:00–19:00.
+
+   The odds of meeting anything are untouched — what changes is *which*
+   creatures are behind them. For the hour, wild spawns, incense spawns, normal
+   raids and ordinary eggs all draw from the unlocked Galactic Adventures
+   creatures alone, and the Elemental Awakening pool is out of play entirely.
+
+   Exclusive Raids and the 15 km and 50 km eggs are unaffected: they read their
+   own pools, and taking them over would make the only route to those creatures
+   vanish for an hour. It also does nothing at all until at least one Galactic
+   rarity has been unlocked, since there would be nothing to spawn.
+   --------------------------------------------------------------- */
+export const GALACTIC_TAKEOVER_LABEL = 'Galactic Adventures Take Over';
+export const GALACTIC_TAKEOVER_DAY = 4;      // Thursday
+export const GALACTIC_TAKEOVER_START = 18;   // 18:00
+export const GALACTIC_TAKEOVER_END = 19;     // 19:00
 
 /* ---------------------------------------------------------------
    Essence Harvesting
@@ -1848,6 +1949,13 @@ export function rebuildSpawnPools() {
 
   DB.byRarity = { 1: [], 2: [], 3: [], 4: [], 5: [] };
   for (const sp of DB.spawnable) DB.byRarity[sp.rarity].push(sp);
+
+  // The Galactic-only view of the same thing, for the weekly takeover. Built
+  // here so it can never fall out of step with an unlock.
+  DB.galacticSpawnable = DB.spawnable.filter(s => s.galactic);
+  DB.galacticByRarity = { 1: [], 2: [], 3: [], 4: [], 5: [] };
+  for (const sp of DB.galacticSpawnable) DB.galacticByRarity[sp.rarity].push(sp);
+
   return DB.spawnable.length;
 }
 
@@ -2152,6 +2260,13 @@ export const DB = {
   exclusiveByRarity: { 3: [], 4: [], 5: [] },
   /** Galactic Adventures, all 77 whether unlocked or not. */
   galactic: [],
+  /**
+   * The unlocked Galactic creatures on their own, in the same shape as
+   * `spawnable` and `byRarity`. Only read during Galactic Adventures Take Over,
+   * when they are the entire spawn pool. Empty until a Set mission opens one.
+   */
+  galacticSpawnable: [],
+  galacticByRarity: { 1: [], 2: [], 3: [], 4: [], 5: [] },
   /** Rarity 6 creatures. Only ever obtained from their own egg. */
   mythical: [],
   /**
@@ -2638,12 +2753,18 @@ export function rollRarityWith(weights) {
  * Weighted rarity, then a uniform pick inside that tier. Stage 1 only.
  * Pass a weight table to use different odds, as Rare Incense does.
  */
-export function rollSpawnSpecies(weights = RARITY_WEIGHTS) {
+export function rollSpawnSpecies(weights = RARITY_WEIGHTS, now = new Date()) {
+  const buckets = spawnPoolByRarity(now);
   for (let attempt = 0; attempt < 6; attempt++) {
-    const pool = DB.byRarity[rollRarityWith(weights)];
+    const pool = buckets[rollRarityWith(weights)];
     if (pool?.length) return pool[Math.floor(Math.random() * pool.length)];
   }
-  return DB.spawnable[Math.floor(Math.random() * DB.spawnable.length)];
+  // During a takeover the unlocked Galactic rarities may not cover the tier
+  // that was drawn, so the fallback has to come from the same pool as the
+  // buckets did — otherwise the event would leak an Elemental Awakening spawn.
+  const flat = spawnPoolList(now);
+  const list = flat.length ? flat : DB.spawnable;
+  return list[Math.floor(Math.random() * list.length)];
 }
 
 /**
@@ -2662,16 +2783,19 @@ export function rollSpawnSpecies(weights = RARITY_WEIGHTS) {
 export function rollWildSpecies(weights = RARITY_WEIGHTS, now = new Date()) {
   const featured = isCreatureSpotlight(now) ? spotlightSpecies(now) : null;
   const featuredRarity = featured ? (featured.rarity || familyRarity(featured.id) || 1) : 0;
+  const buckets = spawnPoolByRarity(now);
 
   for (let attempt = 0; attempt < 6; attempt++) {
     const tier = rollRarityWith(weights);
     if (featured && tier === featuredRarity && chance(SPOTLIGHT_SUBSTITUTE_CHANCE)) {
       return featured;
     }
-    const pool = DB.byRarity[tier];
+    const pool = buckets[tier];
     if (pool?.length) return pool[Math.floor(Math.random() * pool.length)];
   }
-  return DB.spawnable[Math.floor(Math.random() * DB.spawnable.length)];
+  const flat = spawnPoolList(now);
+  const list = flat.length ? flat : DB.spawnable;
+  return list[Math.floor(Math.random() * list.length)];
 }
 
 /**
@@ -2713,6 +2837,32 @@ export const isRaidInvasion = (now = new Date()) =>
 
 export const isTrainingDojo = (now = new Date()) =>
   inWeeklyWindow(now, TRAINING_DOJO_DAY, TRAINING_DOJO_START, TRAINING_DOJO_END);
+
+/**
+ * True inside the Thursday window, and only once something Galactic is
+ * unlocked — with an empty pool there would be nothing to take over with, so
+ * the event simply does not happen for a player who has not got there yet.
+ */
+export function isGalacticTakeover(now = new Date()) {
+  if (!DB.galacticSpawnable.length) return false;
+  return inWeeklyWindow(now, GALACTIC_TAKEOVER_DAY, GALACTIC_TAKEOVER_START, GALACTIC_TAKEOVER_END);
+}
+
+/**
+ * The rarity buckets any ordinary roll should draw from right now.
+ *
+ * One accessor rather than a check in each roll, so wild spawns, incense,
+ * normal raids and ordinary eggs are taken over together or not at all.
+ */
+export function spawnPoolByRarity(now = new Date()) {
+  return isGalacticTakeover(now) ? DB.galacticByRarity : DB.byRarity;
+}
+
+/** The flat fallback list matching `spawnPoolByRarity`. */
+export function spawnPoolList(now = new Date()) {
+  if (isGalacticTakeover(now)) return DB.galacticSpawnable;
+  return DB.spawnable;
+}
 
 /* ---------------------------------------------------------------
    Creature Spotlight schedule
@@ -2848,6 +2998,16 @@ export function poiEventState(now = new Date()) {
       endsIn: weeklyWindowEndsIn(now, TRAINING_DOJO_DAY, TRAINING_DOJO_START, TRAINING_DOJO_END)
     };
   }
+  if (isGalacticTakeover(now)) {
+    // `table: null`, like the spotlight: the takeover changes which creatures
+    // are behind the odds, never the odds themselves.
+    return {
+      id: 'galacticTakeover',
+      label: GALACTIC_TAKEOVER_LABEL,
+      table: null,
+      endsIn: weeklyWindowEndsIn(now, GALACTIC_TAKEOVER_DAY, GALACTIC_TAKEOVER_START, GALACTIC_TAKEOVER_END)
+    };
+  }
   if (isCreatureSpotlight(now)) {
     // `table: null` on purpose — the spotlight biases which creature a creature
     // point becomes, and must not touch the odds of getting one at all.
@@ -2906,6 +3066,14 @@ export const CALENDAR_EVENTS = [
     blurb: `Every stardust reward is ×${STARDUST_SUNDAY_MULTIPLIER}, all day.`
   },
   {
+    id: 'sweetToothsday',
+    label: SWEET_TOOTHSDAY_LABEL,
+    icon: '🍬',
+    allDay: true,
+    onDay: d => d.getDay() === SWEET_TOOTHSDAY_DAY,
+    blurb: `Candy from catching, raid catches and hatching is ×${SWEET_TOOTHSDAY_MULTIPLIER}, all day.`
+  },
+  {
     id: 'bonanzaDay',
     label: 'Shiny Bonanza Day',
     icon: '★',
@@ -2930,6 +3098,17 @@ export const CALENDAR_EVENTS = [
     end: TRAINING_DOJO_END,
     onDay: d => d.getDay() === TRAINING_DOJO_DAY,
     blurb: 'Grunts take over shops and amenities, with no limit on how many of those appear.'
+  },
+  {
+    id: 'galacticTakeover',
+    label: GALACTIC_TAKEOVER_LABEL,
+    icon: '🛸',
+    start: GALACTIC_TAKEOVER_START,
+    end: GALACTIC_TAKEOVER_END,
+    // Hidden entirely until something Galactic is unlocked, because until then
+    // the hour genuinely does nothing.
+    onDay: d => d.getDay() === GALACTIC_TAKEOVER_DAY && DB.galacticSpawnable.length > 0,
+    blurb: `Spawns, raids and ordinary eggs all come from your unlocked ${GALACTIC_SET_NAME} creatures.`
   },
   {
     id: 'creatureSpotlight',
@@ -3060,6 +3239,29 @@ export function rollStatModifier() {
   let down = up;
   while (down === up) down = STAT_KEYS[Math.floor(Math.random() * STAT_KEYS.length)];
   return { up, down };
+}
+
+/**
+ * Re-rolls the pair for a creature that already has one, guaranteeing a genuine
+ * change: the stat going up is never the one that was going up, and the stat
+ * going down is never the one that was going down.
+ *
+ * Every valid pair is built and then picked from uniformly rather than rolling
+ * until one passes. With four stats there are only seven possibilities, and a
+ * reject loop on that small a set is both slower and easier to get subtly wrong.
+ */
+export function rerollStatModifier(prev) {
+  const pairs = [];
+  for (const up of STAT_KEYS) {
+    if (up === prev?.up) continue;
+    for (const down of STAT_KEYS) {
+      if (down === up || down === prev?.down) continue;
+      pairs.push({ up, down });
+    }
+  }
+  // Only reachable if `prev` was nonsense, in which case any fresh pair will do.
+  if (!pairs.length) return rollStatModifier();
+  return pairs[Math.floor(Math.random() * pairs.length)];
 }
 
 /* ===============================================================
@@ -3251,12 +3453,14 @@ export function rollRaidRarity() {
 }
 
 /** Builds a raid boss definition: species, level and reward numbers. */
-export function rollRaid() {
+export function rollRaid(now = new Date()) {
   const rarity = rollRaidRarity();
-  const pool = DB.byRarity[rarity];
+  // Galactic Adventures Take Over swaps the pool, not the rarity odds, so a
+  // Thursday raid is the same difficulty with a different creature inside.
+  const pool = spawnPoolByRarity(now)[rarity];
   const sp = pool?.length
     ? pool[Math.floor(Math.random() * pool.length)]
-    : rollSpawnSpecies();
+    : rollSpawnSpecies(RARITY_WEIGHTS, now);
   const tier = RAID_TIERS[rarity];
   return {
     speciesId: sp.id,

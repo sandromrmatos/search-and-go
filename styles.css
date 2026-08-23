@@ -486,6 +486,56 @@ a { color: var(--accent); }
 @keyframes essenceRainbow { to { background-position: 400% 50%; } }
 @keyframes essenceTimerFlash { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.5); } }
 
+/* ---- Essence Harvesting direction arrow ----
+   An essence is worth walking to and only lasts 30 minutes, so it gets a
+   pointer that survives being off screen: zoom right in and the arrow pins
+   itself to the edge of the view, still aimed at the creature. It sits above
+   the attribution (440) and below the chips (450) so it can never cover a
+   countdown. `left`/`top` and --essence-angle are written by js/map.js. */
+.essence-arrow {
+  position: absolute; left: 50%; top: 50%; z-index: 445;
+  transform: translate(-50%, -50%);
+  display: grid; justify-items: center; gap: 2px;
+  padding: 0; border: 0; background: none;
+  pointer-events: auto; cursor: pointer;
+}
+.essence-arrow.hidden { display: none; }
+.essence-arrow-glyph {
+  display: block; width: 40px; height: 40px;
+  font-size: 25px; line-height: 40px; text-align: center;
+  border-radius: 50%;
+  color: #10142c;
+  /* Same eight-stop rainbow as the essence countdown, so the two obviously
+     belong to each other. */
+  background: linear-gradient(90deg,
+    #ff5f5f, #ffb14e, #ffef5e, #6cf07f, #61d7ff, #9d7bff, #ff6bd6, #ff5f5f);
+  background-size: 400% 100%;
+  border: 2px solid #ffffffcc;
+  box-shadow: 0 0 14px #ffffff80, 0 2px 8px #0008;
+  /* The rotation is the direction, so it is applied to the wrapper-free glyph
+     and the rainbow/flicker animations are left to touch only paint. */
+  rotate: var(--essence-angle, 0deg);
+  animation: essenceRainbow 1.8s linear infinite, essenceArrowFlash 1s ease-in-out infinite;
+}
+@keyframes essenceArrowFlash {
+  0%, 100% { filter: brightness(1); transform: scale(1); }
+  50% { filter: brightness(1.55); transform: scale(1.1); }
+}
+/* Distance to walk. Never rotates — only the glyph does. */
+.essence-arrow-dist {
+  font-size: 11px; font-weight: 800; letter-spacing: .2px;
+  padding: 1px 7px; border-radius: 99px; white-space: nowrap;
+  background: rgba(11, 16, 36, .92); border: 1px solid #ffffff5c; color: #eaf0ff;
+  box-shadow: 0 2px 6px #0007;
+}
+/* Sitting right on top of the creature rather than pointing off screen: the
+   marker says everything, so the arrow gets out of the way a little. */
+.essence-arrow.on-target { opacity: .85; }
+.essence-arrow.on-target .essence-arrow-glyph { width: 30px; height: 30px; font-size: 18px; line-height: 30px; }
+@media (prefers-reduced-motion: reduce) {
+  .essence-arrow-glyph { animation: essenceRainbow 6s linear infinite; }
+}
+
 .glow-grunt { background: radial-gradient(circle, #b07cff55 0%, transparent 70%); }
 
 /* ---- collected: stays on the map, ticked, until the timer runs out ---- */

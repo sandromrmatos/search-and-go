@@ -4,8 +4,14 @@
 
 import {
   ITEM_DIR, RULES, SHINY_INCENSE_ODDS,
-  SUPER_INCUBATOR, incubatorDiscount, MAX_STAT_BOOSTS
+  SUPER_INCUBATOR, incubatorDiscount, MAX_STAT_BOOSTS,
+  MYSTERIOUS_INCENSE_DURATION_MS, RARITY_NAMES
 } from './data.js';
+
+/** "Common 30 min · Uncommon 20 min · …" for the Mysterious Incense blurb. */
+const mysteriousDurationLine = () => Object.entries(MYSTERIOUS_INCENSE_DURATION_MS)
+  .map(([r, ms]) => `${RARITY_NAMES[r]} ${Math.round(ms / 60_000)} min`)
+  .join(' · ');
 
 /**
  * `use` describes how the player triggers it from the Items tab:
@@ -93,6 +99,18 @@ export const ITEMS = {
     shinyOdds: true,
     blurb: `Works like an Incense — 20 minutes, a creature every 2 minutes lasting 1 min 30 s — but every creature you catch while it burns has a ${Math.round(SHINY_INCENSE_ODDS * 100)}% chance of being shiny. It replaces the usual shiny odds rather than adding to them, so it does not stack with a Shiny Bonanza.`
   },
+  mysterious_incense: {
+    id: 'mysterious_incense',
+    name: 'Mysterious Incense',
+    plural: 'Mysterious Incenses',
+    image: 'mysterious_incense.png',
+    use: 'timed',
+    order: 5.8,
+    // Duration depends on the creature chosen, so there is no single figure to
+    // put here. `pickSpecies` is what makes the Items tab ask first.
+    pickSpecies: true,
+    blurb: `You choose the creature, and every single spawn is that creature — one every 2 minutes, each lasting 1 min 30 s, like an ordinary Incense. Only Stage 1 creatures you have already registered can be picked, and never an Exclusive or Mythical one. How long it burns depends on the rarity you choose: ${mysteriousDurationLine()}.`
+  },
   stardust_magnet: {
     id: 'stardust_magnet',
     name: 'Stardust Magnet',
@@ -159,6 +177,15 @@ export const ITEMS = {
     order: 11,
     blurb: `Permanently adds +1 to one stat of one creature — you pick which. It survives levelling up and evolving, and is applied after every other calculation. A creature can hold ${MAX_STAT_BOOSTS} boosts in total across all four stats. Made at the Research Lab from spare candy, and occasionally dropped by grunts.`
   },
+  strength_reroll: {
+    id: 'strength_reroll',
+    name: 'Strength Re-roll Stone',
+    plural: 'Strength Re-roll Stones',
+    image: 'Strength Re-roll stone.png',
+    use: 'creature',
+    order: 11.5,
+    blurb: 'Draws one creature\'s stat modifier again: the stat that is 10% up and the stat that is 10% down are both re-rolled. The new pair is guaranteed to be different — whatever was going up will not be going up, and whatever was going down will not be going down. You cannot choose which stats you get, only that they change.'
+  },
   research_lab: {
     id: 'research_lab',
     name: 'Research Lab',
@@ -177,7 +204,10 @@ export const ITEM_IDS = Object.keys(ITEMS);
  * Every incense variant. They all share the single incense effect slot, so
  * only one can burn at a time — no stacking a Shiny on top of a Rare.
  */
-export const INCENSE_ITEMS = ['incense', 'rare_incense', 'shiny_incense'];
+export const INCENSE_ITEMS = ['incense', 'rare_incense', 'shiny_incense', 'mysterious_incense'];
+
+/** Timed items that need a creature chosen before they can be lit. */
+export const needsSpeciesChoice = itemId => !!ITEMS[itemId]?.pickSpecies;
 
 /**
  * Which effect slot a `use: 'timed'` item runs in. Every incense shares one

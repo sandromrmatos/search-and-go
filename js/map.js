@@ -3,7 +3,7 @@
    ============================================================ */
 
 import { RULES, species } from './data.js';
-import { distance } from './geo.js';
+import { distance, formatDistance } from './geo.js';
 import { timeLeftLabel } from './ui.js';
 
 /** How far you must twist before rotation engages, so pinching stays pinching. */
@@ -116,6 +116,7 @@ export const GameMap = {
 
     this._patchPointerMaths();
     this._initRotation();
+    this._wireEssenceArrow();
 
     return this;
   },
@@ -423,6 +424,10 @@ export const GameMap = {
       marker.getElement?.()?.querySelector('.breed-flag')?.classList.toggle('in-range', inReach);
     }
 
+    // The essence arrow rides the same heartbeat: the player walks, the marker
+    // gets collected or expires, and the arrow follows without its own timer.
+    this.syncEssenceArrow(playerPos);
+
     // "There is candy waiting" on the breeding pin. Updated here rather than in
     // syncBreeding because a slot fills on a timer, with nothing touching the
     // save at that moment to trigger a re-sync.
@@ -496,6 +501,104 @@ export const GameMap = {
       zIndexOffset: 400
     }).addTo(this.breedingLayer);
     this.labMarker.on('click', () => this.onResearchLabClick?.(lab));
+  },
+
+  /* ===============================================================
+     Essence Harvesting arrow
+
+     An essence lasts 30 minutes and is worth walking to, so it gets a pointer
+     that does not depend on the marker being visible: zoom right in, or pan
+     away, and the arrow pins itself to the edge of the view still aimed at the
+     creature. It only ever tracks an uncollected essence, so it disappears the
+     moment the harvest is played — and, because it is driven from the markers
+     the map has been told about, it also goes when the point expires.
+     =============================================================== */
+
+  /** Fires when the arrow itself is tapped, with the essence point. */
+  onEssenceArrowClick: null,
+  _essenceTarget: null,
+
+  /** How close to the edge of the view the arrow may sit, in px. */
+  _essenceArrowMargin: 38,
+
+  _wireEssenceArrow() {
+    const host = document.getElementById('essence-arrow');
+    if (!host) return;
+    host.addEventListener('click', e => {
+      e.stopPropagation();
+      if (this._essenceTarget) this.onEssenceArrowClick?.(this._essenceTarget);
+    });
+    // Pan and zoom move the target on screen without any game state changing,
+    // so the once-a-second tick is not enough on its own.
+    this.map?.on('move zoom zoomend', () => this.syncEssenceArrow(this._lastPos));
+  },
+
+  /**
+   * Positions and aims the arrow. Safe to call every frame or every second, and
+   * safe to call when there is no essence, no arrow element or no map.
+   */
+  syncEssenceArrow(playerPos = this._lastPos) {
+    const host = document.getElementById('essence-arrow');
+    if (!host || !this.map) return;
+
+    let target = null;
+    for (const rec of this.markers.values()) {
+      if (rec.point.kind === 'essence' && !rec.point.collected) { target = rec.point; break; }
+    }
+    this._essenceTarget = target;
+    if (!target) { host.classList.add('hidden'); return; }
+
+    // Vector from the centre of the view to the essence, in *container*
+    // coordinates. The rotated container is still centred on the viewport, so
+    // its own centre is the right origin either way.
+    const mid = this.map.getSize().divideBy(2);
+    const at = this.map.latLngToContainerPoint([target.lat, target.lng]);
+    let dx = at.x - mid.x;
+    let dy = at.y - mid.y;
+
+    // Leaflet works in unrotated coordinates, so put the vector back through
+    // the container's own rotation to get where it really is on screen.
+    if (this.bearing) {
+      const a = this.bearing * Math.PI / 180;
+      const rx = dx * Math.cos(a) - dy * Math.sin(a);
+      const ry = dx * Math.sin(a) + dy * Math.cos(a);
+      dx = rx; dy = ry;
+    }
+
+    const view = this.el?.parentElement || this.el;
+    const vw = view?.clientWidth || 0;
+    const vh = view?.clientHeight || 0;
+    if (!vw || !vh) { host.classList.add('hidden'); return; }
+    const cx = vw / 2, cy = vh / 2;
+    const margin = this._essenceArrowMargin;
+    const halfW = Math.max(12, cx - margin);
+    const halfH = Math.max(12, cy - margin);
+
+    // How far along the ray the arrow can travel before leaving the inset box,
+    // capped at 1 so it never overshoots the creature when that is on screen.
+    const ax = Math.abs(dx), ay = Math.abs(dy);
+    let t = Math.min(
+      ax > 0.01 ? halfW / ax : Infinity,
+      ay > 0.01 ? halfH / ay : Infinity
+    );
+    if (!isFinite(t)) t = 0;          // essence is dead centre
+    const onTarget = t >= 1;
+    if (onTarget) t = 1;
+
+    host.style.left = `${cx + dx * t}px`;
+    host.style.top = `${cy + dy * t}px`;
+    // 0deg is a glyph pointing right, which is how ➤ is drawn.
+    host.style.setProperty('--essence-angle', `${Math.atan2(dy, dx) * 180 / Math.PI}deg`);
+    host.classList.toggle('on-target', onTarget);
+    host.classList.remove('hidden');
+
+    // The label is the real walking distance from the player, which is what
+    // decides whether the trip is worth it — not the on-screen gap.
+    const label = document.getElementById('essence-arrow-dist');
+    if (label) {
+      const away = playerPos ? distance(playerPos, target) : null;
+      label.textContent = away == null ? '' : formatDistance(away);
+    }
   },
 
   /* ---------------- debug POI overlay ---------------- */

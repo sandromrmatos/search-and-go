@@ -91,7 +91,9 @@ function makeItemPoint(poi, now) {
 }
 
 function makeRaidPoint(poi, now, exclusive = false) {
-  const raid = exclusive ? rollExclusiveRaid() : rollRaid();
+  // The date matters: during Galactic Adventures Take Over a normal raid boss
+  // is drawn from the Galactic pool instead of the ordinary one.
+  const raid = exclusive ? rollExclusiveRaid() : rollRaid(new Date(now));
   return {
     ...basePoint('raid', poi, now),
     speciesId: raid.speciesId,
@@ -351,7 +353,13 @@ export function tickIncense(pos, now = Date.now()) {
   // which happens at capture time.
   // An incense is a spawn like any other, so the spotlight substitution applies
   // to it too — against the Rare weights when a Rare Incense is burning.
-  const sp = rollWildSpecies(fx.rare ? RARE_INCENSE_WEIGHTS : RARITY_WEIGHTS, new Date(now));
+  //
+  // A Mysterious Incense skips the roll entirely: the player already chose. If
+  // the pinned creature has somehow gone from the data, it falls back to a
+  // normal roll rather than spawning nothing for the rest of the burn.
+  const pinned = fx.speciesId ? species(fx.speciesId) : null;
+  const sp = pinned
+    || rollWildSpecies(fx.rare ? RARE_INCENSE_WEIGHTS : RARITY_WEIGHTS, new Date(now));
   const itemId = fx.itemId || 'incense';
   const point = {
     id: newId('incense'),

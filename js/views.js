@@ -4,6 +4,8 @@
 
 import {
   DB, SETS, speciesForSet, RARITY_NAMES, MAX_CREATURE_LEVEL, MAX_PLAYER_LEVEL, STAT_KEYS, STAT_LABELS,
+  mysteriousIncenseDurationMs, mysteriousIncenseSpawns,
+  isSweetToothsday, SWEET_TOOTHSDAY_LABEL, SWEET_TOOTHSDAY_MULTIPLIER,
   STAT_GROWTH_PER_LEVEL,
   species, familyRoot, familyName, familyRarity, levelUpCost, moveLevelFor, statsFor,
   familyRootsMatching,
@@ -23,7 +25,10 @@ import { store, creatureStats, maxHpOf, hpOf, isFainted, isHurt } from './state.
 import { Persist } from './persist.js';
 import { cloudStatus } from './cloud.js';
 import { playEvolution } from './anim.js';
-import { ITEMS, itemImage, itemName, itemsInOrder, INCENSE_ITEMS, effectSlotForItem } from './items.js';
+import {
+  ITEMS, itemImage, itemName, itemsInOrder, INCENSE_ITEMS, effectSlotForItem,
+  needsSpeciesChoice
+} from './items.js';
 import { Weather, temperatureLabel, weatherRows, conditionOf } from './weather.js';
 import {
   $, $$, el, appendAll, toast, openSheet, closeSheet, num, timeLeftLabel,
@@ -187,16 +192,21 @@ const rar = c => sp(c)?.rarity ?? familyRarity(c.speciesId) ?? 0;
  *
  * Memoised because a sort calls its comparator O(n log n) times and each call
  * would otherwise recompute stats for two creatures. Keyed on level and species
- * so levelling up and evolving both invalidate it; the stat modifier is rolled
- * once at capture and never changes.
+ * so levelling up and evolving both invalidate it. The stat modifier is part of
+ * the key too: a Strength Re-roll Stone changes it without touching the level or
+ * the species, and a cache that ignored it would keep serving the old total to
+ * the storage sort and the "Total stats" figure.
  */
 const statTotalCache = new Map();
 export function statTotal(c) {
+  const mod = `${c.statMod?.up}/${c.statMod?.down}`;
   const hit = statTotalCache.get(c.uid);
-  if (hit && hit.level === c.level && hit.speciesId === c.speciesId) return hit.total;
+  if (hit && hit.level === c.level && hit.speciesId === c.speciesId && hit.mod === mod) {
+    return hit.total;
+  }
   const stats = creatureStats(c);
   const total = STAT_KEYS.reduce((sum, k) => sum + stats[k], 0);
-  statTotalCache.set(c.uid, { level: c.level, speciesId: c.speciesId, total });
+  statTotalCache.set(c.uid, { level: c.level, speciesId: c.speciesId, mod, total });
   return total;
 }
 
@@ -923,7 +933,8 @@ export function openItemSheet(itemId) {
       potion: 'Use on a creature',
       full_heal: 'Fully heal a creature',
       revive: 'Revive a creature',
-      stat_booster: 'Boost a creature'
+      stat_booster: 'Boost a creature',
+      strength_reroll: 'Re-roll a creature'
     }[itemId] || 'Use on a creature';
     actions.push(el('button', {
       class: 'btn primary',
@@ -936,13 +947,21 @@ export function openItemSheet(itemId) {
     // Molten Seeker each have their own, so they can all burn together.
     const kind = effectSlotForItem(itemId);
     const active = store.effect(kind);
+    // A Mysterious Incense needs a creature chosen before it can be lit, and
+    // there is nothing to choose from until something is registered.
+    const picks = needsSpeciesChoice(itemId);
+    const candidates = picks ? store.mysteriousIncenseCandidates().length : 0;
     actions.push(el('button', {
       class: 'btn primary',
-      disabled: qty < 1 || !!active,
-      onclick: () => useTimedItem(kind, def)
+      disabled: qty < 1 || !!active || (picks && candidates < 1),
+      onclick: () => (picks
+        ? (closeSheet('sheet'), openIncenseSpeciesPicker(itemId))
+        : useTimedItem(kind, def))
     }, active
       ? `Already running · ${timeLeftLabel(active.endsAt - Date.now())}`
-      : `Use one now`));
+      : picks
+        ? (candidates < 1 ? 'Nothing registered yet' : 'Choose a creature')
+        : `Use one now`));
   }
   if (INCUBATOR_ITEMS.includes(itemId)) {
     const free = store.freeIncubators()[itemId] || 0;
@@ -982,6 +1001,62 @@ export function openItemSheet(itemId) {
     actions.length ? el('div', { class: 'btn-row' }, ...actions) : null
   );
   openSheet('sheet');
+}
+
+/**
+ * Step one of a Mysterious Incense: which creature every spawn will be.
+ *
+ * Reuses the shared #picker sheet, but over *species* rather than the creatures
+ * in storage — you are choosing what to summon, not what to spend it on. Each
+ * tile states the run it buys, because that is the whole trade: a Common is half
+ * an hour, a Legendary is four minutes.
+ */
+export function openIncenseSpeciesPicker(itemId) {
+  const def = ITEMS[itemId];
+  const list = store.mysteriousIncenseCandidates();
+
+  $('#picker-title').textContent = 'Which creature should it summon?';
+  $('#picker-hint').textContent = 'Every spawn will be this creature, one every 2 minutes. '
+    + 'The rarer it is, the shorter the incense burns.';
+  $('#picker-empty').textContent = 'Register a creature first — you can only summon one you have already met.';
+  $('#picker-empty').classList.toggle('hidden', list.length > 0);
+  renderPickerBulkBar(itemId, 0, () => {});
+
+  const grid = $('#picker-grid');
+  grid.innerHTML = '';
+  for (const s of list) {
+    const rarity = s.rarity || familyRarity(s.id) || 1;
+    const mins = Math.round(mysteriousIncenseDurationMs(rarity) / 60_000);
+    grid.append(el('button', {
+      class: 'cell',
+      onclick: () => lightMysteriousIncense(def, s, rarity)
+    },
+      el('img', { src: s.imagePath, alt: s.name, loading: 'lazy' }),
+      el('span', { class: 'nm', text: s.name }),
+      el('span', { class: 'sub', text: `${RARITY_NAMES[rarity]} · ${mins} min` }),
+      el('span', { class: 'sub', text: `${mysteriousIncenseSpawns(rarity)} spawns` })
+    ));
+  }
+  openSheet('picker');
+}
+
+function lightMysteriousIncense(def, s, rarity) {
+  const mins = Math.round(mysteriousIncenseDurationMs(rarity) / 60_000);
+  const spawns = mysteriousIncenseSpawns(rarity);
+  if (!confirm(`Summon ${s.name} for ${mins} minutes? That is about ${spawns} spawns, `
+    + 'and it cannot be stopped early or changed once lit.')) return;
+
+  const r = store.startEffect('incense', Date.now(), def.id, { speciesId: s.id });
+  if (!r.ok) {
+    toast(r.reason === 'active' ? 'An incense is already running'
+      : r.reason === 'noItem' ? `No ${def.name} left`
+      : `${s.name} cannot be summoned`, 'bad');
+    return;
+  }
+  closeSheet('picker');
+  toast(`${s.name} will appear every 2 minutes for ${mins} minutes`, 'good', 3600);
+  refreshAll();
+  onEffectsChanged?.();
 }
 
 function useTimedItem(kind, def) {
@@ -1043,6 +1118,13 @@ const CREATURE_ITEM_PICKERS = {
     empty: 'Every creature you own is already fully boosted.',
     // Fainted creatures are fine to boost; only the cap and breeding block it.
     eligible: c => store.boostsLeftOn(c) > 0
+  },
+  strength_reroll: {
+    title: 'Re-roll which creature?',
+    hint: 'Draws the stat modifier again. The stat going up and the stat going down are both guaranteed to change — but you do not get to choose what they become.',
+    empty: 'You have no creatures to re-roll.',
+    // Any creature qualifies: every one of them has a modifier to re-roll.
+    eligible: () => true
   }
 };
 
@@ -1078,11 +1160,14 @@ export function openCreaturePicker(itemId) {
       c.favourite ? el('span', { class: 'fav-star', text: '♥' }) : null,
       el('img', { src: s.spritePath(c.shiny), alt: s.name, loading: 'lazy' }),
       el('span', { class: 'nm', text: s.name }),
-      // Boosting cares about how many boosts are spent, not about HP.
+      // Boosting cares about how many boosts are spent, and a re-roll about the
+      // modifier it is replacing. Neither has anything to do with HP.
       itemId === 'stat_booster'
         ? el('span', { class: 'sub', text: `${used} / ${MAX_STAT_BOOSTS} boosted` })
-        : el('span', { class: 'sub', text: `${hp} / ${max} HP` }),
-      itemId === 'stat_booster'
+        : itemId === 'strength_reroll'
+          ? el('span', { class: 'sub', text: `▲ ${STAT_LABELS[c.statMod.up]} · ▼ ${STAT_LABELS[c.statMod.down]}` })
+          : el('span', { class: 'sub', text: `${hp} / ${max} HP` }),
+      (itemId === 'stat_booster' || itemId === 'strength_reroll')
         ? null
         : el('span', { class: 'hp-wrap' },
           el('span', { class: `hp-bar${pct <= 25 ? ' critical' : pct <= 60 ? ' low' : ''}` },
@@ -1099,6 +1184,10 @@ function useItemOnCreature(itemId, c, s) {
     openStatBoostPicker(c.uid);
     return;
   }
+  if (itemId === 'strength_reroll') {
+    rerollStrengthOn(c, s);
+    return;
+  }
 
   const r = itemId === 'full_heal' ? store.useFullHeal(c.uid)
     : itemId === 'revive' ? store.useRevive(c.uid)
@@ -1110,6 +1199,68 @@ function useItemOnCreature(itemId, c, s) {
     : `${s.name} healed ${r.gained} HP (${r.after}/${r.max})`, 'good');
   closeSheet('picker');
   refreshAll();
+}
+
+/**
+ * Spends a Strength Re-roll Stone on one creature and shows what changed.
+ *
+ * Confirmed first, and deliberately blunt about it: the new pair is guaranteed
+ * to be different, which also means a creature with a modifier you were happy
+ * with will not have it any more.
+ */
+function rerollStrengthOn(c, s) {
+  const name = c.nickname || s.name;
+  if (!confirm(`Re-roll ${name}'s stat modifier?\n\n`
+    + `Now: ${STAT_LABELS[c.statMod.up]} up 10%, ${STAT_LABELS[c.statMod.down]} down 10%.\n\n`
+    + 'Both are guaranteed to change, but you cannot choose what to. This cannot be undone.')) return;
+
+  const r = store.useStrengthReroll(c.uid);
+  if (!r.ok) {
+    toast(r.reason === 'noItem' ? 'No Strength Re-roll Stones left'
+      : r.reason === 'breeding' ? 'That creature is in the breeding centre'
+      : 'Could not re-roll that creature', 'bad');
+    return;
+  }
+
+  toast(`${name}: ▲ ${STAT_LABELS[r.after.up]} · ▼ ${STAT_LABELS[r.after.down]}`, 'good', 3600);
+  refreshAll();
+
+  const body = $('#sheet-body');
+  body.innerHTML = '';
+  appendAll(body,
+    el('div', { class: 'det-head' },
+      el('img', { src: s.spritePath(c.shiny), alt: s.name }),
+      el('div', { class: 'det-title' },
+        el('h3', { text: name }),
+        el('div', { class: 'det-tags' },
+          el('span', { class: 'tag', text: `Lv ${c.level}` }),
+          el('span', { class: 'tag', text: `${r.left} stone${r.left === 1 ? '' : 's'} left` })
+        )
+      )
+    ),
+    el('p', { class: 'hint', text: `Was ${STAT_LABELS[r.before.up]} up, ${STAT_LABELS[r.before.down]} down. `
+      + `Now ${STAT_LABELS[r.after.up]} up, ${STAT_LABELS[r.after.down]} down.` }),
+    el('div', { class: 'det-rows' }, ...STAT_KEYS.map(k => {
+      const from = r.beforeStats[k], to = r.afterStats[k];
+      const arrow = r.after.up === k ? '▲' : r.after.down === k ? '▼' : '';
+      return el('div', { class: 'det-row' },
+        el('span', { text: arrow || '·' }),
+        el('span', { text: STAT_LABELS[k] }),
+        el('b', { text: from === to ? String(to) : `${from} → ${to}` })
+      );
+    })),
+    el('div', { class: 'btn-row' },
+      store.hasItem('strength_reroll')
+        ? el('button', {
+            class: 'btn ghost',
+            onclick: () => rerollStrengthOn(store.creature(c.uid) || c, s)
+          }, 'Re-roll again')
+        : null,
+      el('button', { class: 'btn primary', onclick: () => closeSheet('sheet') }, 'Done')
+    )
+  );
+  closeSheet('picker');
+  openSheet('sheet');
 }
 
 /**
@@ -2227,9 +2378,14 @@ export function renderEffectChips(now = Date.now()) {
   for (const b of bits) {
     const fx = store.effect(b.kind, now);
     if (!fx) continue;
-    // The incense chip reflects whichever incense is burning.
+    // The incense chip reflects whichever incense is burning. A Mysterious one
+    // names the creature instead of the item — which creature is coming is the
+    // only thing worth the space.
     const id = b.kind === 'incense' ? (fx.itemId || b.id) : b.id;
-    const label = b.kind === 'incense' ? (itemName(id) || b.label) : b.label;
+    const pinned = b.kind === 'incense' ? store.incenseSpecies(now) : null;
+    const label = b.kind === 'incense'
+      ? (pinned ? pinned.name : (itemName(id) || b.label))
+      : b.label;
     host.append(el('div', { class: `fx-chip ${b.kind}` },
       el('img', { src: itemImage(id), alt: '' }),
       el('span', { text: label }),
@@ -2255,6 +2411,14 @@ export function renderEffectChips(now = Date.now()) {
     ));
   }
 
+  // Tuesdays double the candy from catching, raid catches and hatching
+  if (isSweetToothsday(nowDate)) {
+    host.append(el('div', { class: 'fx-chip sweet' },
+      el('span', { text: CANDY_ICON }),
+      el('span', { text: `${SWEET_TOOTHSDAY_LABEL} · ×${SWEET_TOOTHSDAY_MULTIPLIER} candy` })
+    ));
+  }
+
   // 23:30–23:45 — the interaction radius widens to RULES.RELAX_RANGE_M
   if (isRelaxHour(nowDate)) {
     host.append(el('div', { class: 'fx-chip relax' },
@@ -2273,9 +2437,12 @@ export function renderEffectChips(now = Date.now()) {
       : event.id === 'creatureSpotlight'
         // Names the creature: that is the whole point of the event.
         ? `${event.species?.name || 'a creature'} everywhere · +${SPOTLIGHT_BONUS_CANDY} candy`
-        : 'grunts everywhere · no limit';
+        : event.id === 'galacticTakeover'
+          ? 'spawns, raids and eggs are all Galactic'
+          : 'grunts everywhere · no limit';
     const icon = event.id === 'raidInvasion' ? '🔥'
       : event.id === 'creatureSpotlight' ? '🌟'
+      : event.id === 'galacticTakeover' ? '🛸'
       : '🥋';
     host.append(el('div', { class: `fx-chip event-${event.id}` },
       el('span', { text: icon }),

@@ -221,6 +221,8 @@ async function boot() {
     try {
       GameMap.init('map');
       GameMap.onSpawnClick = onPointTap;
+      // Tapping the direction arrow is the same as tapping the essence itself.
+      GameMap.onEssenceArrowClick = onPointTap;
     } catch (mapErr) {
       // Storage and Collection still work without a map, so don't kill the app.
       console.error(mapErr);
@@ -676,7 +678,7 @@ async function doCapture(live) {
          `+${res.candy} candy, +${res.dust} dust, +${res.xp} XP${res.isNew ? ' · NEW' : ''}`);
 
     const rewards = [
-      { icon: CANDY_ICON, label: `+${res.candy} ${familyName(res.sp.id)} candy` },
+      { icon: CANDY_ICON, label: `+${res.candy} ${familyName(res.sp.id)} candy${res.sweet ? ' (Tuesday ×2)' : ''}` },
       { icon: DUST_ICON, label: `+${num(res.dust)} stardust${res.magnet ? ' (magnet)' : ''}` },
       { icon: '⭐', label: `+${res.xp} XP` }
     ];
@@ -747,6 +749,9 @@ function syncMap() {
   GameMap.syncPoints(shown);
   GameMap.syncBreeding(store.s.breeding);
   GameMap.syncResearchLab(store.s.researchLab);
+  // Straight away rather than on the next tick, so playing a harvest clears the
+  // arrow the moment the sheet closes.
+  GameMap.syncEssenceArrow();
   const open = active.filter(p => !p.collected).length;
   $('#spawn-count').textContent = open === 1 ? '1 point active' : `${open} points active`;
 }

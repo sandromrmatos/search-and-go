@@ -275,7 +275,7 @@ async function hatchNow(eggId) {
 
     offered.delete(eggId);
     const rewards = [
-      { icon: CANDY_ICON, label: `+${res.candy} ${res.sp.name} candy` },
+      { icon: CANDY_ICON, label: `+${res.candy} ${res.sp.name} candy${res.sweet ? ' (Tuesday ×2)' : ''}` },
       { icon: DUST_ICON, label: `+${num(res.dust)} stardust` },
       { icon: '⭐', label: `+${res.xp} XP` }
     ];

@@ -59,6 +59,16 @@
     <!-- MAP VIEW -->
     <section class="view view-map active" id="view-map">
       <div id="map"></div>
+
+      <!-- Points at the Essence Harvesting creature wherever it is, even when it
+           is off screen or the map is zoomed right in. js/map.js positions and
+           rotates it; tapping it opens the harvest. -->
+      <button id="essence-arrow" class="essence-arrow hidden" type="button"
+              aria-label="Show the essence harvest">
+        <span class="essence-arrow-glyph">➤</span>
+        <span id="essence-arrow-dist" class="essence-arrow-dist"></span>
+      </button>
+
       <div class="map-overlay-top">
         <div id="reset-chip-wrap" class="reset-chip-wrap">
           <div id="reset-chip" class="reset-chip">
