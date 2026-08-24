@@ -36,7 +36,8 @@ import {
   BUDDY_KM_PER_CANDY, STARDUST_SUNDAY_LABEL, STARDUST_SUNDAY_MULTIPLIER,
   RAID_REWARD, RARE_INCENSE_WEIGHTS, RARITY_WEIGHTS, GRUNT_ITEM_DROPS,
   RAID_BOSS_MODIFIERS, EGG_TYPES, EGG_DROP_CHANCE, MAX_EGGS, EGG_HATCH_LEVEL, eggLabel,
-  STAT_GROWTH_PER_LEVEL, RAID_TIERS, GRUNT_REWARD, RAID_CAPTURE_LEVEL,
+  STAT_GROWTH_PER_LEVEL, HIGH_GROWTH_FROM_LEVEL, HIGH_STAT_GROWTH_PER_LEVEL, statGrowthFor,
+  RAID_TIERS, GRUNT_REWARD, RAID_CAPTURE_LEVEL,
   RAID_BONUS_RARITIES, raidRareIncenseChance, LEVEL_UP_REWARDS,
   levelUpRewardFromLevel, DUST_BONUS_PER_PLAYER_LEVEL, MAX_PLAYER_LEVEL,
   SUPER_EFFECTIVE_MULTIPLIER, NOT_VERY_EFFECTIVE_MULTIPLIER, TYPE_RESISTANCE
@@ -1391,7 +1392,8 @@ function renderInfo(tab = 'basics') {
   if (tab === 'growing') {
     out.push(
       el('h4', { text: 'Stats' }),
-      el('p', { html: `Every creature has HP, Attack, Defence and Speed. Each level adds <b>${Math.round(STAT_GROWTH_PER_LEVEL * 100)}% of the base stat</b>, counted from the base rather than compounding, so a level 10 creature is nearly twice as strong as a level 1. Every creature you catch also gets a <b>stat modifier</b>: one stat is 10% higher (▲) and another 10% lower (▼).` }),
+      el('p', { html: `Every creature has HP, Attack, Defence and Speed. Each level adds <b>${Math.round(STAT_GROWTH_PER_LEVEL * 100)}% of the base stat</b>, counted from the base rather than compounding. Every creature you catch also gets a <b>stat modifier</b>: one stat is 10% higher (▲) and another 10% lower (▼).` }),
+      el('p', { html: `The <b>last two levels are worth more</b>. At levels <b>${HIGH_GROWTH_FROM_LEVEL}</b> and <b>${MAX_CREATURE_LEVEL}</b> each level adds <b>${Math.round(HIGH_STAT_GROWTH_PER_LEVEL * 100)}%</b> of the base stat instead of ${Math.round(STAT_GROWTH_PER_LEVEL * 100)}%, across <b>all four stats</b>. It is still measured against the <b>base</b> stat, so a level ${MAX_CREATURE_LEVEL} creature sits at <b>×${statGrowthFor(MAX_CREATURE_LEVEL).toFixed(1)}</b> its base figures rather than ×${(1 + STAT_GROWTH_PER_LEVEL * (MAX_CREATURE_LEVEL - 1)).toFixed(1)} — the extra is not compounded on top of level ${HIGH_GROWTH_FROM_LEVEL}.` }),
       el('h4', { text: 'The Research Lab and Stat Boosters' }),
       el('p', { html: `Spare candy from creatures you will never level up has somewhere to go. The <b>Research Lab</b> — earned from the lifetime mission <b>Reach level 7 and register 70 creatures</b> — is pinned to the map, like a Breeding Centre, and turns candy into <b>Stat Boosters</b>.` }),
       el('ul', {},
@@ -1458,12 +1460,16 @@ function renderInfo(tab = 'basics') {
       el('p', { html: 'A lot of exciting new features are coming soon to the game!' }),
       el('h4', { text: 'More mythicals' }),
       el('p', { html: `<b>Astralyon</b> is the first <b>Mythical</b>, rarity ${MYTHICAL_RARITY}, and more will follow. Each will have its own way of being found, and like Astralyon their buff moves raise several stats at once.` }),
-      el('h4', { text: 'More candy' }),
-      el('p', { html: 'Struggling to find enough candy to level up your strongest Epic and Legendary creatures? <b>New ways to obtain candy are on the way!</b> Hope you’ve got good precision…' }),
-      el('h4', { text: 'Held items' }),
-      el('p', { html: 'Soon, some rare items will be added to the game. You can give them to a creature so they can hold them. These can have effects in battle or on the field.' }),
+      el('h4', { text: 'More exclusive creatures' }),
+      el('p', { html: `The <b>${EXCLUSIVE_SET_NAME}</b> roster is growing. New creatures are on the way that can only be met through <b>Exclusive Raids</b> and the <b>15 km eggs</b> they drop, so the blue flame stays worth chasing.` }),
+      el('h4', { text: 'Battle Frontier' }),
+      el('p', { html: 'A new building called the <b>Battle Frontier</b> will open up new ways to battle, beyond the raids and grunts you meet on the map. More on how it works closer to the time.' }),
+      el('h4', { text: 'More abilities' }),
+      el('p', { html: 'Abilities are only getting started. More are coming to <b>creatures that do not have one yet</b>, and to <b>creatures that already do</b> — so it is worth checking the Ability filter in your Collection after an update.' }),
       el('h4', { text: 'The next set' }),
-      el('p', { html: `With <b>${SET_NAME}</b> and <b>${GALACTIC_SET_NAME}</b> both in play, work has started on what comes after. Filling in a set is what opens the next one, so a full Collection is never wasted effort.` })
+      el('p', { html: `With <b>${SET_NAME}</b> and <b>${GALACTIC_SET_NAME}</b> both in play, work has started on what comes after. Filling in a set is what opens the next one, so a full Collection is never wasted effort.` }),
+      el('p', { html: 'Their <b>moves will do more than raw damage or a buff to their own stats</b>. Expect moves that <b>heal the creature using them</b>, and moves that <b>weaken the opponent</b> rather than strengthening yourself.' }),
+      el('p', { html: 'Some of them will not simply turn up on the map either: a few will only be found under <b>specific conditions</b> — on <b>certain days of the week</b>, or in <b>certain weather</b>. The 🌡 chip in the top bar is going to start earning its keep.' })
     );
   }
 

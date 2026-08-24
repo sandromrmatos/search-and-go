@@ -150,5 +150,13 @@
       "**New item: Strength Re-roll Stone.** Draws one creature's **stat modifier** again — the stat that is 10% up and the stat that is 10% down. The new pair is **guaranteed to be different** on both counts: whatever was going up will not be going up, and whatever was going down will not be going down. You cannot choose what it becomes, so it is a way out of a bad roll rather than a route to a perfect creature. A creature on full HP stays on full even if its maximum moves.",
       "**The level cap is now 20.** Levels 16 to 20 each pay everything level 15 did **plus a Molten Seeker, a Shiny Incense, a Mysterious Incense and a Strength Re-roll Stone** — every level, not just once. The XP steps grow by about 20% each time: **24,000** more for level 16, then 29,000, 35,000, 42,000 and **50,000**. Level 20 sits at **260,000 XP** in total."
     ]
+  },
+  {
+    "at": "2026-08-23 20:15",
+    "title": "The last two creature levels hit harder, and a tidier Held items tab",
+    "body": [
+      "**Levels 9 and 10 are worth more now.** Each of those two levels adds **20%** of the base stat instead of 10%, across **all four stats** — HP, Attack, Defence and Speed. It is still measured against the base stat, so a level 10 creature sits at **×2.1** its base figures rather than ×1.9, and the extra is not compounded on top of level 9. Levels 1 to 8 are completely unchanged, and every creature you already own picked this up the moment it loaded — including a little more maximum HP.",
+      "**The Held items tab shows one grid at a time.** Free items and the ones already out on creatures used to be stacked on the same page, which on a phone left a second grid buried under the first. There is now a single toggle at the top: it opens on **Free**, tap it for **Being held**, tap again to go back. Each view reads like the Items grid next door, and the tab remembers which one you were last looking at."
+    ]
   }
 ]

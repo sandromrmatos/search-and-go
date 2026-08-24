@@ -6,7 +6,7 @@ import {
   DB, SETS, speciesForSet, RARITY_NAMES, MAX_CREATURE_LEVEL, MAX_PLAYER_LEVEL, STAT_KEYS, STAT_LABELS,
   mysteriousIncenseDurationMs, mysteriousIncenseSpawns,
   isSweetToothsday, SWEET_TOOTHSDAY_LABEL, SWEET_TOOTHSDAY_MULTIPLIER,
-  STAT_GROWTH_PER_LEVEL,
+  STAT_GROWTH_PER_LEVEL, HIGH_GROWTH_FROM_LEVEL, HIGH_STAT_GROWTH_PER_LEVEL,
   species, familyRoot, familyName, familyRarity, levelUpCost, moveLevelFor, statsFor,
   familyRootsMatching,
   heldItem, heldItemImage, heldItemRequirement, heldStatBonus,
@@ -662,54 +662,76 @@ export function renderItems() {
    can carry it, and from a creature, to find something for it to carry.
    =============================================================== */
 
+/**
+ * The Held items tab, showing one grid at a time.
+ *
+ * Free items and the ones already out on creatures used to be stacked on the
+ * same page, which on a phone meant a second grid buried under the first with a
+ * heading nobody scrolled to. They are now two views of the same tab, swapped by
+ * a single toggle, so either one reads like the Items grid next door.
+ */
 export function renderHeldItems() {
   const grid = $('#held-grid');
   const owned = store.ownedHeldItems();
-  const worn = store.s.storage.filter(c => c.held);
+  const worn = store.s.storage.filter(c => c.held && heldItem(c.held) && sp(c));
+  const showWorn = store.s.ui.heldView === 'worn';
+  const spare = owned.reduce((a, x) => a + x.qty, 0);
 
-  $('#held-empty').classList.toggle('hidden', owned.length > 0 || worn.length > 0);
+  const toggle = $('#held-view-toggle');
+  if (toggle) {
+    toggle.textContent = showWorn ? `◈ Being held · ${worn.length}` : `Free · ${spare}`;
+    toggle.setAttribute('aria-pressed', String(showWorn));
+    toggle.classList.toggle('active', showWorn);
+    toggle.title = showWorn
+      ? 'Showing what your creatures are carrying. Tap to see the free ones.'
+      : 'Showing what is spare in your bag. Tap to see the ones being held.';
+    // Assigned rather than added, so repainting cannot stack listeners up.
+    toggle.onclick = () => {
+      store.setUI({ heldView: showWorn ? 'free' : 'worn' });
+      renderHeldItems();
+      renderStorageTabs();
+    };
+  }
+
+  // Three different kinds of empty: nothing at all, nothing spare, or nothing
+  // being held. Only the first is really empty; the other two point at the toggle.
+  const empty = $('#held-empty');
+  const nothingAtAll = !spare && !worn.length;
+  const emptyView = showWorn ? !worn.length : !spare;
+  if (empty) {
+    if (nothingAtAll) {
+      empty.innerHTML = 'No held items yet. They drop from <b>raids</b> and one arrives every week '
+        + 'for logging in.';
+    } else if (showWorn) {
+      empty.innerHTML = 'None of your creatures are carrying anything yet. '
+        + 'Switch to <b>Free</b> and tap an item to hand one out.';
+    } else {
+      empty.innerHTML = 'Nothing spare — every held item you own is out on a creature. '
+        + 'Switch to <b>Being held</b> to see who has what.';
+    }
+    empty.classList.toggle('hidden', !emptyView);
+  }
+
   const hint = $('#held-hint');
   if (hint) {
-    hint.innerHTML = owned.length || worn.length
-      ? 'A creature carries one held item at a time. Tap an item to give it to a creature, '
-        + 'or open a creature and use its held item slot. '
-        + '<b>Consumables</b> are spent by the thing they help with and cannot be taken back off.'
-      : '';
+    hint.innerHTML = nothingAtAll ? ''
+      : showWorn
+        ? 'Tap a creature to open it and take its item back. <b>Consumables</b> are spent by the '
+          + 'thing they help with and cannot be removed.'
+        : 'A creature carries one held item at a time. Tap an item to give it to a creature, '
+          + 'or open a creature and use its held item slot.';
     hint.classList.toggle('hidden', !hint.innerHTML);
   }
 
   grid.innerHTML = '';
   const frag = document.createDocumentFragment();
 
-  for (const { def, qty } of owned) {
-    const eligible = store.creaturesEligibleFor(def.id).length;
-    frag.append(el('button', {
-      class: 'cell item-cell tappable' + (def.consumable ? ' held-consumable' : ''),
-      onclick: () => openHeldItemSheet(def.id)
-    },
-      el('span', { class: 'qty', text: String(qty) }),
-      el('img', { src: heldItemImage(def.id), alt: def.name, loading: 'lazy' }),
-      el('span', { class: 'nm', text: def.name }),
-      el('span', {
-        class: 'use-hint',
-        text: eligible
-          ? `${eligible} can hold it`
-          : (heldItemRequirement(def.id) || 'None eligible')
-      })
-    ));
-  }
-
-  // The ones already out on creatures, so the tab accounts for everything you
-  // own rather than only what is spare.
-  if (worn.length) {
-    frag.append(el('p', { class: 'sheet-h4', text: `Being held (${worn.length})` }));
-    const wornGrid = el('div', { class: 'grid items-grid' });
+  if (showWorn) {
     for (const c of worn) {
       const def = heldItem(c.held);
       const s = sp(c);
-      if (!def || !s) continue;
-      wornGrid.append(el('button', {
-        class: 'cell item-cell tappable',
+      frag.append(el('button', {
+        class: 'cell item-cell tappable' + (def.consumable ? ' held-consumable' : ''),
         onclick: () => openCreatureSheet(c.uid)
       },
         el('img', { src: heldItemImage(def.id), alt: def.name, loading: 'lazy' }),
@@ -717,7 +739,24 @@ export function renderHeldItems() {
         el('span', { class: 'use-hint', text: c.nickname || s.name })
       ));
     }
-    frag.append(wornGrid);
+  } else {
+    for (const { def, qty } of owned) {
+      const eligible = store.creaturesEligibleFor(def.id).length;
+      frag.append(el('button', {
+        class: 'cell item-cell tappable' + (def.consumable ? ' held-consumable' : ''),
+        onclick: () => openHeldItemSheet(def.id)
+      },
+        el('span', { class: 'qty', text: String(qty) }),
+        el('img', { src: heldItemImage(def.id), alt: def.name, loading: 'lazy' }),
+        el('span', { class: 'nm', text: def.name }),
+        el('span', {
+          class: 'use-hint',
+          text: eligible
+            ? `${eligible} can hold it`
+            : (heldItemRequirement(def.id) || 'None eligible')
+        })
+      ));
+    }
   }
 
   grid.append(frag);
@@ -1458,7 +1497,7 @@ function renderCreatureSheet() {
 
     el('h4', { class: 'sheet-h4', text: 'Stats' }),
     el('div', { class: 'det-rows' }, ...statRows(c)),
-    el('p', { class: 'hint', text: `Stat modifier: ${STAT_LABELS[c.statMod.up]} up 10%, ${STAT_LABELS[c.statMod.down]} down 10%. Each level adds ${Math.round(STAT_GROWTH_PER_LEVEL * 100)}% of the base stat.` }),
+    el('p', { class: 'hint', text: `Stat modifier: ${STAT_LABELS[c.statMod.up]} up 10%, ${STAT_LABELS[c.statMod.down]} down 10%. Each level adds ${Math.round(STAT_GROWTH_PER_LEVEL * 100)}% of the base stat, rising to ${Math.round(HIGH_STAT_GROWTH_PER_LEVEL * 100)}% at levels ${HIGH_GROWTH_FROM_LEVEL} and ${MAX_CREATURE_LEVEL}.` }),
     store.boostsUsed(c)
       ? el('p', { class: 'hint', text: `Stat Boosters: ${store.boostsUsed(c)} of ${MAX_STAT_BOOSTS} used (${STAT_KEYS.filter(k => store.boostsOf(c)[k]).map(k => `${STAT_LABELS[k]} +${store.boostsOf(c)[k]}`).join(', ')}). ${store.boostsLeftOn(c)} left.` })
       : null,
@@ -2088,7 +2127,7 @@ function renderSpeciesSheet(speciesId) {
         el('span', { class: 'arrow' })
       )
     ),
-    el('p', { class: 'hint', text: `Each level adds ${Math.round(STAT_GROWTH_PER_LEVEL * 100)}% of the base stat. Every creature you catch also gets one stat 10% higher and another 10% lower.` }),
+    el('p', { class: 'hint', text: `Each level adds ${Math.round(STAT_GROWTH_PER_LEVEL * 100)}% of the base stat, rising to ${Math.round(HIGH_STAT_GROWTH_PER_LEVEL * 100)}% at levels ${HIGH_GROWTH_FROM_LEVEL} and ${MAX_CREATURE_LEVEL}. Every creature you catch also gets one stat 10% higher and another 10% lower.` }),
 
     // ---- everything the line can learn, across the whole family ----
     el('h4', { class: 'sheet-h4', text: `Moves (${lineMoves.length})` }),

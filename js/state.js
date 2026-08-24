@@ -176,6 +176,8 @@ function blankState() {
       collectionShiny: false,
       /** Storage is filtered to one family root id, or '' for everything. */
       storageFamily: '',
+      /** Held items tab: 'free' for the spare ones, 'worn' for the ones in use. */
+      heldView: 'free',
       /** The storage search box: a name fragment, or '' for everything. */
       storageQuery: '',
       /** Whether that search widens to the whole evolution line. */

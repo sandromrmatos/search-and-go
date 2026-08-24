@@ -825,6 +825,23 @@ a { color: var(--accent); }
   box-shadow: 0 0 12px #b07cff44;
 }
 
+/* ---- Held items: the free / being held toggle ----
+   One state at a time, so the tab is a single grid like Items next door. */
+.held-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 14px; border-radius: 99px;
+  font-size: 13px; font-weight: 700; font-family: inherit;
+  background: rgba(21, 29, 63, .94); border: 1px solid var(--line); color: var(--muted);
+  cursor: pointer;
+}
+.held-toggle:active { transform: scale(.97); }
+/* "Being held" is the non-default state, so it is the one that lights up. */
+.held-toggle.active {
+  border-color: #ff8ec788; color: #ffd9f0;
+  background: linear-gradient(135deg, rgba(92, 34, 68, .95), rgba(21, 29, 63, .95));
+  box-shadow: 0 0 12px #ff8ec733;
+}
+
 /* ---- full-screen image viewer ---- */
 /* Must clear the sheets (7000) and the battle screen (8200), since it is opened
    from a sheet, but stay under the toasts (9500). */

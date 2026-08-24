@@ -248,6 +248,26 @@ export const MAX_CREATURE_LEVEL = 10;
 /** Every creature level adds 10% of the base stat (linear, not compounding). */
 export const STAT_GROWTH_PER_LEVEL = 0.10;
 
+/**
+ * The last two levels are worth more than the eight before them: from level 9,
+ * each level adds 20% of the base stat instead of 10%, across all four stats.
+ *
+ * Still measured against the *base* stat, like every other level: level 10 is
+ * base × 2.1 (0.10 × 7 for levels 2–8, then 0.20 twice), not the level 9 figure
+ * plus another fifth of itself.
+ */
+export const HIGH_GROWTH_FROM_LEVEL = 9;
+export const HIGH_STAT_GROWTH_PER_LEVEL = 0.20;
+
+/** What every stat is multiplied by at `level`, before boosts and held items. */
+export function statGrowthFor(level) {
+  const lv = Math.max(1, Number(level) || 1);
+  // Steps taken at HIGH_GROWTH_FROM_LEVEL or above pay the higher rate.
+  const highSteps = Math.max(0, lv - (HIGH_GROWTH_FROM_LEVEL - 1));
+  return 1 + STAT_GROWTH_PER_LEVEL * (lv - 1)
+    + (HIGH_STAT_GROWTH_PER_LEVEL - STAT_GROWTH_PER_LEVEL) * highSteps;
+}
+
 /* ---------------------------------------------------------------
    Stat Boosters — a flat, permanent +1 to one stat of one creature.
 
@@ -3315,11 +3335,11 @@ export function playerProgress(xp) {
 
 /**
  * Effective stats for one stored creature.
- * base -> stat modifier (+/-10%) -> linear 5%-per-level growth.
+ * base -> stat modifier (+/-10%) -> linear per-level growth -> flat additions.
  */
 export function statsFor(sp, level = 1, statMod = null, boosts = null, extra = null) {
   const out = {};
-  const growth = 1 + STAT_GROWTH_PER_LEVEL * (Math.max(1, level) - 1);
+  const growth = statGrowthFor(level);
   for (const k of STAT_KEYS) {
     let v = sp.baseStats[k];
     if (statMod) {

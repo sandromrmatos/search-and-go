@@ -155,6 +155,11 @@
         </p>
       </div>
       <div id="tab-held" class="hidden">
+        <!-- One grid at a time: free items or the ones out on creatures. Both at
+             once made for a very tall, awkward page on a phone. -->
+        <div class="toolbar">
+          <button id="held-view-toggle" class="held-toggle" type="button" aria-pressed="false"></button>
+        </div>
         <p id="held-hint" class="hint"></p>
         <div id="held-grid" class="grid items-grid"></div>
         <p id="held-empty" class="empty">
