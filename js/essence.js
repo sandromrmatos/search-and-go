@@ -14,7 +14,7 @@
 import {
   species, familyName, RARITY_NAMES, familyRarity,
   essenceDifficulty, essenceRingHit, essencePinsFor,
-  ESSENCE_RING_CANDY, ESSENCE_MAX_PINS, ESSENCE_SEEKER_CHANCE
+  ESSENCE_RING_CANDY, ESSENCE_MAX_PINS, ESSENCE_SEEKER_CHANCE, ESSENCE_PIN_BANDS
 } from './data.js';
 import { store } from './state.js';
 import { itemImage, itemName } from './items.js';
@@ -313,8 +313,15 @@ export function abandonEssence() {
   refresh?.();
 }
 
-/** Exposed for the info menu so the pin bands never have to be retyped. */
+/**
+ * Exposed for the info menu so the pin bands never have to be retyped. Sample
+ * distances are derived from the bands themselves — they used to be a hardcoded
+ * list, which silently stopped lining up the moment the bands were retuned.
+ */
 export const essencePinsPreview = () =>
-  [220, 180, 130, 80, 40, 10].map(m => ({ metres: m, pins: essencePinsFor(m) }));
+  ESSENCE_PIN_BANDS.map(b => {
+    const metres = b.over < 0 ? 10 : b.over + 15;
+    return { metres, pins: essencePinsFor(metres) };
+  });
 
 export { ESSENCE_MAX_PINS, ESSENCE_SEEKER_CHANCE };

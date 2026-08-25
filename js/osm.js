@@ -3,8 +3,9 @@
 
    A node/way/relation inside the scan radius becomes a candidate spawn point
    when it carries any of: shop=*, amenity=*, tourism=*, leisure=*, crossing=*,
-   highway=crossing, highway=bus_stop, natural=tree, support=pole, power=pole,
+   highway=crossing, highway=bus_stop, support=pole, power=pole,
    building=industrial, building=service, or landuse=grass.
+   (natural=tree is handled too but switched off — see TREES_ENABLED below.)
 
    Green space produces grunts — leisure=park, leisure=garden and landuse=grass.
    Every other leisure value, and everything else in the list, produces loot.
@@ -113,7 +114,7 @@ function buildQuery(lat, lng, radius) {
   nwr["crossing"](around:${radius},${la},${ln});
   nwr["highway"="crossing"](around:${radius},${la},${ln});
   nwr["highway"="bus_stop"](around:${radius},${la},${ln});
-  node["natural"="tree"](around:${radius},${la},${ln});
+  ${TREES_ENABLED ? `node["natural"="tree"](around:${radius},${la},${ln});` : ''}
   node["support"="pole"](around:${radius},${la},${ln});
   node["power"="pole"](around:${radius},${la},${ln});
   nwr["building"="industrial"](around:${radius},${la},${ln});
@@ -241,6 +242,17 @@ const PARK_LEISURE = new Set(['park', 'garden']);
 const BUILDING_KINDS = new Set(['industrial', 'service']);
 
 /**
+ * Trees are switched off.
+ *
+ * `natural=tree` is by far the densest tag we ever asked for, and in a built-up
+ * area the sheer number of extra points made the map itself sluggish. The
+ * handling is deliberately left in place rather than deleted, because out in the
+ * countryside trees were the difference between a few points and none: flip this
+ * back to `true` and they return to both the query and the classifier.
+ */
+const TREES_ENABLED = false;
+
+/**
  * What sort of point this element is, or null when it is not one we use.
  *
  * Order matters:
@@ -271,7 +283,10 @@ function classify(tags) {
   // Any leisure that is not park or garden: a pitch, a playground, a sports
   // centre, a nature reserve. Those two were handled above.
   if (tags.leisure) return { kind: 'leisure', kindValue: tags.leisure };
-  if (tags.natural === 'tree') return { kind: 'nature', kindValue: 'tree' };
+  // Dormant unless TREES_ENABLED is turned back on. The gate is here as well as
+  // in the query so a tree arriving from the stale POI cache, saved back when
+  // they were on, is dropped rather than quietly still spawning.
+  if (TREES_ENABLED && tags.natural === 'tree') return { kind: 'nature', kindValue: 'tree' };
   // Street furniture. `support=pole` is the sign/light variety, `power=pole`
   // the electricity one; they behave identically here.
   if (tags.support === 'pole' || tags.power === 'pole') {

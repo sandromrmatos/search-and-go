@@ -168,5 +168,15 @@
       "**Grass is now grunt territory.** Areas tagged as **grass** join parks and gardens as places battle grunts appear, at the same quieter **25%** rate as a garden — a park is still the busiest at **40%**.",
       "**And more grunts can be out at once.** The ceiling across all green space has gone from **6 to 11**, so the new grass areas add grunts to find rather than competing for the same six slots. Each area still rolls 3 times, grunts still keep 20 m apart, and the once-per-8-hours trainer who walks up to you still does not use a slot."
     ]
+  },
+  {
+    "at": "2026-08-23 22:45",
+    "title": "A tighter map that refreshes twice as often",
+    "body": [
+      "**Scans now cover 150 m instead of 250 m, and run every 1 min 30 s instead of every 3 minutes.** All those new point types made a 250 m circle very busy in town — busy enough that the map itself started to feel heavy. A smaller circle refreshed more often turns out to be better on both counts: less to draw at once, and never long to wait for something new. In quiet areas you lose very little, because the new point types more than made up for the smaller radius.",
+      "**Trees are out.** `natural=tree` was the densest source by far and the main reason city maps got sluggish. Everything else added recently stays: poles, pedestrian crossings, and leisure spots like pitches, playgrounds and sports centres.",
+      "**Essence Harvesting pins have been rebalanced** for the smaller radius, so the pin bands still span the whole area you can be from one: **over 125 m** 1 pin · **100–125 m** 2 · **75–100 m** 3 · **50–75 m** 4 · **25–50 m** 5 · **within 25 m** 6. In practice essences now turn up closer, so most harvests give you more pins than before.",
+      "**Grunts come to you a bit more.** Park, garden and grass grunts scatter across the scan radius, so they now appear within 150 m rather than 250 m — the same 11 of them in a smaller area, which means less walking between fights."
+    ]
   }
 ]

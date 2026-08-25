@@ -46,8 +46,15 @@ export const ITEM_DIR = 'items';
 /* ---------------------------------------------------------------
    Core rules
    --------------------------------------------------------------- */
-/** Shared so the grunt spread and the POI search can never drift apart. */
-const SCAN_RADIUS_M = 250;
+/**
+ * Shared so the grunt spread and the POI search can never drift apart.
+ *
+ * Cut from 250 m to 150 m once trees, poles, crossings and leisure joined the
+ * POI list: in a city the wider circle held so many points that the map itself
+ * got heavy. A tighter circle scanned more often turned out to feel better than
+ * a wide one scanned rarely, and it is much kinder on Overpass too.
+ */
+const SCAN_RADIUS_M = 150;
 
 export const RULES = {
   SCAN_RADIUS_M,                // POI search radius around the player
@@ -55,7 +62,7 @@ export const RULES = {
   RELAX_RANGE_M: 100,          // widened reach during Relax and Good Night
   MIN_SPAWN_SEPARATION_M: 15,   // no two map points within 15 m
   MIN_GRUNT_SEPARATION_M: 20,   // grunts also keep 20 m from each other
-  SCAN_INTERVAL_MS: 3 * 60_000, // everything re-rolls every 3 minutes
+  SCAN_INTERVAL_MS: 90_000,     // everything re-rolls every 1 min 30 s
 
   CAPTURE_ANIM_MS: 5000,
   EVOLVE_ANIM_MS: 5000,
@@ -114,6 +121,19 @@ export const RULES = {
   SEEKER_DURATION_MS: 15 * 60_000,
   SEEKER_RANGE_M: 50
 };
+
+/**
+ * "3 min", "1 min 30 s", "45 s" — the scan interval in words.
+ *
+ * Exists because the interval stopped being a whole number of minutes: dividing
+ * by 60000 used to read "3 minutes" and now reads "1.5 minutes".
+ */
+export function scanIntervalLabel(ms = RULES.SCAN_INTERVAL_MS) {
+  const mins = Math.floor(ms / 60_000);
+  const secs = Math.round((ms % 60_000) / 1000);
+  if (!secs) return `${mins} min`;
+  return mins ? `${mins} min ${secs} s` : `${secs} s`;
+}
 
 /**
  * The three timed effect slots, each holding one effect at a time.
@@ -1166,9 +1186,9 @@ export const ESSENCE_SEEKER_CHANCE = 0.15;
  * Read as "more than `over` metres away", first match wins.
  */
 export const ESSENCE_PIN_BANDS = [
-  { over: 200, pins: 1 },
-  { over: 150, pins: 2 },
-  { over: 100, pins: 3 },
+  { over: 125, pins: 1 },
+  { over: 100, pins: 2 },
+  { over: 75,  pins: 3 },
   { over: 50,  pins: 4 },
   { over: 25,  pins: 5 },
   { over: -1,  pins: 6 }

@@ -6,7 +6,7 @@ import {
   loadDatabase, DB, RULES, SETS, RARITY_NAMES, species, familyName, familyRarity,
   BREEDING_UNLOCK_LEVEL, isRelaxHour, RAID_INVASION_LABEL,
   isCreatureSpotlight, spotlightSpecies, SPOTLIGHT_LABEL, SPOTLIGHT_BONUS_CANDY,
-  SPOTLIGHT_SPAWN_MS
+  SPOTLIGHT_SPAWN_MS, scanIntervalLabel
 } from './data.js';
 import { Weather } from './weather.js';
 import { Persist, progressOf } from './persist.js';
@@ -413,10 +413,10 @@ async function doScan({ force = false, reason = 'auto', forceKind = null, always
       GameMap.showPOIs(lastPOIs);
     }
 
-    const mins = RULES.SCAN_INTERVAL_MS / 60_000;
+    const mins = scanIntervalLabel();
     if (!r.pois) toast(`Nothing mapped within ${RULES.SCAN_RADIUS_M} m`, 'bad', 3200);
     else if (r.created.length) toast(`${r.created.length} new point${r.created.length > 1 ? 's' : ''} appeared`, 'good');
-    else toast(`Nothing appeared — next reset in ${mins} min`);
+    else toast(`Nothing appeared — next reset in ${mins}`);
 
     scanCooldownUntil = 0;
     scanFailures = 0;
@@ -737,7 +737,11 @@ function updateResetChip(now = Date.now()) {
   // "ending", not "soon": `.soon` is the full-page Coming Soon placeholder
   // (display:grid, min-height:60vh), and stamping it on the chip stretched it
   // to 60% of the viewport for the last minute.
-  chip.className = 'reset-chip' + (until <= 60_000 ? ' ending' : '');
+  //
+  // A third of the interval rather than a flat minute: on the 90 s cycle a flat
+  // minute meant the chip spent two thirds of its life looking urgent.
+  const endingAt = Math.min(60_000, RULES.SCAN_INTERVAL_MS / 3);
+  chip.className = 'reset-chip' + (until <= endingAt ? ' ending' : '');
 }
 
 function syncMap() {
@@ -827,7 +831,7 @@ function startLoop() {
 
     const until = msUntilNextScan(now);
     if (until <= 0 && !isScanning() && Geo.current && !capturing && now >= scanCooldownUntil) {
-      doScan({ reason: `${RULES.SCAN_INTERVAL_MS / 60_000} min timer` });
+      doScan({ reason: `${scanIntervalLabel()} timer` });
     }
   }, 1000);
 
