@@ -71,9 +71,10 @@ export const RULES = {
     incense:  [90_000, 90_000]           // incense spawns live 1 min 30 s
   },
 
-  // Parks roll separately from shops/amenities
+  // Green space rolls separately from shops/amenities
   GRUNT_CHANCE: 0.40,
   GARDEN_GRUNT_CHANCE: 0.25,    // leisure=garden is a much quieter spot
+  GRASS_GRUNT_CHANCE: 0.25,     // landuse=grass, usually a verge or a lawn
 
   /* Grunt placement.
      A park is a single POI however big it is, so one roll per park would make
@@ -86,7 +87,10 @@ export const RULES = {
   GRUNT_SPAWN_MIN_M: 15,        // never right on top of you
   GRUNT_SPAWN_MAX_M: SCAN_RADIUS_M,
   GRUNT_PLACEMENT_TRIES: 24,    // random spots tried before a roll gives up
-  MAX_ACTIVE_GRUNTS: 6,         // hard ceiling across every park at once
+  /* Hard ceiling across every piece of green space at once. Raised from 6 to 11
+     when landuse=grass joined parks and gardens as a grunt source, so the new
+     areas add grunts rather than competing for the same six slots. */
+  MAX_ACTIVE_GRUNTS: 11,
 
   /* One trainer walks right up to you once per 8-hour window (00–08, 08–16,
      16–24 local), the first time the game is open during it. This one ignores
@@ -163,8 +167,8 @@ export const POI_OUTCOMES_RAID_INVASION = [
 
 /**
  * Training Dojo Hour odds. This is the only table where a shop or amenity can
- * turn into a grunt — normally grunts only come out of parks and gardens. Like
- * the invasion table it has no "nothing" slice.
+ * turn into a grunt — normally grunts only come out of green space. Like the
+ * invasion table it has no "nothing" slice.
  */
 export const POI_OUTCOMES_TRAINING_DOJO = [
   { kind: 'creature', weight: 10 },
@@ -3062,9 +3066,9 @@ export function rollPOIOutcome(now = new Date()) {
 
 /**
  * During Training Dojo Hour there is no ceiling on grunts standing on ordinary
- * POIs — a shop, an amenity, a bus stop. Parks and gardens are untouched by the
- * event and keep MAX_ACTIVE_GRUNTS, because those grunts are scattered across
- * the scan radius instead of standing on a point.
+ * POIs — a shop, an amenity, a bus stop. Green space is untouched by the event
+ * and keeps MAX_ACTIVE_GRUNTS, because those grunts are scattered across the
+ * scan radius instead of standing on a point.
  */
 export const poiGruntsAreUncapped = (now = new Date()) => isTrainingDojo(now);
 

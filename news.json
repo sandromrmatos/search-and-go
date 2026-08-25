@@ -158,5 +158,15 @@
       "**Levels 9 and 10 are worth more now.** Each of those two levels adds **20%** of the base stat instead of 10%, across **all four stats** — HP, Attack, Defence and Speed. It is still measured against the base stat, so a level 10 creature sits at **×2.1** its base figures rather than ×1.9, and the extra is not compounded on top of level 9. Levels 1 to 8 are completely unchanged, and every creature you already own picked this up the moment it loaded — including a little more maximum HP.",
       "**The Held items tab shows one grid at a time.** Free items and the ones already out on creatures used to be stacked on the same page, which on a phone left a second grid buried under the first. There is now a single toggle at the top: it opens on **Free**, tap it for **Being held**, tap again to go back. Each view reads like the Items grid next door, and the tab remembers which one you were last looking at."
     ]
+  },
+  {
+    "at": "2026-08-23 21:30",
+    "title": "A lot more of your street is now on the map",
+    "body": [
+      "**New map points.** Six more kinds of real place now become points: **trees**, **poles** of both the street-furniture and electricity varieties, **pedestrian crossings**, and every **leisure** spot that is not a park or a garden — pitches, playgrounds, sports centres, nature reserves. They roll exactly the same odds as a shop or a bus stop, so a quiet residential street is no longer an empty map.",
+      "**Nothing gets crowded out.** Points still keep **15 m** from each other, so a road lined with twenty trees produces only what fits rather than twenty spawns in a row.",
+      "**Grass is now grunt territory.** Areas tagged as **grass** join parks and gardens as places battle grunts appear, at the same quieter **25%** rate as a garden — a park is still the busiest at **40%**.",
+      "**And more grunts can be out at once.** The ceiling across all green space has gone from **6 to 11**, so the new grass areas add grunts to find rather than competing for the same six slots. Each area still rolls 3 times, grunts still keep 20 m apart, and the once-per-8-hours trainer who walks up to you still does not use a slot."
+    ]
   }
 ]

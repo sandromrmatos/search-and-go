@@ -2,9 +2,12 @@
    osm.js — OpenStreetMap POI lookup through the Overpass API
 
    A node/way/relation inside the scan radius becomes a candidate spawn point
-   when it carries any of: shop=*, amenity=*, tourism=*, highway=bus_stop,
-   building=industrial, building=service, leisure=park or leisure=garden.
-   The two leisure values produce grunts; everything else produces loot.
+   when it carries any of: shop=*, amenity=*, tourism=*, leisure=*, crossing=*,
+   highway=crossing, highway=bus_stop, natural=tree, support=pole, power=pole,
+   building=industrial, building=service, or landuse=grass.
+
+   Green space produces grunts — leisure=park, leisure=garden and landuse=grass.
+   Every other leisure value, and everything else in the list, produces loot.
    Map data © OpenStreetMap contributors (ODbL).
    ============================================================ */
 
@@ -94,18 +97,28 @@ function remember(key, lat, lng, radius, pois) {
 
 function buildQuery(lat, lng, radius) {
   const la = lat.toFixed(7), ln = lng.toFixed(7);
-  // Everything except parks becomes creature, item, disc and raid points;
-  // parks and gardens are where battle grunts hang around.
+  // Green space becomes battle grunts; everything else becomes creature, item,
+  // disc and raid points. `leisure` is fetched wholesale and split in classify,
+  // because park and garden are the grunt half of the same key.
+  //
+  // Trees and poles are `node` rather than `nwr`: they are only ever tagged on
+  // nodes, and in a dense area asking for ways and relations as well is a
+  // meaningful amount of work for Overpass to do and then find nothing.
   return `[out:json][timeout:25];
 (
   nwr["shop"](around:${radius},${la},${ln});
   nwr["amenity"](around:${radius},${la},${ln});
   nwr["tourism"](around:${radius},${la},${ln});
+  nwr["leisure"](around:${radius},${la},${ln});
+  nwr["crossing"](around:${radius},${la},${ln});
+  nwr["highway"="crossing"](around:${radius},${la},${ln});
   nwr["highway"="bus_stop"](around:${radius},${la},${ln});
+  node["natural"="tree"](around:${radius},${la},${ln});
+  node["support"="pole"](around:${radius},${la},${ln});
+  node["power"="pole"](around:${radius},${la},${ln});
   nwr["building"="industrial"](around:${radius},${la},${ln});
   nwr["building"="service"](around:${radius},${la},${ln});
-  nwr["leisure"="park"](around:${radius},${la},${ln});
-  nwr["leisure"="garden"](around:${radius},${la},${ln});
+  nwr["landuse"="grass"](around:${radius},${la},${ln});
 );
 out tags center;`;
 }
@@ -124,6 +137,16 @@ function labelFor(tags) {
     (tags.leisure ? prettify(tags.leisure) : null) ||
     (tags.highway === 'bus_stop' ? 'Bus Stop' : null) ||
     (tags.building ? prettify(tags.building) + ' Building' : null) ||
+    (tags.landuse === 'grass' ? 'Grass' : null) ||
+    (tags.natural === 'tree' ? 'Tree' : null) ||
+    (tags.support === 'pole' ? 'Pole' : null) ||
+    (tags.power === 'pole' ? 'Power Pole' : null) ||
+    // "Marked Crossing", "Traffic Signals Crossing", or just "Crossing" when
+    // the value is a bare yes.
+    (tags.crossing
+      ? (/^(yes|true)$/i.test(tags.crossing) ? 'Crossing' : prettify(tags.crossing) + ' Crossing')
+      : null) ||
+    (tags.highway === 'crossing' ? 'Crossing' : null) ||
     'Point of interest';
 }
 
@@ -209,8 +232,8 @@ function endpointsByPreference() {
 function hostOf(u) { try { return new URL(u).host; } catch { return u; } }
 
 /**
- * Green space that grunts hang around in. Parks are the busy ones, gardens
- * are much quieter — spawns.js rolls them at different rates.
+ * Green space that grunts hang around in. Parks are the busy ones; gardens and
+ * grass verges are much quieter — spawns.js rolls them at different rates.
  */
 const PARK_LEISURE = new Set(['park', 'garden']);
 
@@ -220,20 +243,45 @@ const BUILDING_KINDS = new Set(['industrial', 'service']);
 /**
  * What sort of point this element is, or null when it is not one we use.
  *
- * Order matters. Shops and amenities win so existing behaviour is untouched
- * (a kiosk inside a park stays a shop), and parks are checked before the newer
- * sources because `isPark` routes a POI into the grunt roll instead of the loot
- * roll. Anything that falls through is dropped.
+ * Order matters:
+ *   - Shops and amenities win, so existing behaviour is untouched (a kiosk
+ *     inside a park stays a shop, a bench stays an amenity).
+ *   - The green-space checks come before the catch-all `leisure` one, because
+ *     `isPark` routes a POI into the grunt roll instead of the loot roll and
+ *     park/garden are the grunt half of the same key.
+ *   - The rest are loot, in rough order of how specific the tag is.
+ * Anything that falls through is dropped.
  */
 function classify(tags) {
   if (tags.shop) return { kind: 'shop', kindValue: tags.shop };
   if (tags.amenity) return { kind: 'amenity', kindValue: tags.amenity };
+
+  // ---- green space: grunts ----
   if (PARK_LEISURE.has(tags.leisure)) {
     return { kind: 'park', kindValue: tags.leisure, isPark: true, isGarden: tags.leisure === 'garden' };
   }
+  if (tags.landuse === 'grass') {
+    return { kind: 'grass', kindValue: 'grass', isPark: true, isGrass: true };
+  }
+
+  // ---- everything else: loot ----
   if (tags.tourism) return { kind: 'tourism', kindValue: tags.tourism };
   if (tags.highway === 'bus_stop') return { kind: 'transport', kindValue: 'bus_stop' };
   if (BUILDING_KINDS.has(tags.building)) return { kind: 'building', kindValue: tags.building };
+  // Any leisure that is not park or garden: a pitch, a playground, a sports
+  // centre, a nature reserve. Those two were handled above.
+  if (tags.leisure) return { kind: 'leisure', kindValue: tags.leisure };
+  if (tags.natural === 'tree') return { kind: 'nature', kindValue: 'tree' };
+  // Street furniture. `support=pole` is the sign/light variety, `power=pole`
+  // the electricity one; they behave identically here.
+  if (tags.support === 'pole' || tags.power === 'pole') {
+    return { kind: 'pole', kindValue: tags.support === 'pole' ? 'pole' : 'power_pole' };
+  }
+  // Both tagging styles: plenty of crossing nodes carry only highway=crossing
+  // with no `crossing` value at all, so matching one key would miss most of them.
+  if (tags.crossing || tags.highway === 'crossing') {
+    return { kind: 'crossing', kindValue: tags.crossing || 'crossing' };
+  }
   return null;
 }
 
@@ -270,6 +318,8 @@ function normalise(json, origin, radius) {
       isPark,
       // Gardens are green space too, but they roll a much lower grunt chance.
       isGarden: !!info.isGarden,
+      // And so is a grass verge, on its own rate again.
+      isGrass: !!info.isGrass,
       distance: d
     });
   }
@@ -277,7 +327,7 @@ function normalise(json, origin, radius) {
   return out;
 }
 
-/** Splits a POI list into the loot-bearing points and the parks. */
+/** Splits a POI list into the loot-bearing points and the green space. */
 export function splitPOIs(pois) {
   return {
     places: pois.filter(p => !p.isPark),

@@ -280,17 +280,17 @@ export async function runScan(pos, { force = false, forceKind = null, alwaysGrun
       if (kind === 'grunt') gruntSpots.push({ lat: poi.lat, lng: poi.lng });
     }
 
-    // ---- parks and gardens: battle grunts ----
-    // A park is one POI no matter how big it is, so a single roll would make
-    // the middle of a huge park as quiet as a pocket garden. Each park gets
-    // several rolls and holds that many grunts, topped up on every scan, and
-    // they are scattered across the whole scan radius like any other spawn.
+    // ---- green space: battle grunts ----
+    // Parks, gardens and grass. A park is one POI no matter how big it is, so a
+    // single roll would make the middle of a huge park as quiet as a pocket
+    // garden. Each one gets several rolls and holds that many grunts, topped up
+    // on every scan, scattered across the whole scan radius like any other spawn.
     const rollsPerPark = rule('GRUNT_ROLLS_PER_PARK', 3);
     // Parks keep their ceiling at all times, Training Dojo Hour included. The
     // event is about ordinary POIs taking grunts over; park grunts scatter
     // across the whole scan radius rather than standing on a point, so lifting
     // this would fill the map with grunts standing in the middle of nowhere.
-    const maxGrunts = rule('MAX_ACTIVE_GRUNTS', 6);
+    const maxGrunts = rule('MAX_ACTIVE_GRUNTS', 11);
     // How many live grunts each park is already responsible for.
     const gruntsPerPOI = new Map();
     for (const p of parkGrunts) {
@@ -301,8 +301,11 @@ export async function runScan(pos, { force = false, forceKind = null, alwaysGrun
       const slots = rollsPerPark - (gruntsPerPOI.get(park.id) || 0);
       if (slots <= 0) { skipped.occupied++; continue; }
 
-      // leisure=garden is a quieter spot than leisure=park, so it rolls lower.
-      const gruntChance = park.isGarden ? RULES.GARDEN_GRUNT_CHANCE : RULES.GRUNT_CHANCE;
+      // A leisure=garden or a landuse=grass verge is a quieter spot than a
+      // full leisure=park, so both roll lower.
+      const gruntChance = park.isGarden ? RULES.GARDEN_GRUNT_CHANCE
+        : park.isGrass ? RULES.GRASS_GRUNT_CHANCE
+        : RULES.GRUNT_CHANCE;
 
       for (let roll = 0; roll < slots; roll++) {
         if (liveParkGrunts >= maxGrunts) { skipped.gruntCap++; break; }
