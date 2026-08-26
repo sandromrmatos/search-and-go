@@ -1297,6 +1297,19 @@ a { color: var(--accent); }
   50% { transform: scale(1.1); filter: drop-shadow(0 0 16px #4ade80); }
 }
 
+/* A stat being lowered, and a heal. Same shape as btBuff so the three read as
+   one family of events, in their own colours: warm for a loss, green for HP. */
+.bt-sprite.debuffed { animation: btDebuff .5s ease; }
+@keyframes btDebuff {
+  0%,100% { transform: scale(1); }
+  50% { transform: scale(.92); filter: drop-shadow(0 0 16px #ff9b5a); }
+}
+.bt-sprite.healed { animation: btHeal .55s ease; }
+@keyframes btHeal {
+  0%,100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); filter: drop-shadow(0 0 18px #a3f7bf); }
+}
+
 .bt-info { flex: 1; min-width: 0; max-width: 210px; }
 .bt-name { display: flex; align-items: baseline; gap: 7px; margin-bottom: 4px; }
 .bt-name b { font-size: 15px; }
@@ -1328,6 +1341,9 @@ a { color: var(--accent); }
 .bt-log .resist { color: #9aa3bd; font-weight: 700; }
 .bt-log .ko { color: #ffb3b3; font-weight: 700; }
 .bt-log .buff { color: #b9ffd0; }
+/* A stat going down reads warm, a heal reads like the HP bar it just refilled. */
+.bt-log .debuff { color: #ffc9a0; }
+.bt-log .heal { color: #a3f7bf; }
 /* Abilities get their own colour so they read as a different kind of event to
    the blow by blow, and a pill saying whether they fired. */
 .bt-log .ability {
@@ -1705,6 +1721,21 @@ a.ad-link:active { transform: scale(.98); }
 }
 .bt-ready .btn { flex: 1; }
 .bt-ready #bt-fight-top { flex: 2; }
+
+/* ---- the same trick for the breeding pair picker ----
+   Storage can run to many pages, so Confirm has to travel with the grid rather
+   than sit under the bottom of it. */
+.breed-ready {
+  position: sticky; bottom: 0; z-index: 5;
+  padding: 8px 0 calc(4px + var(--safe-b));
+  background: linear-gradient(180deg, #0b102400, #0b1024f2 35%);
+}
+.breed-ready .btn-row { margin: 0; }
+.breed-ready .btn { flex: 1; }
+.breed-ready #breed-confirm { flex: 2; }
+/* Sits directly above the buttons, so the reason and the disabled control are
+   read together. */
+.breed-ready .hint { margin: 0 0 6px; }
 
 /* ============================================================
    PAGER

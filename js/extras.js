@@ -260,6 +260,12 @@ function missionRow(m) {
               text: `🌌 Unlocks ${GALACTIC_SET_NAME} rarity ${m.def.unlockGalacticRarity} (${RARITY_NAMES[m.def.unlockGalacticRarity]})`
             })
           : null,
+        m.def.unlockExclusiveSet
+          ? el('span', {
+              class: 'r reward-unlock',
+              text: `🔥 Unlocks ${DB.exclusive2.length} new ${EXCLUSIVE_SET_NAME} creatures`
+            })
+          : null,
         m.def.heldItem
           ? el('span', {
               class: 'r reward-unlock',
@@ -1118,16 +1124,23 @@ function renderInfo(tab = 'basics') {
       el('ul', {},
         el('li', { html: `<b>${SET_NAME}</b> — the ${DB.species.filter(s => s.set === SET_NAME).length} creatures you start the game with. These are what spawn on the map from the very first scan.` }),
         el('li', { html: `<b>${GALACTIC_SET_NAME}</b> — ${DB.galactic.length} more creatures, <b>locked to begin with</b>. You open them one rarity at a time through the <b>Set</b> missions, and each rarity you open joins the ordinary pools for good: wild spawns, incense, eggs, raids and grunt teams alike. See Set missions below.` }),
-        el('li', { html: `<b>${EXCLUSIVE_SET_NAME}</b> — <b>${DB.exclusive.length} creatures</b> that never appear in the wild, from an incense, or from a normal egg. <b>Exclusive Raids</b> and the <b>15 km eggs</b> they drop are the only way to get them, and they only come in rarities <b>3, 4 and 5</b>.` }),
+        el('li', { html: `<b>${EXCLUSIVE_SET_NAME}</b> — <b>${DB.exclusiveInPlay.length} creatures</b> that never appear in the wild, from an incense, or from a normal egg. <b>Exclusive Raids</b> and the <b>15 km eggs</b> they drop are the only way to get them, and they only come in rarities <b>3, 4 and 5</b>.${
+          store.exclusive2Unlocked || !DB.exclusive2.length ? ''
+            : ` A <b>second wave</b> is waiting behind a <b>Set</b> mission — register all ${DB.exclusiveInPlay.length} of these and it opens.`
+        }` }),
         el('li', { html: `<b>${RARITY_NAMES[MYTHICAL_RARITY]}</b> — ${DB.mythical.length === 1 ? 'one creature' : `${DB.mythical.length} creatures`} so far, rarity ${MYTHICAL_RARITY}, each with its own single way of being found. See Mythicals below.` })
       ),
       el('h4', { text: 'Set missions' }),
       el('p', { html: `The <b>Set</b> tab in Missions is a ladder that opens <b>${GALACTIC_SET_NAME}</b>. Each rung asks you to <b>register</b> a number of <b>${SET_NAME}</b> creatures — registering means having caught, hatched or evolved it at least once, so releasing it later does not undo it — and to have earned an amount of <b>total XP</b>. They never reset.` }),
       el('ul', {},
         ...SET_MISSIONS.map(m => el('li', {
-          html: `<b>${m.label}</b> (${num(m.requireXp)} total XP) — opens <b>rarity ${m.unlockGalacticRarity}</b> ${GALACTIC_SET_NAME} creatures${
-            m.id === 'ga5' ? ', plus a <b>Breeding Centre</b> and a <b>50 km egg</b>' : ''
-          }.`
+          html: `<b>${m.label}</b>${m.requireXp ? ` (${num(m.requireXp)} total XP)` : ''} — ${
+            m.unlockGalacticRarity
+              ? `opens <b>rarity ${m.unlockGalacticRarity}</b> ${GALACTIC_SET_NAME} creatures`
+              : m.unlockExclusiveSet
+                ? `opens <b>${DB.exclusive2.length} more ${EXCLUSIVE_SET_NAME}</b> creatures`
+                : 'pays XP and stardust'
+          }${m.id === 'ga5' ? ', plus a <b>Breeding Centre</b> and a <b>50 km egg</b>' : ''}.`
         })),
         el('li', { html: 'The bar fills as you register creatures, but the <b>Claim</b> button waits for the XP as well — the row tells you how much you still need.' }),
         el('li', { html: 'Nothing appears until you actually <b>claim</b> the mission. Completing it is not enough.' }),
@@ -1319,6 +1332,8 @@ function renderInfo(tab = 'basics') {
         el('li', { html: 'If the first attack knocks the target out, it does not get to strike back.' }),
         el('li', { html: 'Damage is <b>move power × Attack ÷ Defence</b>, rounded.' }),
         el('li', { html: `Buff moves raise one of your own stats immediately, and stack if you use them again. A <b>${RARITY_NAMES[MYTHICAL_RARITY]}</b>'s buff move raises <b>several stats at once</b> — the log names each one and the total it is now up by.` }),
+        el('li', { html: `Some moves do <b>more than damage</b>. A move can <b>heal the creature using it</b> by a set number of HP, <b>raise its own</b> Attack, Defence or Speed, <b>lower the opponent's</b>, or even <b>lower its own</b> as the price of a heavy hit. These ride <b>on top of the damage</b> where the move has any, so a move can hit for 20 and heal 40 in the same turn — the log gives each part its own line.` }),
+        el('li', { html: 'A stat can be pushed down as well as up, and the two cancel out: a lowered stat lasts for the rest of the fight unless something raises it again. Nothing can be ground below <b>1</b>, so a pile of debuffs never leaves a creature doing literally nothing.' }),
         el('li', { html: 'When a creature faints the next one you chose comes in. Run out and you lose.' })
       ),
       el('h4', { text: `Super effective (+${Math.round((SUPER_EFFECTIVE_MULTIPLIER - 1) * 100)}% damage)` }),
@@ -1380,7 +1395,7 @@ function renderInfo(tab = 'basics') {
         el('li', { html: 'Start a battle before the point expires and you can finish it even if the timer runs out mid-fight.' })
       ),
       el('h4', { text: 'Exclusive Raids' }),
-      el('p', { html: `A point with a <b>blue flame</b> instead of the orange one is an <b>Exclusive Raid</b>. It holds a creature from the <b>${EXCLUSIVE_SET_NAME}</b> collection — ${DB.exclusive.length} creatures that cannot be caught in the wild, from an incense, or from a 5 or 10 km egg. They turn up at <b>${o.exraid}%</b> per point on weekdays and <b>${ow.exraid}%</b> at weekends.` }),
+      el('p', { html: `A point with a <b>blue flame</b> instead of the orange one is an <b>Exclusive Raid</b>. It holds a creature from the <b>${EXCLUSIVE_SET_NAME}</b> collection — ${DB.exclusiveInPlay.length} creatures that cannot be caught in the wild, from an incense, or from a 5 or 10 km egg. They turn up at <b>${o.exraid}%</b> per point on weekdays and <b>${ow.exraid}%</b> at weekends.` }),
       el('ul', {},
         el('li', { html: `Only rarities <b>3, 4 and 5</b> exist here: <b>${EXCLUSIVE_RAID_WEIGHTS[3]}%</b> rarity 3, <b>${EXCLUSIVE_RAID_WEIGHTS[4]}%</b> rarity 4 and <b>${EXCLUSIVE_RAID_WEIGHTS[5]}%</b> rarity 5.` }),
         el('li', { html: `The boss is tougher than a normal raid of the same rarity: <b>×${EXCLUSIVE_RAID_BOSS_MODIFIERS.hp} HP</b> instead of ×${RAID_BOSS_MODIFIERS.hp}, and <b>+${Math.round((EXCLUSIVE_RAID_BOSS_MODIFIERS.attack - 1) * 100)}%</b> Attack, Defence and Speed instead of +${Math.round((RAID_BOSS_MODIFIERS.attack - 1) * 100)}%.` }),

@@ -178,5 +178,15 @@
       "**Essence Harvesting pins have been rebalanced** for the smaller radius, so the pin bands still span the whole area you can be from one: **over 125 m** 1 pin · **100–125 m** 2 · **75–100 m** 3 · **50–75 m** 4 · **25–50 m** 5 · **within 25 m** 6. In practice essences now turn up closer, so most harvests give you more pins than before.",
       "**Grunts come to you a bit more.** Park, garden and grass grunts scatter across the scan radius, so they now appear within 150 m rather than 250 m — the same 11 of them in a smaller area, which means less walking between fights."
     ]
+  },
+  {
+    "at": "2026-08-23 23:55",
+    "title": "25 more Exclusive creatures, and moves that do more than damage",
+    "body": [
+      "**A new Set mission: register 19 Exclusive creatures.** It pays 50 XP and 500 stardust, and it opens a **second wave of 25 Exclusive creatures**. They join the same **Exclusive** collection tab and the same Exclusive Raid and 15 km egg pools — but only once you have claimed it. Until then they are not in the Collection at all, so filling in the first 19 is the whole job. There is no XP gate on this one: getting 19 raid-only creatures registered is quite enough.",
+      "**Moves can now do more than hit.** A move may **heal the creature using it** by a set number of HP, **raise its own** Attack, Defence or Speed, **lower the opponent's**, or **lower its own** as the price of a heavy swing. These ride on top of the damage where a move has any — so a move can hit for 20 and heal 40 on the same turn — and the battle log gives each part its own line and its own colour.",
+      "**A stat can go down as well as up.** A lowered stat lasts the rest of the fight unless something raises it again, and buffs and debuffs cancel each other out on the same stat. Nothing can be ground below 1, so a pile of debuffs never leaves a creature doing literally nothing.",
+      "**The breeding pair Confirm button now follows you.** It sticks to the bottom of the picker like the battle team's fight button, so with a storage full of creatures you no longer have to scroll all the way down to confirm a pair. The \"pick two of the same creature\" warning moved down with it, so the reason the button is greyed out is right next to the button."
+    ]
   }
 ]

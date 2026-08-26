@@ -16,6 +16,7 @@
 import {
   damageOf, effectivenessOf, statsFor, raidBossStats, species,
   evaluateAbility, clauseEffectText, clauseConditionText, buffStatsLabel,
+  moveEffectText, moveSummaryText,
   STAT_KEYS, STAT_LABELS, BATTLE_TEAM_SIZE, moveLevelFor, heldItem
 } from './data.js';
 import { Weather } from './weather.js';
@@ -66,10 +67,31 @@ export class Battler {
     return { stat, before, after: this.stats[stat], stacks: this.buffs[stat] };
   }
 
-  /** Buff multiplier as a readable percentage, or null when unbuffed. */
+  /**
+   * Lowers one of its stats. The mirror of applyBuff, so the two share the same
+   * `buffs` ledger and a debuff can cancel an earlier buff out.
+   *
+   * Floored at 1: a stat can be ground down but never to nothing, so a stack of
+   * debuffs cannot make a creature deal literally zero damage.
+   */
+  applyDebuff(stat, pct) {
+    const before = this.stats[stat];
+    this.stats[stat] = Math.max(1, Math.round(this.stats[stat] * (1 - pct)));
+    this.buffs[stat] = (this.buffs[stat] || 1) * (1 - pct);
+    return { stat, before, after: this.stats[stat], stacks: this.buffs[stat] };
+  }
+
+  /** Buff multiplier as a readable percentage, negative once debuffed. */
   buffPercent(stat) {
     const m = this.buffs[stat];
     return m ? Math.round((m - 1) * 100) : null;
+  }
+
+  /** Restores HP, never past the maximum it started the fight with. */
+  heal(n) {
+    const before = this.hp;
+    this.hp = Math.min(this.maxHp, this.hp + Math.max(0, Math.round(n || 0)));
+    return { before, after: this.hp, healed: this.hp - before, maxHp: this.maxHp };
   }
 
   takeDamage(n) {
@@ -141,7 +163,9 @@ export function chooseAIMove(battler, rng = Math.random) {
   if (moves.length === 1) return moves[0];
 
   const damaging = moves.filter(m => m.power > 0).sort((a, b) => b.power - a.power);
-  const buffs = moves.filter(m => m.isBuff);
+  // Every non-damaging move, not just self-buffs: a pure heal or a pure debuff
+  // belongs in the same bucket, since the choice being made is "hit, or set up".
+  const buffs = moves.filter(m => m.isStatus);
 
   const candidates = [];
   if (moves.length === 2) {
@@ -372,35 +396,79 @@ export class Battle {
     return events;
   }
 
+  /**
+   * Resolves a move's effect: a heal, a self-buff, a self-debuff, or a debuff on
+   * the opponent. Separate from the damage step so a move can carry both.
+   *
+   * Every event names a `targetSide` — which side the affected battler is on —
+   * because "who used the move" and "who it landed on" are no longer the same
+   * thing, and the UI animates the sprite that changed.
+   */
+  applyMoveEffect({ side, actor, target, move }) {
+    const fx = move.effect;
+    if (!fx) return [];
+    const otherSide = side === 'player' ? 'enemy' : 'player';
+
+    if (fx.kind === 'healSelf') {
+      const r = actor.heal(fx.amount);
+      return [{
+        type: 'heal', side, targetSide: side,
+        actor: actor.key, actorLabel: actor.label,
+        // What it actually restored, and what it tried to: a creature near full
+        // health gets less than the number on the move.
+        amount: r.healed, asked: fx.amount,
+        hpBefore: r.before, hpAfter: r.after, maxHp: r.maxHp
+      }];
+    }
+
+    const onSelf = fx.kind === 'buffSelf' || fx.kind === 'debuffSelf';
+    const who = onSelf ? actor : target;
+    // Nothing worth weakening on something already knocked out — it is about to
+    // be replaced by a fresh creature anyway.
+    if (!onSelf && who.fainted) return [];
+
+    const up = fx.kind === 'buffSelf';
+    // A mythical's buff raises several stats at once, so this is always a list.
+    const applied = fx.stats.map(stat => {
+      const r = up ? who.applyBuff(stat, fx.pct) : who.applyDebuff(stat, fx.pct);
+      return {
+        stat, statLabel: STAT_LABELS[stat],
+        before: r.before, after: r.after,
+        totalPct: who.buffPercent(stat)
+      };
+    });
+
+    return [{
+      type: up ? 'buff' : 'debuff',
+      side,
+      targetSide: onSelf ? side : otherSide,
+      onSelf,
+      actor: who.key, actorLabel: who.label,
+      pct: Math.round(fx.pct * 100),
+      stats: applied,
+      // The first stat is repeated at the top level so older readers of this
+      // event still see something sensible.
+      stat: applied[0]?.stat ?? null,
+      statLabel: applied[0]?.statLabel ?? '',
+      before: applied[0]?.before ?? null,
+      after: applied[0]?.after ?? null,
+      totalPct: applied[0]?.totalPct ?? null
+    }];
+  }
+
   applyMove({ side, actor, target, move }) {
     const events = [{
       type: 'move', side, actor: actor.key, actorLabel: actor.label,
-      move: move.name, isBuff: !!move.isBuff, power: move.power
+      move: move.name, isBuff: !!move.isBuff, isStatus: !!move.isStatus,
+      power: move.power
     }];
 
-    if (move.isBuff) {
-      // A mythical's buff raises several stats at once, so this is a list.
-      const stats = move.buffStats?.length ? move.buffStats : [move.buffStat];
-      const applied = stats.filter(Boolean).map(stat => {
-        const r = actor.applyBuff(stat, move.buffPct);
-        return {
-          stat, statLabel: STAT_LABELS[stat],
-          before: r.before, after: r.after,
-          totalPct: actor.buffPercent(stat)
-        };
-      });
-      events.push({
-        type: 'buff', side, actor: actor.key,
-        pct: Math.round(move.buffPct * 100),
-        stats: applied,
-        // The first stat is repeated at the top level so older readers of this
-        // event still see something sensible.
-        stat: applied[0]?.stat ?? null,
-        statLabel: applied[0]?.statLabel ?? '',
-        before: applied[0]?.before ?? null,
-        after: applied[0]?.after ?? null,
-        totalPct: applied[0]?.totalPct ?? null
-      });
+    /* Damage and effect are two independent steps rather than a fork, because a
+       move can now do both: "Breeze Nuzzle" hits for 25 and raises its own
+       Attack, "Bark Bash" hits for 20 and heals 40. A move with no power just
+       skips the first step. */
+    if (move.power <= 0) {
+      events.push(...this.applyMoveEffect({ side, actor, target, move }));
       return events;
     }
 
@@ -449,6 +517,10 @@ export class Battle {
       abilityTake: takeMultiplier !== 1 ? defenderRead.ability.name : null,
       hpBefore, hpAfter: target.hp, maxHp: target.maxHp
     });
+
+    // The rider effect lands after the hit, so a move that heals its user still
+    // does so on the turn it knocks something out.
+    events.push(...this.applyMoveEffect({ side, actor, target, move }));
 
     if (target.fainted) {
       events.push({
@@ -500,9 +572,8 @@ export class Battle {
   /** A short readable description of a move, for the move buttons. */
   static describeMove(move) {
     if (!move) return '';
-    return move.isBuff
-      ? `Raises your ${buffStatsLabel(move)} by ${Math.round(move.buffPct * 100)}%`
-      : `${move.power} power`;
+    // "40 power", "Heals 40 HP", or "20 power · Heals 40 HP" for one that does both.
+    return moveSummaryText(move);
   }
 }
 

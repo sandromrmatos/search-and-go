@@ -17,7 +17,9 @@ import {
   MAX_EGGS, MAX_EXCLUSIVE_EGGS, INCUBATOR_ITEMS, poiEventState, SPOTLIGHT_BONUS_CANDY,
   MAX_STAT_BOOSTS, STAT_BOOSTER_CANDY_COST, statBoosterCost,
   abilityText, clauseConditionText, clauseEffectText, buffMoveText,
-  GALACTIC_SET_NAME, MYTHICAL_RARITY, unlockedGalacticRarities
+  moveEffectText, moveSummaryText,
+  GALACTIC_SET_NAME, MYTHICAL_RARITY, unlockedGalacticRarities,
+  discoverableSpeciesCount
 } from './data.js';
 import { renderEggs, renderEggTabBadge, openEggPickerFor } from './eggs.js';
 import { store, creatureStats, maxHpOf, hpOf, isFainted, isHurt } from './state.js';
@@ -1736,9 +1738,9 @@ function movesBlock(c, s) {
         el('span', { class: 'lv' + (early ? ' early' : ''), text: known ? 'Known' : `Lv ${at}` })
       ),
       el('div', { class: 'move-meta' },
-        m.isBuff
-          ? el('span', { class: 'bf', text: buffMoveText(m) })
-          : el('span', { class: 'pw', text: `${m.power} power` }),
+        m.isStatus
+          ? el('span', { class: 'bf', text: moveEffectText(m) })
+          : el('span', { class: 'pw', text: moveSummaryText(m) }),
         notes.length ? el('span', { text: ' · ' + notes.join(' · ') }) : null
       )
     ));
@@ -2139,9 +2141,9 @@ function renderSpeciesSheet(speciesId) {
           el('span', { class: 'lv', text: `Lv ${m.level}` })
         ),
         el('div', { class: 'move-meta' },
-          m.isBuff
-            ? el('span', { class: 'bf', text: buffMoveText(m) })
-            : el('span', { class: 'pw', text: `${m.power} power` }),
+          m.isStatus
+            ? el('span', { class: 'bf', text: moveEffectText(m) })
+            : el('span', { class: 'pw', text: moveSummaryText(m) }),
           hasSlot ? null : el('span', { text: ` · needs ${m.fromName}` })
         )
       );
@@ -2311,7 +2313,9 @@ export function renderProfile() {
 
   $('#p-stardust').textContent = num(store.s.stardust);
   $('#p-stored').textContent = num(store.s.storage.length);
-  $('#p-registered').textContent = `${store.registeredCount} / ${DB.species.length}`;
+  // The denominator counts what this player could actually register: a locked
+  // second wave of Exclusives is not in their game yet, so it is left out.
+  $('#p-registered').textContent = `${store.registeredCount} / ${discoverableSpeciesCount()}`;
   $('#p-captures').textContent = num(store.s.stats.captures);
   $('#p-evolutions').textContent = num(store.s.stats.evolutions);
 

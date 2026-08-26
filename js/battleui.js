@@ -7,7 +7,8 @@
 import {
   species, RARITY_NAMES, STAT_LABELS, BATTLE_TEAM_SIZE, familyName,
   statsFor, raidBossStats, RAID_CAPTURE_LEVEL, raidModifiers, EXCLUSIVE_RAID_REWARD,
-  eggLabel, buffMoveText, abilityOutlook, abilityOutlookLabel, heldItemImage
+  eggLabel, buffMoveText, moveEffectText, moveSummaryText,
+  abilityOutlook, abilityOutlookLabel, heldItemImage
 } from './data.js';
 
 /** "+50%" style label straight from the raid modifier table. */
@@ -299,12 +300,12 @@ function showPeek(c) {
             el('div', { class: 'move' },
               el('div', { class: 'move-top' },
                 el('b', { text: m.name }),
-                el('span', { class: 'lv', text: m.isBuff ? 'Buff' : `${m.power} pw` })
+                el('span', { class: 'lv', text: m.isStatus ? 'Status' : `${m.power} pw` })
               ),
               el('div', { class: 'move-meta' },
-                m.isBuff
-                  ? el('span', { class: 'bf', text: buffMoveText(m) })
-                  : el('span', { class: 'pw', text: `${m.power} power` })
+                m.isStatus
+                  ? el('span', { class: 'bf', text: moveEffectText(m) })
+                  : el('span', { class: 'pw', text: moveSummaryText(m) })
               )
             )))
         : el('p', { class: 'hint', text: 'No moves yet.' }),
@@ -670,7 +671,7 @@ function renderMoves() {
   const moves = ctx.battle.availableMoves;
   moves.forEach((m, i) => {
     host.append(el('button', {
-      class: 'bt-move' + (m.isBuff ? ' buffmove' : ''),
+      class: 'bt-move' + (m.isStatus ? ' buffmove' : ''),
       disabled: busy || ctx.battle.over,
       onclick: () => playTurn(i)
     },
@@ -747,7 +748,8 @@ async function playTurn(moveIndex) {
       refreshHpOnly();
       await sleep(420);
     } else if (e.type === 'buff') {
-      const imgSel = e.side === 'player' ? '#bt-mine-img' : '#bt-enemy-img';
+      // `targetSide` is who it landed on, which for a self-buff is the user.
+      const imgSel = (e.targetSide ?? e.side) === 'player' ? '#bt-mine-img' : '#bt-enemy-img';
       const img = $(imgSel);
       img.classList.remove('buffed'); void img.offsetWidth; img.classList.add('buffed');
       // A multi-stat buff reads as one line listing each stat it raised.
@@ -756,6 +758,28 @@ async function playTurn(moveIndex) {
       logLine(`<span class="buff">${parts.join(', ')} (+${e.pct}%).</span>`);
       renderArena();
       await sleep(380);
+    } else if (e.type === 'debuff') {
+      const imgSel = (e.targetSide ?? e.side) === 'player' ? '#bt-mine-img' : '#bt-enemy-img';
+      const img = $(imgSel);
+      img.classList.remove('debuffed'); void img.offsetWidth; img.classList.add('debuffed');
+      const whose = e.onSelf
+        ? (e.targetSide === 'player' ? 'Your own' : 'Its own')
+        : (e.targetSide === 'player' ? 'Your' : 'The opposing');
+      const parts = (e.stats?.length ? e.stats : [e])
+        .map(s => `${s.statLabel} fell to ${s.after}`);
+      logLine(`<span class="debuff">${whose} <b>${e.actorLabel}</b>: ${parts.join(', ')} (−${e.pct}%).</span>`);
+      renderArena();
+      await sleep(380);
+    } else if (e.type === 'heal') {
+      const imgSel = (e.targetSide ?? e.side) === 'player' ? '#bt-mine-img' : '#bt-enemy-img';
+      const img = $(imgSel);
+      img.classList.remove('healed'); void img.offsetWidth; img.classList.add('healed');
+      const who = (e.targetSide ?? e.side) === 'player' ? 'Your' : 'The opposing';
+      logLine(e.amount > 0
+        ? `<span class="heal">${who} <b>${e.actorLabel}</b> recovered <b>${e.amount}</b> HP (${e.hpAfter}/${e.maxHp}).</span>`
+        : `<span class="heal">${who} <b>${e.actorLabel}</b> was already at full health.</span>`);
+      refreshHpOnly();
+      await sleep(400);
     } else if (e.type === 'skipped') {
       const who = e.side === 'player' ? 'Your' : 'The opposing';
       logLine(`${who} <b>${e.actorLabel}</b> was knocked out before it could move.`);

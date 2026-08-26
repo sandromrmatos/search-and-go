@@ -10,7 +10,8 @@ import {
   playerProgress, playerLevelFor, statsFor, rollStatModifier, rerollStatModifier, rollMoveUnlock,
   rollShiny, chance, RULES, RAID_CAPTURE_LEVEL, RAID_CAPTURE_BONUS_CANDY,
   MISSIONS, DAILY_MISSIONS, WEEKLY_MISSIONS, SET_MISSIONS,
-  setGalacticUnlocked, isMythicalEgg, eggCanBeShiny, MYTHICAL_EGG_TYPE,
+  setGalacticUnlocked, setExclusive2Unlocked,
+  isMythicalEgg, eggCanBeShiny, MYTHICAL_EGG_TYPE,
   dueSpotlightSpawn, EFFECT_SLOTS, EFFECT_KINDS,
   ESSENCE_WINDOW_HOURS, ESSENCE_MIN_LEVEL, ESSENCE_SEEKER_CHANCE, essenceEligible,
   breedingSlotsFor, breedingIntervalMs,
@@ -123,6 +124,8 @@ function blankState() {
     researchLab: null,  // { lat, lng, placedAt }
     /** Galactic Adventures rarities opened by the Set missions. Never resets. */
     galacticUnlocked: [],
+    /** True once the second wave of Exclusives has been unlocked. Never resets. */
+    exclusive2Unlocked: false,
     /** The local day the save was last copied to the cloud, or null. */
     cloudBackupDay: null,
     buddy: null,        // { uid, metres, candyEarned, since }
@@ -360,6 +363,9 @@ export function migrate(raw) {
     s.buddy = null;
   }
 
+  // ---- exclusive wave 2: a plain flag, so anything truthy means unlocked ----
+  s.exclusive2Unlocked = !!raw.exclusive2Unlocked;
+
   // ---- galactic unlocks: whole numbers 1-5, no duplicates ----
   s.galacticUnlocked = [...new Set(
     (Array.isArray(raw.galacticUnlocked) ? raw.galacticUnlocked : [])
@@ -547,6 +553,7 @@ class Store {
     // The spawn pools depend on saved progress, so they have to be rebuilt
     // before anything can roll a creature.
     this.syncGalacticUnlocks();
+    this.syncExclusiveUnlocks();
     this.loadedFrom = source;
     this.loadReadFailed = !!readFailed;
     this.loadRecoverable = recoverable || null;
@@ -557,6 +564,7 @@ class Store {
   async replace(raw) {
     this.s = migrate(raw);
     this.syncGalacticUnlocks();
+    this.syncExclusiveUnlocks();
     await this.flush({ force: true });
     this.emit('load');
   }
@@ -564,6 +572,7 @@ class Store {
   async reset() {
     this.s = blankState();
     this.syncGalacticUnlocks();
+    this.syncExclusiveUnlocks();
     await this.flush({ force: true });
     this.emit('load');
   }
@@ -2529,6 +2538,15 @@ class Store {
       this.syncGalacticUnlocks();
     }
 
+    // The exclusive ladder works the same way: claiming is what puts the second
+    // wave into the Collection and into the exclusive raid and egg pools.
+    let unlockedExclusiveSet = false;
+    if (m.def.unlockExclusiveSet && !this.s.exclusive2Unlocked) {
+      this.s.exclusive2Unlocked = true;
+      unlockedExclusiveSet = true;
+      this.syncExclusiveUnlocks();
+    }
+
     // A mission can pay out a held item at random. Rolled on claim rather than
     // fixed in the table, so the weekly one is a different surprise each week.
     let heldReward = null;
@@ -2562,7 +2580,7 @@ class Store {
     return {
       ok: true, xp: m.def.xp, dust, levelUp, label: m.def.label,
       discs: bonusDiscs, items: bonusItems,
-      unlockedRarity, egg, heldReward
+      unlockedRarity, unlockedExclusiveSet, egg, heldReward
     };
   }
 
@@ -2574,6 +2592,13 @@ class Store {
   /** Pushes the unlocked rarities into data.js, which rebuilds the spawn pools. */
   syncGalacticUnlocks() {
     setGalacticUnlocked(this.s.galacticUnlocked);
+  }
+
+  get exclusive2Unlocked() { return !!this.s.exclusive2Unlocked; }
+
+  /** Pushes the exclusive unlock into data.js, which rebuilds those pools. */
+  syncExclusiveUnlocks() {
+    setExclusive2Unlocked(this.s.exclusive2Unlocked);
   }
 
   /* ---------------- debug / ui ---------------- */

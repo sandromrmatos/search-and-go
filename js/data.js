@@ -15,6 +15,14 @@ export const SET_NAME = 'Elemental Awakening';
  * moves all sit on the same row, unlike the main set which splits them.
  */
 export const EXCLUSIVE_CSV_FILE = 'Raid Exclusive - Search and Go.csv';
+/**
+ * The second wave of exclusives. Same collection tab and same pools as the
+ * first, but locked behind its own Set mission — until that is claimed these
+ * creatures are not in the Collection at all, and no raid or egg can produce
+ * one. Their ids continue the first file's numbering, so they share its
+ * order base and slot straight in after it.
+ */
+export const EXCLUSIVE2_CSV_FILE = 'Exclusives2.csv';
 export const EXCLUSIVE_SET_NAME = 'Exclusive';
 
 /**
@@ -1905,6 +1913,17 @@ export const SET_MISSIONS = [
     items: { breeding_center: 1 },
     grantEgg: MYTHICAL_EGG_TYPE,
     label: `Register all 79 creatures in ${SET_NAME}`
+  },
+  /**
+   * The exclusive ladder. Filling in the first wave of Exclusives opens the
+   * second, which is the only way those creatures enter the Collection or the
+   * exclusive raid and 15 km egg pools. No XP gate: getting 19 raid-only
+   * creatures registered is the work.
+   */
+  {
+    id: 'ex1', kind: 'registeredInSet', set: EXCLUSIVE_SET_NAME, target: 19, requireXp: 0,
+    xp: 50, dust: 500, unlockExclusiveSet: true,
+    label: `Register 19 ${EXCLUSIVE_SET_NAME} creatures`
   }
 ];
 
@@ -1960,6 +1979,46 @@ export const SETS = [
 
 let galacticUnlocked = new Set();
 
+/* ---------------------------------------------------------------
+   Exclusive wave 2 unlock
+
+   Same shape as the Galactic unlocks above: state.js owns the truth and pushes
+   it here, and one rebuild keeps the Collection tab, exclusive raids and 15 km
+   eggs consistent without any of them knowing about the mission.
+   --------------------------------------------------------------- */
+
+let exclusive2Unlocked = false;
+
+export const isExclusive2Unlocked = () => exclusive2Unlocked;
+
+/** Replaces the flag and rebuilds the exclusive pools. */
+export function setExclusive2Unlocked(on = false) {
+  exclusive2Unlocked = !!on;
+  if (DB.loaded) rebuildExclusivePools();
+  return exclusive2Unlocked;
+}
+
+/**
+ * Recomputes which exclusives are reachable. Only stage 1 creatures go into the
+ * rarity buckets, because that is all a raid or an egg can produce.
+ */
+export function rebuildExclusivePools() {
+  DB.exclusiveInPlay = DB.exclusive.filter(s => !s.exclusive2 || exclusive2Unlocked);
+  DB.exclusiveByRarity = { 3: [], 4: [], 5: [] };
+  for (const sp of DB.exclusiveInPlay) {
+    if (sp.stage === 1 && DB.exclusiveByRarity[sp.rarity]) DB.exclusiveByRarity[sp.rarity].push(sp);
+  }
+  return DB.exclusiveInPlay.length;
+}
+
+/**
+ * How many creatures the player could possibly register right now. The locked
+ * second wave of exclusives is left out, so "registered x / y" never counts
+ * creatures that are not in the game yet for them.
+ */
+export const discoverableSpeciesCount = () =>
+  DB.species.length - (exclusive2Unlocked ? 0 : DB.exclusive2.length);
+
 /** True once the Set mission for this Galactic rarity has been claimed. */
 export const isGalacticRarityUnlocked = r => galacticUnlocked.has(Number(r));
 export const unlockedGalacticRarities = () => [...galacticUnlocked].sort((a, b) => a - b);
@@ -2014,7 +2073,9 @@ export const hasAbility = speciesId => DB.abilities.has(speciesId);
  */
 export function speciesForSet(set) {
   if (set?.galactic) return DB.galactic;
-  if (set?.exclusive) return DB.exclusive;
+  // In play only: the second wave of exclusives stays out of the tab entirely
+  // until its Set mission is claimed, rather than sitting there as a spoiler.
+  if (set?.exclusive) return DB.exclusiveInPlay;
   if (set?.mythical) return DB.mythical;
   return DB.species.filter(s => !s.galactic && !s.exclusive && !s.mythical);
 }
@@ -2301,6 +2362,15 @@ export const DB = {
    * reach them. Exclusive raids and 15 km eggs read these lists instead.
    */
   exclusive: [],
+  /** Just the second wave, so its size can be counted without re-filtering. */
+  exclusive2: [],
+  /**
+   * The exclusives actually in play: the first wave always, the second only once
+   * its Set mission has been claimed. The Collection tab and every exclusive
+   * roll read this rather than `exclusive`, so a locked creature cannot be seen
+   * or caught. Rebuilt by setExclusive2Unlocked.
+   */
+  exclusiveInPlay: [],
   exclusiveByRarity: { 3: [], 4: [], 5: [] },
   /** Galactic Adventures, all 77 whether unlocked or not. */
   galactic: [],
@@ -2344,7 +2414,8 @@ export async function loadDatabase(
   abilitiesUrl = ABILITIES_CSV_FILE,
   galacticUrl = GALACTIC_CSV_FILE,
   mythicalUrl = MYTHICAL_CSV_FILE,
-  spotlightUrl = SPOTLIGHT_CSV_FILE
+  spotlightUrl = SPOTLIGHT_CSV_FILE,
+  exclusive2Url = EXCLUSIVE2_CSV_FILE
 ) {
   DB.warnings = [];
 
@@ -2354,7 +2425,8 @@ export async function loadDatabase(
     return '';
   });
 
-  const [baseText, statsText, exclusiveText, abilitiesText, galacticText, mythicalText, spotlightText] =
+  const [baseText, statsText, exclusiveText, abilitiesText, galacticText, mythicalText,
+         spotlightText, exclusive2Text] =
     await Promise.all([
       fetchText(csvUrl),
       fetchText(statsUrl),
@@ -2364,7 +2436,8 @@ export async function loadDatabase(
       fetchText(abilitiesUrl).catch(() => ''),
       optional(galacticUrl, GALACTIC_SET_NAME),
       optional(mythicalUrl, 'Mythicals'),
-      optional(spotlightUrl, SPOTLIGHT_LABEL)
+      optional(spotlightUrl, SPOTLIGHT_LABEL),
+      optional(exclusive2Url, 'Exclusive creatures (second wave)')
     ]);
 
   const baseRows = toRecords(parseCSV(baseText));
@@ -2372,6 +2445,7 @@ export async function loadDatabase(
   const exclusiveRows = exclusiveText ? toRecords(parseCSV(exclusiveText)) : [];
   const galacticRows = galacticText ? toRecords(parseCSV(galacticText)) : [];
   const mythicalRows = mythicalText ? toRecords(parseCSV(mythicalText)) : [];
+  const exclusive2Rows = exclusive2Text ? toRecords(parseCSV(exclusive2Text)) : [];
   const spotlightRows = spotlightText ? toRecords(parseCSV(spotlightText)) : [];
 
   const statsById = new Map();
@@ -2440,6 +2514,13 @@ export async function loadDatabase(
     setName: EXCLUSIVE_SET_NAME, orderBase: EXCLUSIVE_ORDER_BASE,
     bucket: DB.exclusive, flags: { exclusive: true }
   });
+  /* The second wave shares the set name, the order base and the bucket, so it
+     reads as one continuous Exclusive collection. The `exclusive2` flag is the
+     only thing that separates them, and it is what the unlock gates on. */
+  addSelfContainedSet(exclusive2Rows, {
+    setName: EXCLUSIVE_SET_NAME, orderBase: EXCLUSIVE_ORDER_BASE,
+    bucket: DB.exclusive, flags: { exclusive: true, exclusive2: true }
+  });
   addSelfContainedSet(mythicalRows, {
     setName: MYTHICAL_SET_NAME, orderBase: MYTHICAL_ORDER_BASE,
     bucket: DB.mythical, flags: { mythical: true }
@@ -2486,11 +2567,10 @@ export async function loadDatabase(
   // actual work and is re-run whenever an unlock is claimed.
   rebuildSpawnPools();
 
-  for (const sp of DB.exclusive) {
-    if (sp.stage === 1 && DB.exclusiveByRarity[sp.rarity]) {
-      DB.exclusiveByRarity[sp.rarity].push(sp);
-    }
-  }
+  DB.exclusive2 = DB.exclusive.filter(s => s.exclusive2);
+  // Fills exclusiveInPlay and exclusiveByRarity, honouring the unlock. Called
+  // again by setExclusive2Unlocked when the mission is claimed.
+  rebuildExclusivePools();
   for (const r of [3, 4, 5]) {
     if (!DB.exclusiveByRarity[r].length) {
       DB.warnings.push(`No rarity ${r} exclusive creatures found`);
@@ -2648,6 +2728,109 @@ function readStats(row, name) {
 /** Buff percentage used when the CSV leaves it blank on a 0-power move. */
 const DEFAULT_BUFF_PCT = 0.10;
 
+/**
+ * Reads a move's `Effect` / `Effect number` pair into a normalised effect.
+ *
+ * The newer creature files replaced the old "Stat Buff" + "Stat Buff Percentage"
+ * columns with these two, because a move can now do more than raise the user's
+ * own stats. Both spellings are still accepted — see readMoves — so older files
+ * keep working untouched.
+ *
+ * Recognised effects, exactly as they are written in the sheets:
+ *   "Heal self"                → number is whole HP, e.g. 30
+ *   "Buff self <stat>"         → number is a percentage, e.g. 25%
+ *   "Debuff self <stat>"       → number is a percentage
+ *   "Debuff opponent <stat>"   → number is a percentage
+ * `<stat>` is attack, defence or speed, and more than one may be listed.
+ *
+ * @returns {{kind:string, stats:string[], pct:number|null, amount:number|null}|null}
+ */
+function readEffect(rawEffect, rawNumber, { name, slot, moveName }) {
+  const text = String(rawEffect ?? '').trim();
+  if (!text) return null;
+  const where = `${name}: move ${slot} "${moveName}"`;
+  const low = text.toLowerCase();
+
+  if (/^heals?\b.*\bself\b/.test(low) || /^self\s+heal/.test(low)) {
+    const amount = int(rawNumber);
+    if (amount == null || amount <= 0) {
+      DB.warnings.push(`${where} heals but its effect number "${rawNumber}" is not a positive whole number of HP — effect ignored`);
+      return null;
+    }
+    return { kind: 'healSelf', stats: [], pct: null, amount };
+  }
+
+  const m = low.match(/^(de)?buffs?\s+(self|own|opponent|enemy|foe|target)\b(.*)$/);
+  if (!m) {
+    DB.warnings.push(`${where} has an effect we do not understand: "${text}" — effect ignored`);
+    return null;
+  }
+  const down = !!m[1];
+  const onSelf = /^(self|own)$/.test(m[2]);
+  const stats = normaliseStats(m[3]);
+
+  if (!stats.length) {
+    DB.warnings.push(`${where} says "${text}" but names no stat — effect ignored`);
+    return null;
+  }
+  // HP is deliberately not buffable: a battler's maximum is fixed for the
+  // fight, so raising "HP" would move a number nothing reads.
+  if (stats.includes('hp')) {
+    DB.warnings.push(`${where} tries to change HP, which only "Heal self" can do — effect ignored`);
+    return null;
+  }
+  if (!down && !onSelf) {
+    DB.warnings.push(`${where} tries to buff the opponent, which is not a thing — effect ignored`);
+    return null;
+  }
+  const p = pct(rawNumber);
+  if (p == null || p <= 0) {
+    DB.warnings.push(`${where} needs a percentage, got "${rawNumber}" — effect ignored`);
+    return null;
+  }
+
+  return {
+    kind: down ? (onSelf ? 'debuffSelf' : 'debuffOpponent') : 'buffSelf',
+    stats,
+    pct: p,
+    amount: null
+  };
+}
+
+/** "Attack and Speed" from a list of stat keys. */
+const statListLabel = stats => {
+  const names = (stats || []).map(s => STAT_LABELS[s] || s);
+  if (names.length <= 1) return names[0] || '';
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+};
+
+/**
+ * What a move's effect does, in words: "Heals 40 HP", "Raises your Defence by
+ * 50%", "Lowers the opponent's Attack by 35%". Empty for a plain damage move.
+ */
+export function moveEffectText(move) {
+  const fx = move?.effect;
+  if (!fx) {
+    // Older data reached here through the legacy buff columns.
+    return move?.isBuff ? buffMoveText(move) : '';
+  }
+  const amountPct = `${Math.round(fx.pct * 100)}%`;
+  switch (fx.kind) {
+    case 'healSelf': return `Heals ${fx.amount} HP`;
+    case 'buffSelf': return `Raises your ${statListLabel(fx.stats)} by ${amountPct}`;
+    case 'debuffSelf': return `Lowers your own ${statListLabel(fx.stats)} by ${amountPct}`;
+    case 'debuffOpponent': return `Lowers the opponent's ${statListLabel(fx.stats)} by ${amountPct}`;
+    default: return '';
+  }
+}
+
+/** "40 power · Heals 40 HP", or just one half when that is all there is. */
+export function moveSummaryText(move) {
+  const fx = moveEffectText(move);
+  if (!move?.power) return fx;
+  return fx ? `${move.power} power · ${fx}` : `${move.power} power`;
+}
+
 function readMoves(row, name) {
   const moves = [];
   if (!row) return moves;
@@ -2660,32 +2843,58 @@ function readMoves(row, name) {
 
     const power = int(powerRaw) ?? 0;
     const level = int(levelRaw) ?? 1;
-    // A buff can name several stats, e.g. "Attack, Defense, Speed".
-    const buffStats = normaliseStats(row[`move${slot} stat buff`]);
-    const buffStat = buffStats[0] || null;
-    let buffPct = pct(row[`move${slot} stat buff percentage`]);
+    const moveName = mName || `Move ${slot}`;
 
-    const isBuff = power === 0;
-    if (isBuff && !buffStat) {
-      DB.warnings.push(`${name}: move ${slot} "${mName}" has no power and no buff stat — skipped`);
+    /* ---- the effect, in either of the two column layouts ----
+       Newer files carry "Effect" + "Effect number", which can describe a heal or
+       a debuff as well as a self-buff. Older files carry "Stat Buff" + "Stat
+       Buff Percentage", which could only ever mean a self-buff. Both are read,
+       the newer pair winning if a file somehow has both, so no existing sheet
+       needs rewriting. */
+    let effect = readEffect(
+      row[`move${slot} effect`], row[`move${slot} effect number`],
+      { name, slot, moveName }
+    );
+    if (!effect) {
+      const legacyStats = normaliseStats(row[`move${slot} stat buff`]);
+      if (legacyStats.length) {
+        let legacyPct = pct(row[`move${slot} stat buff percentage`]);
+        if (legacyPct == null) {
+          DB.warnings.push(`${name}: move ${slot} "${moveName}" has no buff percentage, using ${DEFAULT_BUFF_PCT * 100}%`);
+          legacyPct = DEFAULT_BUFF_PCT;
+        }
+        effect = { kind: 'buffSelf', stats: legacyStats, pct: legacyPct, amount: null };
+      }
+    }
+
+    // A move with no power has to do *something*. It used to have to be a
+    // self-buff; now any effect will do, which is what lets a zero-power move
+    // be a pure heal or a pure debuff.
+    const isStatus = power === 0;
+    if (isStatus && !effect) {
+      DB.warnings.push(`${name}: move ${slot} "${moveName}" has no power and no effect — skipped`);
       continue;
     }
-    if (isBuff && buffPct == null) {
-      DB.warnings.push(`${name}: move ${slot} "${mName}" has no buff percentage, using ${DEFAULT_BUFF_PCT * 100}%`);
-      buffPct = DEFAULT_BUFF_PCT;
-    }
+
+    // `isBuff` keeps its old meaning — a non-damaging move that raises the
+    // user's own stats — so everything written against it still reads true.
+    // Use `isStatus` for "deals no damage" and `effect` for what it actually does.
+    const selfBuff = effect?.kind === 'buffSelf';
+    const isBuff = isStatus && selfBuff;
 
     const move = {
       slot,
-      name: mName || `Move ${slot}`,
-      power: isBuff ? 0 : power,
+      name: moveName,
+      power,
       level,
+      effect,
       // `buffStat` is the first of `buffStats`, kept so single-stat callers read
       // naturally. Anything applying the buff must use `buffStats`.
-      buffStat: isBuff ? buffStat : null,
-      buffStats: isBuff ? buffStats : [],
-      buffPct: isBuff ? buffPct : null,
-      isBuff
+      buffStat: selfBuff ? effect.stats[0] : null,
+      buffStats: selfBuff ? effect.stats : [],
+      buffPct: selfBuff ? effect.pct : null,
+      isBuff,
+      isStatus
     };
     moves.push(move);
     if (!DB.moveIndex.has(move.name)) DB.moveIndex.set(move.name, move);
@@ -2850,7 +3059,7 @@ export function rollExclusiveSpecies(weights = EXCLUSIVE_RAID_WEIGHTS) {
     const pool = DB.exclusiveByRarity[rollRarityWith(weights)];
     if (pool?.length) return pool[Math.floor(Math.random() * pool.length)];
   }
-  const all = DB.exclusive.filter(s => s.stage === 1);
+  const all = DB.exclusiveInPlay.filter(s => s.stage === 1);
   return all.length ? all[Math.floor(Math.random() * all.length)] : rollSpawnSpecies();
 }
 

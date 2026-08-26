@@ -728,14 +728,20 @@
       <button id="breed-dir" class="mini-btn" title="Toggle sort direction">↑</button>
       <span id="breed-pick-count" class="muted">0 of 2 selected</span>
     </div>
-    <p id="breed-picker-warn" class="hint bad hidden"></p>
     <div id="breed-picker-grid" class="grid"></div>
     <p id="breed-picker-empty" class="empty hidden">
       You need two of the same creature that are not already breeding.
     </p>
-    <div class="btn-row" style="padding:10px 0 2px">
-      <button id="breed-clear" class="btn ghost">Clear</button>
-      <button id="breed-confirm" class="btn primary" disabled>Confirm pair</button>
+    <!-- Sticks to the bottom of the sheet like the battle team picker's
+         "ready to fight" bar, so Confirm is reachable without scrolling back
+         down past a long storage grid. The mismatch warning rides with it,
+         because it explains why the button is disabled. -->
+    <div class="breed-ready">
+      <p id="breed-picker-warn" class="hint bad hidden"></p>
+      <div class="btn-row">
+        <button id="breed-clear" class="btn ghost">Clear</button>
+        <button id="breed-confirm" class="btn primary" disabled>Confirm pair</button>
+      </div>
     </div>
   </div>
 </div>
