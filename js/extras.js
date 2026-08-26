@@ -1066,7 +1066,7 @@ const poiOddsLine = table => table
   .map(x => `<b>${x.weight}%</b> ${OUTCOME_WORDS[x.kind] || x.kind}`)
   .join(' · ');
 
-/** "19:00 to 20:00 every Wednesday" for a weekly event window. */
+/** "6:00 PM to 7:00 PM every Wednesday" for a weekly event window. */
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const weeklyWindowLabel = (day, start, end) =>
   `${clockLabel(start)} to ${clockLabel(end)} every ${DAY_NAMES[day]}`;

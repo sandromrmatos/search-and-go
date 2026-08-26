@@ -1132,11 +1132,11 @@ export const RELAX_HOUR_LABEL = 'Relax and Good Night';
    They cannot overlap: one is a Wednesday, the other a Saturday.
    --------------------------------------------------------------- */
 
-/** Raid Invasion: Wednesdays 19:00–20:00. */
+/** Raid Invasion: Wednesdays 18:00–19:00. */
 export const RAID_INVASION_LABEL = 'Raid Invasion';
 export const RAID_INVASION_DAY = 3;        // 0 = Sunday, so 3 = Wednesday
-export const RAID_INVASION_START = 19;     // 19:00
-export const RAID_INVASION_END = 20;       // 20:00
+export const RAID_INVASION_START = 18;     // 18:00
+export const RAID_INVASION_END = 19;       // 19:00
 /**
  * Handed over by every disc point during the invasion, on top of its drop.
  * Always at least one Ultra Capture Disc, and a quarter of the time a second.

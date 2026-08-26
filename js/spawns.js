@@ -6,7 +6,7 @@
          22% creature · 28% discs · 15% items · 5% raid · 2% exclusive raid
          (4% at weekends) · the rest nothing
      • two weekly events replace that table for their window: Raid Invasion
-       (Wednesdays 19:00-20:00) and Training Dojo Hour (Saturdays 13:30-14:00),
+       (Wednesdays 18:00-19:00) and Training Dojo Hour (Saturdays 13:30-14:00),
        the latter being the only time a shop can turn into a grunt
      • leisure=park rolls separately for a battle grunt, leisure=garden rolls
        the same way at a lower chance; grunts are scattered on a ring around
@@ -76,7 +76,7 @@ function makeCreaturePoint(poi, now) {
 
 function makeDiscPoint(poi, now) {
   // The bonus is baked in when the point is created, so a disc point spawned
-  // during the invasion still pays it if you reach it a moment after 20:00.
+  // during the invasion still pays it if you reach it a moment after it closes.
   const at = new Date(now);
   const drop = applyRaidInvasionBonus(rollDiscDrop(), at);
   return {
