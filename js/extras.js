@@ -716,14 +716,19 @@ function renderExchangeCorner() {
 
 
 
-/** Opened by tapping the flag on the map. */
-export function openBreeding({ inRange = true } = {}) {
+/** The centre whose sheet is open, so a repaint knows which one to draw. */
+let openCentreId = null;
+
+/** Opened by tapping one of the flags on the map. */
+export function openBreeding(centre = null, { inRange = true } = {}) {
+  openCentreId = centre?.id || store.breedingCentres[0]?.id || null;
   renderBreeding(inRange);
   openSheet('breeding');
 }
 
 function renderBreeding(inRange) {
-  const centre = store.s.breeding;
+  const centre = store.breedingCentre(openCentreId) || store.breedingCentres[0] || null;
+  openCentreId = centre?.id || null;
   const host = $('#breeding-slots');
   const hint = $('#breeding-hint');
   host.innerHTML = '';
@@ -733,61 +738,83 @@ function renderBreeding(inRange) {
     return;
   }
 
-  const slots = store.breedingSlots;
+  const cap = store.breedingSlots;
+  const used = store.breedingSlotsUsed();
+  const here = centre.slots.length;
+  const elsewhere = used - here;
+  const total = store.breedingCentres.length;
   const nextAt = Object.entries(BREEDING_SLOTS_BY_LEVEL)
     .map(([lvl, n]) => ({ lvl: Number(lvl), n }))
     .find(x => x.lvl > store.level);
 
   hint.textContent = inRange
-    ? `Leave two creatures of the same species inside and they generate that family's candy. ` +
-      `They stop at ${BREEDING_CANDY_CAP} candy, so come back and collect.` +
-      (nextAt ? ` Player level ${nextAt.lvl} unlocks slot ${nextAt.n}.` : '')
+    ? `Leave two creatures of the same species inside and they generate that family's candy. `
+      + `They stop at ${BREEDING_CANDY_CAP} candy, so come back and collect.`
+      + (nextAt ? ` Player level ${nextAt.lvl} unlocks pair ${nextAt.n}.` : '')
+      + (total > 1 ? ` You have ${total} centres; the ${cap} pairs are shared between them.` : '')
     : `You need to be within ${RULES.CAPTURE_RANGE_M} m of the centre to use it.`;
 
-  for (let i = 0; i < slots; i++) {
-    const slot = centre.slots[i];
-    host.append(slot ? filledSlot(slot, i, inRange) : emptySlot(i, inRange));
-  }
-  if (!slots) {
-    host.append(el('p', { class: 'empty', text: `Slots unlock at player level ${BREEDING_UNLOCK_LEVEL}.` }));
+  // The pairs standing in this centre, then whatever room is left over.
+  for (const slot of centre.slots) host.append(filledSlot(slot, inRange));
+  const free = Math.max(0, cap - used);
+  for (let i = 0; i < free; i++) host.append(emptySlot(inRange));
+
+  if (!cap) {
+    host.append(el('p', { class: 'empty', text: `Pairs unlock at player level ${BREEDING_UNLOCK_LEVEL}.` }));
+  } else if (elsewhere > 0) {
+    host.append(el('p', { class: 'hint', text: `${elsewhere} more pair${elsewhere === 1 ? ' is' : 's are'} `
+      + `breeding at your other centre${total > 2 ? 's' : ''}.` }));
   }
 
   // ---- move it somewhere else ----
-  const occupied = centre.slots.length;
   host.append(
     el('div', { class: 'btn-row' },
       el('button', {
         class: 'btn ghost',
-        disabled: !inRange || occupied > 0,
-        onclick: moveCentre
-      }, occupied ? `Collect ${occupied} pair${occupied === 1 ? '' : 's'} first` : '⚑ Move centre')
+        disabled: !inRange,
+        onclick: () => moveCentre(centre.id)
+      }, '⚑ Move centre')
     ),
-    el('p', { class: 'hint', text: occupied
-      ? 'Moving puts the centre back in your Items so you can pin it somewhere else. Collect every pair first — creatures left inside would have nowhere to come back to.'
+    el('p', { class: 'hint', text: here
+      ? `Moving puts the centre back in your Items. The ${here} pair${here === 1 ? '' : 's'} inside `
+        + 'would come home, but any candy they have earned and not been collected for is lost.'
       : 'Moving puts the centre back in your Items so you can pin it somewhere else. Nothing is lost.' })
   );
 }
 
-function moveCentre() {
-  const held = store.s.breeding;
-  if (!held) return;
-  if (!confirm('Pick your breeding centre up? It goes back to your Items and you can pin it somewhere else.')) return;
+/**
+ * Picking a centre up. Always allowed — being unable to was the whole problem,
+ * since a centre pinned somewhere you never revisit used to end breeding for
+ * good — but the cost is spelled out first when there is one.
+ */
+function moveCentre(id) {
+  const centre = store.breedingCentre(id);
+  if (!centre) return;
+  const inside = centre.slots.length;
+  const atRisk = centre.slots.reduce((n, sl) => n + store.breedingProgress(sl).earned, 0);
 
-  const r = store.moveBreedingCentre();
-  if (!r.ok) {
-    toast(r.reason === 'occupied'
-      ? `Collect your ${r.slots} pair${r.slots === 1 ? '' : 's'} before moving the centre`
-      : 'Could not move it', 'bad', 3600);
-    renderBreeding(true);
-    return;
-  }
+  const warning = inside
+    ? `Pick this breeding centre up?\n\nThe ${inside} pair${inside === 1 ? '' : 's'} inside `
+      + `will come back to your storage, but ${atRisk
+        ? `the ${atRisk} candy they have earned so far will be lost`
+        : 'any candy they earn towards their next one will be lost'}.\n\n`
+      + 'Collect them first if you want to keep it.'
+    : 'Pick this breeding centre up? It goes back to your Items and you can pin it somewhere else.';
+  if (!confirm(warning)) return;
+
+  const r = store.moveBreedingCentre(id);
+  if (!r.ok) { toast('Could not move it', 'bad', 3600); return; }
+
   closeSheet('breeding');
-  toast('Breeding centre packed up — place it wherever you like', 'good', 3600);
+  toast(r.pairs
+    ? `Centre packed up — ${r.pairs} pair${r.pairs === 1 ? '' : 's'} came home`
+      + (r.candyLost ? `, ${r.candyLost} candy lost` : '')
+    : 'Breeding centre packed up — place it wherever you like', r.candyLost ? '' : 'good', 4200);
   mapChanged?.();
   refresh?.();
 }
 
-function filledSlot(slot, index, inRange) {
+function filledSlot(slot, inRange) {
   const sp = species(slot.speciesId);
   const p = store.breedingProgress(slot);
   const full = p.earned >= p.cap;
@@ -808,27 +835,27 @@ function filledSlot(slot, index, inRange) {
     el('div', { class: 'btn-row' },
       el('button', {
         class: 'btn primary', disabled: !inRange,
-        onclick: () => collect(index)
+        onclick: () => collect(slot.id)
       }, `Collect pair${p.earned ? ` · +${p.earned} candy` : ''}`)
     )
   );
 }
 
-function emptySlot(index, inRange) {
+function emptySlot(inRange) {
   const pairs = eligiblePairs();
   const ready = pairs.length > 0;
   return el('div', { class: 'breed-slot' },
     el('div', { class: 'breed-slot-top' },
       el('span', { class: 'mission-ico', text: '➕' }),
-      el('b', { text: `Slot ${index + 1} · empty` })
+      el('b', { text: 'Free pair slot' })
     ),
     el('div', { class: 'breed-next', text: ready
-      ? 'Tap the slot to browse your storage and choose two of the same creature.'
+      ? 'Tap to browse your storage and choose two of the same creature.'
       : 'You need two of the same creature that are not already breeding.' }),
     el('div', { class: 'btn-row' },
       el('button', {
         class: 'btn primary', disabled: !inRange || !ready,
-        onclick: () => openBreedPicker(index)
+        onclick: () => openBreedPicker()
       }, ready ? 'Choose creatures' : 'No pairs available')
     )
   );
@@ -843,12 +870,10 @@ function emptySlot(index, inRange) {
    species-locked list did by never offering the choice.
    --------------------------------------------------------------- */
 
-let breedSlotIndex = 0;   // the slot the picker was opened from
 let breedPicked = [];     // uids, in tap order
 let breedPage = 0;
 
-function openBreedPicker(index) {
-  breedSlotIndex = index;
+function openBreedPicker() {
   breedPicked = [];
   breedPage = 0;
   renderBreedPicker();
@@ -881,7 +906,7 @@ function renderBreedPicker() {
   const pair = breedPickedPair();
   const mismatch = !!pair && pair.a.speciesId !== pair.b.speciesId;
 
-  $('#breed-picker-title').textContent = `Slot ${breedSlotIndex + 1} · choose 2 of the same creature`;
+  $('#breed-picker-title').textContent = 'Choose 2 of the same creature';
   $('#breed-picker-hint').textContent =
     `Two of the same creature generate that family's candy. ` +
     `${all.length} available, sorted the same way as your Storage.`;
@@ -1007,10 +1032,10 @@ function eligiblePairs() {
 }
 
 function addPair(a, b) {
-  const r = store.addBreedingPair(a, b);
+  const r = store.addBreedingPair(a, b, openCentreId);
   if (!r.ok) {
     toast(({
-      full: 'Every slot is in use',
+      full: 'Every pair slot is in use',
       species: 'Both creatures must be the same species',
       busy: 'One of those is already breeding',
       noCentre: 'No breeding centre placed'
@@ -1022,8 +1047,8 @@ function addPair(a, b) {
   refresh?.();
 }
 
-function collect(index) {
-  const r = store.collectBreedingSlot(index);
+function collect(slotId) {
+  const r = store.collectBreedingSlot(slotId);
   if (!r.ok) { toast('Nothing to collect', 'bad'); return; }
   toast(r.candy
     ? `Collected your pair and ${r.candy} ${familyName(r.speciesId)} candy`
@@ -1479,6 +1504,8 @@ function renderInfo(tab = 'basics') {
       el('p', { html: `<b>Astralyon</b> is the first <b>Mythical</b>, rarity ${MYTHICAL_RARITY}, and more will follow. Each will have its own way of being found, and like Astralyon their buff moves raise several stats at once.` }),
       el('h4', { text: 'More exclusive creatures' }),
       el('p', { html: `The <b>${EXCLUSIVE_SET_NAME}</b> roster is growing. New creatures are on the way that can only be met through <b>Exclusive Raids</b> and the <b>15 km eggs</b> they drop, so the blue flame stays worth chasing.` }),
+      el('h4', { text: 'Fossils' }),
+      el('p', { html: '<b>Fossils are coming.</b> Collect their <b>fragments</b> and take them to a specialist to have the creature inside <b>revived</b>.' }),
       el('h4', { text: 'Battle Frontier' }),
       el('p', { html: 'A new building called the <b>Battle Frontier</b> will open up new ways to battle, beyond the raids and grunts you meet on the map. More on how it works closer to the time.' }),
       el('h4', { text: 'More abilities' }),

@@ -825,6 +825,11 @@ a { color: var(--accent); }
   box-shadow: 0 0 12px #b07cff44;
 }
 
+/* ---- Buildings list: one block per building already on the map ---- */
+.building-row { margin-bottom: 10px; }
+.building-row .btn-row { margin: 6px 0 0; }
+.building-row .hint { margin: 6px 0 0; }
+
 /* ---- Held items: the free / being held toggle ----
    One state at a time, so the tab is a single grid like Items next door. */
 .held-toggle {

@@ -497,12 +497,13 @@ function placeResearchLab() {
 function placeBreedingCentre() {
   const pos = Geo.current;
   if (!pos) { toast('Waiting for your location…', 'bad'); return; }
-  if (store.s.breeding) { toast('Your breeding centre is already on the map', 'bad'); return; }
+
   if (!store.breedingUnlocked) {
     toast(`Breeding centres unlock at player level ${BREEDING_UNLOCK_LEVEL}`, 'bad', 3600);
     return;
   }
-  if (!confirm('Pin your breeding centre here? You can pick it up and move it later from the centre itself.')) return;
+  if (!confirm('Pin a breeding centre here? You can pick it back up any time, '
+    + 'from the centre itself or from Buildings in your Items.')) return;
 
   const r = store.placeBreedingCentre(pos.lat, pos.lng);
   if (!r.ok) {
@@ -751,7 +752,7 @@ function syncMap() {
   // draw them, and syncPoints removes any marker it no longer hears about.
   const shown = store.s.ui.hideCollectedPoints ? active.filter(p => !p.collected) : active;
   GameMap.syncPoints(shown);
-  GameMap.syncBreeding(store.s.breeding);
+  GameMap.syncBreeding(store.s.breedings);
   GameMap.syncResearchLab(store.s.researchLab);
   // Straight away rather than on the next tick, so playing a harvest clears the
   // arrow the moment the sheet closes.
@@ -772,7 +773,7 @@ function startLoop() {
 
     GameMap.tick(now, Geo.current, {
       range: interactRange(),
-      breedingFull: store.breedingFullSlots(now)
+      breedingFull: store.breedingFullSlotsByCentre(now)
     });
 
     // Keeps the temperature current while the player stands still, since a
@@ -949,7 +950,7 @@ function initUI() {
     const pos = Geo.current;
     const range = interactRange();
     const near = !isFinite(range) || (pos && distance(pos, centre) <= range);
-    openBreeding({ inRange: !!near });
+    openBreeding(centre, { inRange: !!near });
     if (!near) {
       toast(`Get within ${range} m of your breeding centre to use it`, 'bad', 3400);
     }

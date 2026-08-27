@@ -1467,7 +1467,13 @@ export const SHOP_ITEMS = [
   { id: 'shop_ultra',      item: 'ultra_disc',           qty: 1, coins: 1, limit: 2 },
   { id: 'shop_incubator',  item: 'single_use_incubator', qty: 1, coins: 2, limit: 1 },
   { id: 'shop_incense',    item: 'incense',              qty: 1, coins: 3, limit: 1 },
-  { id: 'shop_magnet',     item: 'stardust_magnet',      qty: 1, coins: 3, limit: 1 }
+  { id: 'shop_magnet',     item: 'stardust_magnet',      qty: 1, coins: 3, limit: 1 },
+  /* The three special incenses. Deliberately the most expensive things on the
+     shelf and one a day each: they are meant to be a considered purchase after
+     a run of ads, not something you stock up on. */
+  { id: 'shop_rare_incense',      item: 'rare_incense',       qty: 1, coins: 10, limit: 1 },
+  { id: 'shop_shiny_incense',     item: 'shiny_incense',      qty: 1, coins: 50, limit: 1 },
+  { id: 'shop_mysterious_incense', item: 'mysterious_incense', qty: 1, coins: 50, limit: 1 }
 ];
 
 export const shopItem = id => SHOP_ITEMS.find(s => s.id === id) || null;

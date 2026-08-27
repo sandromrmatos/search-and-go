@@ -78,7 +78,8 @@ export const GameMap = {
   spawnLayer: null,
   poiLayer: null,
   breedingLayer: null,
-  breedingMarker: null,
+  /** centreId -> { marker, centre }. Plural since centres became plural. */
+  breedingMarkers: new Map(),
   labMarker: null,
   markers: new Map(),   // pointId -> { marker, el, timerEl, point }
   poiMarkers: new Map(),
@@ -389,7 +390,7 @@ export const GameMap = {
    * RULES.CAPTURE_RANGE_M, wider during Relax and Good Night, and Infinity
    * when the debug override is on.
    */
-  tick(now, playerPos, { range = RULES.CAPTURE_RANGE_M, breedingFull = 0 } = {}) {
+  tick(now, playerPos, { range = RULES.CAPTURE_RANGE_M, breedingFull = null } = {}) {
     const unlimited = !isFinite(range);
     // Keep the green ring showing the real reach. Only touch Leaflet when the
     // number actually changes — this runs every second.
@@ -416,8 +417,8 @@ export const GameMap = {
         rec.el.classList.toggle('out-range', !inRange);
       }
     }
-    // Both permanent pins light up when you are close enough to use them.
-    for (const marker of [this.breedingMarker, this.labMarker]) {
+    // Every permanent pin lights up when you are close enough to use it.
+    for (const marker of [...[...this.breedingMarkers.values()].map(r => r.marker), this.labMarker]) {
       if (!marker || !(playerPos || unlimited)) continue;
       const at = marker.getLatLng();
       const inReach = unlimited || distance(playerPos, { lat: at.lat, lng: at.lng }) <= range;
@@ -431,14 +432,19 @@ export const GameMap = {
     // "There is candy waiting" on the breeding pin. Updated here rather than in
     // syncBreeding because a slot fills on a timer, with nothing touching the
     // save at that moment to trigger a re-sync.
-    const badge = this.breedingMarker?.getElement?.()?.querySelector('.breed-badge');
-    if (badge) {
-      badge.classList.toggle('hidden', breedingFull <= 0);
+    // `breedingFull` is a count per centre id, so each pin only lights up for
+    // the pairs actually standing in it.
+    const fullBy = (breedingFull && typeof breedingFull === 'object') ? breedingFull : {};
+    for (const [id, rec] of this.breedingMarkers) {
+      const badge = rec.marker.getElement?.()?.querySelector('.breed-badge');
+      if (!badge) continue;
+      const n = Number(fullBy[id]) || 0;
+      badge.classList.toggle('hidden', n <= 0);
       // One full slot needs no number; more than one is worth spelling out.
-      badge.textContent = breedingFull > 1 ? String(breedingFull) : '';
-      badge.title = breedingFull === 1
+      badge.textContent = n > 1 ? String(n) : '';
+      badge.title = n === 1
         ? 'A pair has finished its candy'
-        : `${breedingFull} pairs have finished their candy`;
+        : `${n} pairs have finished their candy`;
     }
   },
 
@@ -447,20 +453,31 @@ export const GameMap = {
    * shared with the Research Lab, which is why this removes just its own
    * marker rather than clearing the whole layer.
    */
-  syncBreeding(centre) {
+  syncBreeding(centres) {
     if (!this.map || !this.breedingLayer) return;
-    if (!centre) {
-      if (this.breedingMarker) {
-        this.breedingLayer.removeLayer(this.breedingMarker);
-        this.breedingMarker = null;
+    const list = Array.isArray(centres) ? centres : (centres ? [centres] : []);
+    const wanted = new Set(list.map(c => c.id));
+
+    for (const [id, rec] of this.breedingMarkers) {
+      if (!wanted.has(id)) {
+        this.breedingLayer.removeLayer(rec.marker);
+        this.breedingMarkers.delete(id);
       }
-      return;
     }
-    if (this.breedingMarker) {
-      this.breedingMarker.setLatLng([centre.lat, centre.lng]);
-      return;
+
+    for (const centre of list) {
+      const existing = this.breedingMarkers.get(centre.id);
+      if (existing) {
+        existing.centre = centre;
+        existing.marker.setLatLng([centre.lat, centre.lng]);
+        continue;
+      }
+      this._addBreedingMarker(centre);
     }
-    this.breedingMarker = L.marker([centre.lat, centre.lng], {
+  },
+
+  _addBreedingMarker(centre) {
+    const marker = L.marker([centre.lat, centre.lng], {
       icon: L.divIcon({
         className: '',
         // The wrapper takes the counter-rotation; the flag itself keeps its
@@ -474,7 +491,11 @@ export const GameMap = {
       }),
       zIndexOffset: 400
     }).addTo(this.breedingLayer);
-    this.breedingMarker.on('click', () => this.onBreedingClick?.(centre));
+    const rec = { marker, centre };
+    this.breedingMarkers.set(centre.id, rec);
+    // Reads `rec.centre` rather than closing over the argument, so a re-synced
+    // centre opens with its current contents rather than a stale copy.
+    marker.on('click', () => this.onBreedingClick?.(rec.centre));
   },
 
   /** The Research Lab is the second permanent pin, and works the same way. */

@@ -639,8 +639,13 @@ function doMassRelease() {
    =============================================================== */
 export function renderItems() {
   const grid = $('#items-grid');
-  const owned = store.ownedItems();
-  $('#items-empty').classList.toggle('hidden', owned.length > 0);
+  // Buildings get a card of their own rather than a tile per spare copy: what
+  // matters about them is where they are, and the ones already on the map were
+  // not represented here at all.
+  const owned = store.ownedItems().filter(({ def }) => def.use !== 'place');
+  const buildings = store.buildingRows();
+  const anyBuilding = buildings.some(b => b.held > 0 || b.placed.length > 0);
+  $('#items-empty').classList.toggle('hidden', owned.length > 0 || anyBuilding);
 
   grid.innerHTML = '';
   for (const { def, qty } of owned) {
@@ -655,6 +660,152 @@ export function renderItems() {
       el('span', { class: 'use-hint', text: def.soon ? 'Coming soon' : tappable ? 'Tap to use' : 'Used automatically' })
     ));
   }
+
+  if (anyBuilding) {
+    const held = buildings.reduce((n, b) => n + b.held, 0);
+    const placed = buildings.reduce((n, b) => n + b.placed.length, 0);
+    grid.append(el('button', {
+      class: 'cell item-cell tappable',
+      onclick: openBuildingsSheet
+    },
+      held ? el('span', { class: 'qty', text: String(held) }) : null,
+      el('img', { src: itemImage('breeding_center'), alt: '', loading: 'lazy' }),
+      el('span', { class: 'nm', text: 'Buildings' }),
+      el('span', {
+        class: 'use-hint',
+        text: placed
+          ? `${placed} on the map${held ? `, ${held} spare` : ''}`
+          : `${held} to place`
+      })
+    ));
+  }
+}
+
+/* ===============================================================
+   BUILDINGS
+
+   Everything placeable in one list, on the map and in the bag together. Before
+   this, a building you had pinned only existed as a marker — so pinning one
+   somewhere you never went back to meant losing it for good, with no way to see
+   it or fetch it. Now it can always be picked back up from here.
+   =============================================================== */
+export function openBuildingsSheet() {
+  const rows = store.buildingRows();
+  const body = $('#sheet-body');
+  body.innerHTML = '';
+
+  const blocks = [];
+  for (const row of rows) {
+    if (!row.held && !row.placed.length) continue;
+    const def = ITEMS[row.id];
+    const isLab = row.id === 'research_lab';
+    const locked = !isLab && !store.breedingUnlocked;
+    // One lab is as good as two, so a second is not offered.
+    const canPlaceMore = row.held > 0 && !locked && !(isLab && row.placed.length > 0);
+
+    blocks.push(
+      el('h4', { class: 'sheet-h4', text: def.name }),
+      el('div', { class: 'det-rows' },
+        el('div', { class: 'det-row' },
+          el('img', { src: itemImage(row.id), alt: '' }),
+          el('span', { text: 'In your bag, ready to place' }),
+          el('b', { text: String(row.held) })
+        ),
+        el('div', { class: 'det-row' },
+          el('span', { text: '📍' }),
+          el('span', { text: 'On the map' }),
+          el('b', { text: String(row.placed.length) })
+        )
+      ),
+      el('div', { class: 'btn-row' },
+        el('button', {
+          class: 'btn primary',
+          disabled: !canPlaceMore,
+          onclick: () => {
+            closeSheet('sheet');
+            if (isLab) onPlaceResearchLab?.(); else onPlaceBreeding?.();
+          }
+        }, locked ? `Unlocks at player level ${BREEDING_UNLOCK_LEVEL}`
+          : !row.held ? 'None spare to place'
+          : (isLab && row.placed.length) ? 'One lab is enough'
+          : 'Place at my location')
+      ),
+      ...row.placed.map((b, i) => buildingRow(row, b, i))
+    );
+  }
+
+  appendAll(body,
+    el('div', { class: 'det-head' },
+      el('img', { src: itemImage('breeding_center'), alt: '' }),
+      el('div', { class: 'det-title' },
+        el('h3', { text: 'Buildings' }),
+        el('div', { class: 'det-tags' },
+          el('span', { class: 'tag', text: `${rows.reduce((n, r) => n + r.placed.length, 0)} placed` }),
+          el('span', { class: 'tag', text: `${rows.reduce((n, r) => n + r.held, 0)} spare` })
+        )
+      )
+    ),
+    el('p', { class: 'hint', text: 'Everything you can pin to the map, wherever it is right now. '
+      + 'Anything already out there can be fetched back from here, so a building left somewhere '
+      + 'you never return to is never lost.' }),
+    ...blocks
+  );
+  openSheet('sheet');
+}
+
+/** One placed building, with the button that brings it home. */
+function buildingRow(row, building, index) {
+  const isLab = row.id === 'research_lab';
+  const pairs = isLab ? 0 : store.breedingOccupancyOf(building.id);
+  const candy = isLab ? 0 : (store.breedingCentre(building.id)?.slots || [])
+    .reduce((n, sl) => n + store.breedingProgress(sl).earned, 0);
+  const placedOn = new Date(building.placedAt || Date.now()).toLocaleDateString();
+
+  return el('div', { class: 'det-rows building-row' },
+    el('div', { class: 'det-row' },
+      el('span', { text: isLab ? '🔬' : '⚑' }),
+      el('span', { text: `${row.placed.length > 1 ? `#${index + 1} · ` : ''}placed ${placedOn}` }),
+      el('b', { text: pairs ? `${pairs} pair${pairs === 1 ? '' : 's'} inside` : 'empty' })
+    ),
+    el('div', { class: 'btn-row' },
+      el('button', {
+        class: 'btn ghost',
+        onclick: () => fetchBuilding(row.id, building.id, pairs, candy)
+      }, '↩ Bring it back')
+    ),
+    pairs
+      ? el('p', { class: 'hint', text: candy
+          ? `Bringing it back frees the ${pairs} pair${pairs === 1 ? '' : 's'} inside, but loses the ${candy} candy they have earned.`
+          : `Bringing it back frees the ${pairs} pair${pairs === 1 ? '' : 's'} inside. No candy earned yet, so nothing is lost.` })
+      : null
+  );
+}
+
+function fetchBuilding(itemId, buildingId, pairs, candy) {
+  const isLab = itemId === 'research_lab';
+  const warning = isLab
+    ? 'Bring your Research Lab back? It returns to your Items and you can pin it somewhere else. Nothing is lost.'
+    : pairs
+      ? `Bring this breeding centre back?\n\nThe ${pairs} pair${pairs === 1 ? '' : 's'} inside will return to your storage, but ${
+          candy ? `the ${candy} candy they have earned will be lost` : 'any progress towards their next candy will be lost'
+        }.\n\nCollect them at the centre first if you want to keep it.`
+      : 'Bring this breeding centre back? It returns to your Items and you can pin it somewhere else. Nothing is lost.';
+  if (!confirm(warning)) return;
+
+  const r = isLab ? store.moveResearchLab() : store.moveBreedingCentre(buildingId);
+  if (!r.ok) { toast('Could not bring it back', 'bad'); return; }
+
+  toast(isLab
+    ? 'Research Lab packed up — place it wherever you like'
+    : r.pairs
+      ? `Centre packed up — ${r.pairs} pair${r.pairs === 1 ? '' : 's'} came home`
+        + (r.candyLost ? `, ${r.candyLost} candy lost` : '')
+      : 'Breeding centre packed up — place it wherever you like',
+    r.candyLost ? '' : 'good', 4200);
+
+  onEffectsChanged?.();     // re-syncs the map pins
+  refreshAll();
+  openBuildingsSheet();     // straight back to the list, now one shorter
 }
 
 /* ===============================================================
@@ -1014,9 +1165,10 @@ export function openItemSheet(itemId) {
     }, free < 1 ? 'Busy with an egg' : idle < 1 ? 'No egg waiting' : 'Incubate an egg'));
   }
   if (def.use === 'place') {
-    // Two placeable buildings now, and only the breeding centre has a level gate.
+    // Breeding centres can be pinned as often as you have them; the lab is one
+    // at a time, since a second would do nothing a first does not.
     const isLab = itemId === 'research_lab';
-    const placed = isLab ? !!store.s.researchLab : !!store.s.breeding;
+    const placed = isLab && !!store.s.researchLab;
     const unlocked = isLab || store.breedingUnlocked;
     actions.push(el('button', {
       class: 'btn primary',
@@ -1025,6 +1177,10 @@ export function openItemSheet(itemId) {
     }, placed ? 'Already placed on the map'
        : !unlocked ? `Unlocks at player level ${BREEDING_UNLOCK_LEVEL}`
        : 'Place at my location'));
+    actions.push(el('button', {
+      class: 'btn ghost',
+      onclick: () => { closeSheet('sheet'); openBuildingsSheet(); }
+    }, 'All buildings'));
   }
 
   body.innerHTML = '';
@@ -2480,8 +2636,10 @@ export function renderEffectChips(now = Date.now()) {
       : event.id === 'creatureSpotlight'
         // Names the creature: that is the whole point of the event.
         ? `${event.species?.name || 'a creature'} everywhere · +${SPOTLIGHT_BONUS_CANDY} candy`
+        // The takeover's name is long enough on its own — on a phone the chip
+        // has room for the label and the countdown, nothing more.
         : event.id === 'galacticTakeover'
-          ? 'spawns, raids and eggs are all Galactic'
+          ? ''
           : 'grunts everywhere · no limit';
     const icon = event.id === 'raidInvasion' ? '🔥'
       : event.id === 'creatureSpotlight' ? '🌟'
@@ -2489,7 +2647,7 @@ export function renderEffectChips(now = Date.now()) {
       : '🥋';
     host.append(el('div', { class: `fx-chip event-${event.id}` },
       el('span', { text: icon }),
-      el('span', { text: `${event.label} · ${blurb}` }),
+      el('span', { text: blurb ? `${event.label} · ${blurb}` : event.label }),
       el('b', { text: timeLeftLabel(event.endsIn) })
     ));
   }

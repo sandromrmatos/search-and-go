@@ -38,6 +38,13 @@ import { ITEMS, item as itemDef } from './items.js';
 
 export const SAVE_VERSION = 3;
 
+/**
+ * Ids for placed buildings and for breeding pairs. Random rather than a counter
+ * so nothing extra has to be migrated or kept in step across saves.
+ */
+const newBuildingId = () => `bd${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+const newSlotId = () => `sl${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
 /** Local calendar day key, used for daily missions. */
 export const dayKey = (d = new Date()) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -120,7 +127,14 @@ function blankState() {
 
     points: [],         // live map points of every kind
     effects: { incense: null, magnet: null, seeker: null },
-    breeding: null,     // { lat, lng, placedAt, slots: [...] }
+    /**
+     * Every breeding centre on the map. Plural because pinning your only one
+     * somewhere you never go back to used to lock you out of breeding for good.
+     * Each is { id, lat, lng, placedAt, slots: [{ id, speciesId, uids, startedAt }] }.
+     * The number of pairs you can have going is capped by player level across
+     * all of them together, so extra centres are convenience, not capacity.
+     */
+    breedings: [],
     researchLab: null,  // { lat, lng, placedAt }
     /** Galactic Adventures rarities opened by the Set missions. Never resets. */
     galacticUnlocked: [],
@@ -378,11 +392,50 @@ export function migrate(raw) {
     s.researchLab = null;
   }
 
-  // ---- breeding ----
-  if (s.breeding && (!isFinite(s.breeding.lat) || !isFinite(s.breeding.lng))) s.breeding = null;
-  if (s.breeding) {
-    s.breeding.slots = (Array.isArray(s.breeding.slots) ? s.breeding.slots : [])
-      .filter(sl => sl && sl.speciesId && Array.isArray(sl.uids));
+  /* ---- breeding centres ----
+     Saves from before centres went plural carry a single `breeding` object, so
+     it is folded into the list. Pairs get a stable id here too: they used to be
+     addressed by their index, which had to be patched up every time a slot was
+     removed. */
+  const rawCentres = Array.isArray(raw.breedings) ? raw.breedings
+    : (raw.breeding ? [raw.breeding] : []);
+  s.breedings = rawCentres
+    .filter(b => b && isFinite(b.lat) && isFinite(b.lng))
+    .map(b => ({
+      id: typeof b.id === 'string' && b.id ? b.id : newBuildingId(),
+      lat: Number(b.lat),
+      lng: Number(b.lng),
+      placedAt: Number(b.placedAt) || Date.now(),
+      slots: (Array.isArray(b.slots) ? b.slots : [])
+        .filter(sl => sl && sl.speciesId && Array.isArray(sl.uids))
+        .map(sl => ({
+          id: typeof sl.id === 'string' && sl.id ? sl.id : newSlotId(),
+          speciesId: sl.speciesId,
+          uids: sl.uids.slice(0, 2),
+          startedAt: Number(sl.startedAt) || Date.now()
+        }))
+    }));
+  delete s.breeding;
+
+  /* Repoint every creature at its pair's stable id. An old save says "slot 2 of
+     the one centre"; anything pointing at a pair that no longer exists is freed
+     rather than left permanently busy and unusable. */
+  const slotIds = new Set();
+  const byOldIndex = new Map();
+  s.breedings.forEach((b, bi) => b.slots.forEach((sl, si) => {
+    slotIds.add(sl.id);
+    if (bi === 0) byOldIndex.set(si, sl.id);
+  }));
+  for (const c of s.storage) {
+    if (c.breeding == null) continue;
+    if (typeof c.breeding === 'number') c.breeding = byOldIndex.get(c.breeding) ?? null;
+    else if (!slotIds.has(c.breeding)) c.breeding = null;
+  }
+  // A pair whose creatures have both vanished would sit there forever counting
+  // against the cap, so drop it.
+  const storedUids = new Set(s.storage.map(c => c.uid));
+  for (const b of s.breedings) {
+    b.slots = b.slots.filter(sl => sl.uids.some(uid => storedUids.has(uid)));
   }
 
   // ---- daily reset ----
@@ -1089,6 +1142,24 @@ class Store {
       coins: this.coins,
       left: def.limit - (bought + 1)
     };
+  }
+
+  /**
+   * Every placeable building: how many are spare in the bag, and every one
+   * already pinned to the map. The Buildings list is built from this, so a
+   * building out in the world is always visible and always retrievable.
+   */
+  buildingRows() {
+    return Object.values(ITEMS)
+      .filter(def => def.use === 'place')
+      .sort((a, b) => a.order - b.order)
+      .map(def => ({
+        id: def.id,
+        held: this.itemCount(def.id),
+        placed: def.id === 'research_lab'
+          ? (this.s.researchLab ? [{ id: 'lab', ...this.s.researchLab }] : [])
+          : this.s.breedings
+      }));
   }
 
   /** Every item the player actually holds, plus its quantity. */
@@ -1896,15 +1967,50 @@ class Store {
   /* ---------------- breeding centre ---------------- */
 
   get breedingUnlocked() { return this.level >= BREEDING_UNLOCK_LEVEL; }
+
+  /**
+   * How many pairs can be breeding at once, across every centre you own. The
+   * cap is per player, not per building, so pinning a second centre gives you
+   * somewhere else to go rather than twice the throughput.
+   */
   get breedingSlots() { return breedingSlotsFor(this.level); }
 
+  get breedingCentres() { return this.s.breedings; }
+  breedingCentre(id) { return this.s.breedings.find(b => b.id === id) || null; }
+
+  breedingSlotsUsed() {
+    return this.s.breedings.reduce((n, b) => n + b.slots.length, 0);
+  }
+  breedingSlotsLeft() {
+    return Math.max(0, this.breedingSlots - this.breedingSlotsUsed());
+  }
+
+  /** Every pair you have going, with the centre it is sitting in. */
+  breedingPairs() {
+    const out = [];
+    for (const centre of this.s.breedings) {
+      for (const slot of centre.slots) out.push({ centre, slot });
+    }
+    return out;
+  }
+
+  /** The pair a creature is part of, or null. */
+  breedingSlotOf(uid) {
+    for (const centre of this.s.breedings) {
+      const slot = centre.slots.find(sl => sl.uids.includes(uid));
+      if (slot) return { centre, slot };
+    }
+    return null;
+  }
+
+  /** As many as you like, so a badly placed one is never a dead end. */
   placeBreedingCentre(lat, lng) {
-    if (this.s.breeding) return { ok: false, reason: 'placed' };
     if (!this.hasItem('breeding_center')) return { ok: false, reason: 'noItem' };
     this.spendItem('breeding_center');
-    this.s.breeding = { lat, lng, placedAt: Date.now(), slots: [] };
+    const centre = { id: newBuildingId(), lat, lng, placedAt: Date.now(), slots: [] };
+    this.s.breedings.push(centre);
     this.touch('breeding', { immediate: true });
-    return { ok: true };
+    return { ok: true, centre };
   }
 
   /**
@@ -1913,30 +2019,64 @@ class Store {
    * the moment it happens, so a flag would go stale.
    */
   breedingFullSlots(now = Date.now()) {
-    if (!this.s.breeding) return 0;
-    return this.s.breeding.slots
-      .filter(sl => this.breedingProgress(sl, now).earned >= BREEDING_CANDY_CAP)
+    return this.breedingPairs()
+      .filter(({ slot }) => this.breedingProgress(slot, now).earned >= BREEDING_CANDY_CAP)
       .length;
   }
 
-  /**
-   * Picks the breeding centre back up, returning it to your Items so it can be
-   * pinned somewhere else.
-   *
-   * Every pair has to be collected first: a creature inside carries the index
-   * of its slot, and dropping the building would leave those indices pointing
-   * at nothing — the creatures would stay permanently unavailable for battling,
-   * breeding and Stat Boosters with no way to free them.
-   */
-  moveBreedingCentre() {
-    if (!this.s.breeding) return { ok: false, reason: 'noCentre' };
-    const occupied = this.s.breeding.slots.length;
-    if (occupied) return { ok: false, reason: 'occupied', slots: occupied };
+  /** The same count per centre, so each pin can carry its own pip. */
+  breedingFullSlotsByCentre(now = Date.now()) {
+    const out = {};
+    for (const centre of this.s.breedings) {
+      out[centre.id] = centre.slots
+        .filter(sl => this.breedingProgress(sl, now).earned >= BREEDING_CANDY_CAP)
+        .length;
+    }
+    return out;
+  }
 
-    this.s.breeding = null;
+  /**
+   * Picks one breeding centre back up, returning it to your Items so it can be
+   * pinned somewhere else. Always allowed, whatever is inside.
+   */
+  moveBreedingCentre(id = null) {
+    const i = id
+      ? this.s.breedings.findIndex(b => b.id === id)
+      : (this.s.breedings.length ? 0 : -1);
+    if (i < 0) return { ok: false, reason: 'noCentre' };
+    const centre = this.s.breedings[i];
+
+    /* Pairs inside come home and any candy they had not yet earned out is lost.
+       This used to be refused outright, which meant a centre pinned somewhere
+       the player never returned to locked them out of breeding permanently. The
+       UI says what will be lost before calling this. */
+    const freed = [];
+    for (const slot of centre.slots) {
+      freed.push({
+        speciesId: slot.speciesId,
+        uids: slot.uids.slice(),
+        candyLost: this.breedingProgress(slot).earned
+      });
+      for (const uid of slot.uids) {
+        const c = this.creature(uid);
+        if (c) c.breeding = null;
+      }
+    }
+
+    this.s.breedings.splice(i, 1);
     this.addItem('breeding_center');
     this.touch('breeding', { immediate: true });
-    return { ok: true };
+    return {
+      ok: true,
+      pairs: freed.length,
+      candyLost: freed.reduce((n, f) => n + f.candyLost, 0),
+      freed
+    };
+  }
+
+  /** How many pairs are sitting in one centre. */
+  breedingOccupancyOf(id) {
+    return this.breedingCentre(id)?.slots.length || 0;
   }
 
   /* ---------------- research lab ---------------- */
@@ -2289,25 +2429,32 @@ class Store {
     };
   }
 
-  /** Two creatures of the exact same species start generating that family's candy. */
-  addBreedingPair(uidA, uidB) {
-    if (!this.s.breeding) return { ok: false, reason: 'noCentre' };
-    if (this.s.breeding.slots.length >= this.breedingSlots) return { ok: false, reason: 'full' };
+  /**
+   * Two creatures of the exact same species start generating that family's candy,
+   * in the centre given (or the first one you own).
+   */
+  addBreedingPair(uidA, uidB, centreId = null) {
+    const centre = centreId ? this.breedingCentre(centreId) : this.s.breedings[0];
+    if (!centre) return { ok: false, reason: 'noCentre' };
+    // The cap counts every centre together, so a second building does not double
+    // how many pairs you can have going.
+    if (this.breedingSlotsLeft() <= 0) return { ok: false, reason: 'full' };
     const a = this.creature(uidA), b = this.creature(uidB);
     if (!a || !b || a.uid === b.uid) return { ok: false, reason: 'missing' };
     if (a.speciesId !== b.speciesId) return { ok: false, reason: 'species' };
     if (a.breeding != null || b.breeding != null) return { ok: false, reason: 'busy' };
 
-    const index = this.s.breeding.slots.length;
-    this.s.breeding.slots.push({
+    const slot = {
+      id: newSlotId(),
       speciesId: a.speciesId,
       uids: [a.uid, b.uid],
       startedAt: Date.now()
-    });
-    a.breeding = index;
-    b.breeding = index;
+    };
+    centre.slots.push(slot);
+    a.breeding = slot.id;
+    b.breeding = slot.id;
     this.touch('breeding', { immediate: true });
-    return { ok: true, index };
+    return { ok: true, slotId: slot.id, centreId: centre.id };
   }
 
   /**
@@ -2332,11 +2479,18 @@ class Store {
     return { earned, cap: BREEDING_CANDY_CAP, every, nextAt, rarity, halved };
   }
 
-  /** Collect a pair back and bank whatever candy they made. */
-  collectBreedingSlot(index, now = Date.now()) {
-    if (!this.s.breeding) return { ok: false, reason: 'noCentre' };
-    const slot = this.s.breeding.slots[index];
-    if (!slot) return { ok: false, reason: 'empty' };
+  /**
+   * Collect a pair back and bank whatever candy they made. Addressed by the
+   * pair's own id, so removing one never disturbs the others.
+   */
+  collectBreedingSlot(slotId, now = Date.now()) {
+    let centre = null, index = -1;
+    for (const b of this.s.breedings) {
+      const i = b.slots.findIndex(sl => sl.id === slotId);
+      if (i >= 0) { centre = b; index = i; break; }
+    }
+    if (!centre) return { ok: false, reason: 'empty' };
+    const slot = centre.slots[index];
 
     const { earned } = this.breedingProgress(slot, now);
     if (earned > 0) this.addCandy(slot.speciesId, earned);
@@ -2352,19 +2506,13 @@ class Store {
       c.breeding = null;
       if (amuletsSpent) this.consumeHeldItem(uid);
     }
-    this.s.breeding.slots.splice(index, 1);
-    // slot indices shifted — repoint the creatures still inside
-    this.s.breeding.slots.forEach((sl, i) => {
-      for (const uid of sl.uids) {
-        const c = this.creature(uid);
-        if (c) c.breeding = i;
-      }
-    });
+    // Pairs carry their own id, so nothing else needs repointing.
+    centre.slots.splice(index, 1);
 
     this.touch('breeding', { immediate: true });
     return {
       ok: true, candy: earned, speciesId: slot.speciesId, uids: slot.uids,
-      halved: amulets, amuletsSpent
+      halved: amulets, amuletsSpent, centreId: centre.id
     };
   }
 
