@@ -1969,20 +1969,30 @@ class Store {
   get breedingUnlocked() { return this.level >= BREEDING_UNLOCK_LEVEL; }
 
   /**
-   * How many pairs can be breeding at once, across every centre you own. The
-   * cap is per player, not per building, so pinning a second centre gives you
-   * somewhere else to go rather than twice the throughput.
+   * How many pairs each breeding centre holds. Your player level unlocks a
+   * number of slots, and every centre you place has that many of its own — so a
+   * second centre is a second set of slots, not a share of the first's.
    */
   get breedingSlots() { return breedingSlotsFor(this.level); }
 
   get breedingCentres() { return this.s.breedings; }
   breedingCentre(id) { return this.s.breedings.find(b => b.id === id) || null; }
 
+  /** Pairs breeding across every centre, for totals and mission counts. */
   breedingSlotsUsed() {
     return this.s.breedings.reduce((n, b) => n + b.slots.length, 0);
   }
+
+  /** Free slots in one particular centre. */
+  breedingSlotsLeftAt(centreId) {
+    const centre = this.breedingCentre(centreId);
+    if (!centre) return 0;
+    return Math.max(0, this.breedingSlots - centre.slots.length);
+  }
+
+  /** Free slots anywhere, so "no room at all" can still be told apart. */
   breedingSlotsLeft() {
-    return Math.max(0, this.breedingSlots - this.breedingSlotsUsed());
+    return this.s.breedings.reduce((n, b) => n + this.breedingSlotsLeftAt(b.id), 0);
   }
 
   /** Every pair you have going, with the centre it is sitting in. */
@@ -2436,9 +2446,8 @@ class Store {
   addBreedingPair(uidA, uidB, centreId = null) {
     const centre = centreId ? this.breedingCentre(centreId) : this.s.breedings[0];
     if (!centre) return { ok: false, reason: 'noCentre' };
-    // The cap counts every centre together, so a second building does not double
-    // how many pairs you can have going.
-    if (this.breedingSlotsLeft() <= 0) return { ok: false, reason: 'full' };
+    // Each centre has its own slots, so filling one up leaves the others free.
+    if (centre.slots.length >= this.breedingSlots) return { ok: false, reason: 'full' };
     const a = this.creature(uidA), b = this.creature(uidB);
     if (!a || !b || a.uid === b.uid) return { ok: false, reason: 'missing' };
     if (a.speciesId !== b.speciesId) return { ok: false, reason: 'species' };

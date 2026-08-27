@@ -738,10 +738,9 @@ function renderBreeding(inRange) {
     return;
   }
 
+  // Slots are per centre: this one has the full set however many others you own.
   const cap = store.breedingSlots;
-  const used = store.breedingSlotsUsed();
   const here = centre.slots.length;
-  const elsewhere = used - here;
   const total = store.breedingCentres.length;
   const nextAt = Object.entries(BREEDING_SLOTS_BY_LEVEL)
     .map(([lvl, n]) => ({ lvl: Number(lvl), n }))
@@ -750,20 +749,16 @@ function renderBreeding(inRange) {
   hint.textContent = inRange
     ? `Leave two creatures of the same species inside and they generate that family's candy. `
       + `They stop at ${BREEDING_CANDY_CAP} candy, so come back and collect.`
-      + (nextAt ? ` Player level ${nextAt.lvl} unlocks pair ${nextAt.n}.` : '')
-      + (total > 1 ? ` You have ${total} centres; the ${cap} pairs are shared between them.` : '')
+      + (nextAt ? ` Player level ${nextAt.lvl} unlocks slot ${nextAt.n}.` : '')
+      + (total > 1 ? ` Each of your ${total} centres has its own ${cap} slot${cap === 1 ? '' : 's'}.` : '')
     : `You need to be within ${RULES.CAPTURE_RANGE_M} m of the centre to use it.`;
 
-  // The pairs standing in this centre, then whatever room is left over.
+  // This centre's own slots: the pairs inside, then its remaining room.
   for (const slot of centre.slots) host.append(filledSlot(slot, inRange));
-  const free = Math.max(0, cap - used);
-  for (let i = 0; i < free; i++) host.append(emptySlot(inRange));
+  for (let i = here; i < cap; i++) host.append(emptySlot(inRange));
 
   if (!cap) {
-    host.append(el('p', { class: 'empty', text: `Pairs unlock at player level ${BREEDING_UNLOCK_LEVEL}.` }));
-  } else if (elsewhere > 0) {
-    host.append(el('p', { class: 'hint', text: `${elsewhere} more pair${elsewhere === 1 ? ' is' : 's are'} `
-      + `breeding at your other centre${total > 2 ? 's' : ''}.` }));
+    host.append(el('p', { class: 'empty', text: `Slots unlock at player level ${BREEDING_UNLOCK_LEVEL}.` }));
   }
 
   // ---- move it somewhere else ----
@@ -1035,7 +1030,7 @@ function addPair(a, b) {
   const r = store.addBreedingPair(a, b, openCentreId);
   if (!r.ok) {
     toast(({
-      full: 'Every pair slot is in use',
+      full: 'Every slot in this centre is in use',
       species: 'Both creatures must be the same species',
       busy: 'One of those is already breeding',
       noCentre: 'No breeding centre placed'
@@ -1486,13 +1481,16 @@ function renderInfo(tab = 'basics') {
         el('li', { html: `Reaching <b>${MAX_PLAYER_LEVEL}</b> takes <b>${num(PLAYER_LEVEL_XP[MAX_PLAYER_LEVEL])} XP</b> in total. The steps get steeper as you go: level ${MAX_PLAYER_LEVEL} alone asks for <b>${num(playerLevelStep(MAX_PLAYER_LEVEL - 1))}</b> more than level ${MAX_PLAYER_LEVEL - 1} did.` })
       ),
       el('h4', { text: 'Breeding centre' }),
-      el('p', { html: `From player level <b>${BREEDING_UNLOCK_LEVEL}</b> you can pin a breeding centre anywhere, and pick it back up later if you want it somewhere else. Leave two creatures of the same species in a slot and they generate that family's candy (every 12 h for common and uncommon, up to 36 h for legendary), stopping at <b>${BREEDING_CANDY_CAP}</b>. They cannot battle until you collect them back from the centre itself.` }),
+      el('p', { html: `From player level <b>${BREEDING_UNLOCK_LEVEL}</b> you can pin a breeding centre anywhere, and pick it back up later if you want it somewhere else. You can place <b>as many as you own</b>, and each one has its <b>own full set of slots</b>. Leave two creatures of the same species in a slot and they generate that family's candy (every 12 h for common and uncommon, up to 36 h for legendary), stopping at <b>${BREEDING_CANDY_CAP}</b>. They cannot battle until you collect them back from the centre itself.` }),
       el('ul', {},
         el('li', { html: 'Tap an empty slot and your whole storage opens, with the <b>same sorting and pages</b> you use in Storage. Pick any two creatures, then <b>Confirm pair</b>.' }),
         el('li', { html: 'They have to be <b>two of the same creature</b>. Pick a mismatched pair and it tells you so and holds the Confirm button until you fix it.' }),
         el('li', { html: 'Your <b>buddy</b> is left out of the list, because breeding would stop it doing the walking, levelling and battling a buddy is for.' }),
         el('li', { html: `A pair stops at <b>${BREEDING_CANDY_CAP} candy</b> and then sits there earning nothing, so the map pin grows a <b>gold pip</b> the moment any slot is full — with a number on it if more than one is. The slot is highlighted and marked <b>FULL</b> inside the sheet too.` }),
-        el('li', { html: 'Placed it badly? <b>Move centre</b> returns it to your Items so you can pin it somewhere else. You have to <b>collect every pair first</b> — creatures left inside would have no centre to come back to.' })
+        el('li', { html: 'Placed it badly? <b>Move centre</b> returns it to your Items so you can pin it somewhere else — or fetch it from <b>Buildings</b> in your Items without walking back to it. Pairs inside come home either way, but <b>any candy they have earned is lost</b>, so collect them first if you can. You are told how much is at stake before you confirm.' }),
+        el('li', { html: `Every centre you place has the <b>same number of slots</b>, so a second one doubles how many pairs you can have going. The slot count itself still comes from your player level: ${
+          Object.entries(BREEDING_SLOTS_BY_LEVEL).map(([lvl, n]) => `<b>${n}</b> at level ${lvl}`).join(' · ')
+        }.` })
       )
     );
   }

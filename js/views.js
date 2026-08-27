@@ -38,6 +38,9 @@ import {
 } from './ui.js';
 
 const CANDY_ICON = '🍬';
+
+/** Art for the Buildings card, which stands for the group rather than any one. */
+const BUILDINGS_ICON = 'images/buildings.png';
 const DUST_ICON = '✨';
 
 /* The highest base stat in the game, used to scale the little stat bars. */
@@ -669,7 +672,7 @@ export function renderItems() {
       onclick: openBuildingsSheet
     },
       held ? el('span', { class: 'qty', text: String(held) }) : null,
-      el('img', { src: itemImage('breeding_center'), alt: '', loading: 'lazy' }),
+      el('img', { src: BUILDINGS_ICON, alt: '', loading: 'lazy' }),
       el('span', { class: 'nm', text: 'Buildings' }),
       el('span', {
         class: 'use-hint',
@@ -736,7 +739,7 @@ export function openBuildingsSheet() {
 
   appendAll(body,
     el('div', { class: 'det-head' },
-      el('img', { src: itemImage('breeding_center'), alt: '' }),
+      el('img', { src: BUILDINGS_ICON, alt: '' }),
       el('div', { class: 'det-title' },
         el('h3', { text: 'Buildings' }),
         el('div', { class: 'det-tags' },
