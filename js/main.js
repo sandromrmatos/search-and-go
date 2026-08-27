@@ -724,10 +724,10 @@ function updateResetChip(now = Date.now()) {
   }
 
   chip.querySelector('.reset-label').textContent = 'Spawns reset in';
-  chip.title = '';
+  chip.title = 'Tap to re-roll spawns now';
 
   if (!store.s.lastScanAt) {
-    chip.className = 'reset-chip due';
+    chip.className = 'reset-chip due tappable';
     value.textContent = '--:--';
     return;
   }
@@ -741,7 +741,7 @@ function updateResetChip(now = Date.now()) {
   // A third of the interval rather than a flat minute: on the 90 s cycle a flat
   // minute meant the chip spent two thirds of its life looking urgent.
   const endingAt = Math.min(60_000, RULES.SCAN_INTERVAL_MS / 3);
-  chip.className = 'reset-chip' + (until <= endingAt ? ' ending' : '');
+  chip.className = 'reset-chip tappable' + (until <= endingAt ? ' ending' : '');
 }
 
 function syncMap() {
@@ -879,13 +879,13 @@ function initUI() {
   };
   $('#btn-calendar').addEventListener('click', openCalendar);
 
-  // Tapping the chip forces a scan, but only when one is already due or the last
-  // one failed — otherwise it would be a free way to re-roll spawns early.
+  // Tapping the chip always runs a scan now — mid-countdown included. It is the
+  // manual refresh: the timer restarts from the scan, so this re-rolls spawns
+  // early rather than stacking an extra roll on top of the automatic one.
   $('#reset-chip').addEventListener('click', () => {
     if (isScanning()) return;
-    if (!lastScanError && msUntilNextScan() > 0) return;
     scanCooldownUntil = 0;
-    doScan({ force: true, reason: 'manual retry' });
+    doScan({ force: true, reason: lastScanError ? 'manual retry' : 'manual scan' });
   });
 
   $('#btn-hide-chip').addEventListener('click', () => {
@@ -893,7 +893,6 @@ function initUI() {
     const hidden = wrap.classList.toggle('chip-hidden');
     $('#btn-hide-chip').textContent = hidden ? '⟳' : '✕';
   });
-  // There is deliberately no manual refresh — spawns only re-roll on the timer.
 
   $('#opt-hide-collected').addEventListener('change', e => {
     store.setUI({ hideCollectedPoints: e.target.checked });
