@@ -1,0 +1,51 @@
+Challenge name,Challenge Level,Creature 1 id,Creature 1 name,Creature 1 Level,Creature 1 held item,Creature 1 stat boosts,Creature 2 id,Creature 2 name,Creature 2 Level,Creature 2 held item,Creature 2 stat boosts,Creature 3 id,Creature 3 name,Creature 3 Level,Creature 3 held item,Creature 3 stat boosts
+Mystic,1,Exclusive_03,Sushimi,3,,,Elemental Awakening_12,Spiritfoil,3,,,Galactic Adventures_04,Astralin,3,,
+Mystic,2,Exclusive_23,Pipelo,3,,,Elemental Awakening_10,Mystikid,4,,,Galactic Adventures_11,Mangost,4,,
+Mystic,3,Temporal Rift_08,Orkidia,4,,,Elemental Awakening_13,Nebulicorn,4,,,Galactic Adventures_05,Aetherin,5,,
+Mystic,4,Galactic Adventures_01,Psybella,5,,,Exclusive_04,Tunarisu,5,,,Elemental Awakening_16,Mindsheer,6,,
+Mystic,5,Temporal Rift_17,Faygoal Mystic,6,,,Galactic Adventures_12,Ectomango,6,,,Exclusive_02,Ghoulgourd,7,,
+Mystic,6,Elemental Awakening_02,Zenquaza,7,,,Elemental Awakening_11,Mystikeon,7,,,Galactic Adventures_14,Frostant,7,Mystic Gem,"Attack: 4, Defence: 2, Speed: 1, HP: 1"
+Mystic,7,Galactic Adventures_10,Mummira,7,,,Exclusive_21,Spiranoir,8,,"Attack: 1, Defence: 2, HP: 3",Temporal Rift_05,Wraithrift,8,Strength Sigil,"Attack: 5, Defence: 1, Speed: 4, HP: 2"
+Mystic,8,Temporal Rift_07,Serenewt,8,,,Galactic Adventures_02,Fuschioria,8,Growth Crystal,"Attack: 3, Defence: 2, Speed: 1, HP: 4",Temporal Rift_16,Noctivane,8,Miracle Coin,"Attack: 7, Defence: 5, Speed: 2, HP: 2"
+Mystic,9,Galactic Adventures_06,Mystaeon,8,,"Attack: 2, Defence: 1, Speed: 4, HP: 1",Exclusive_05,Sushimaru,9,Strength Sigil,"Attack: 4, Defence: 2, Speed: 2, HP: 6",Elemental Awakening_14,Wraithhorn,9,Mystic Gem,"Attack: 6, Defence: 2, Speed: 3, HP: 9"
+Mystic,10,Galactic Adventures_13,Pantheraura,9,Mystic Cog,"Attack: 6, Defence: 3, Speed: 9, HP: 2",Elemental Awakening_09,Pheonyx,9,Mystic Shield,"Attack: 2, Defence: 6, Speed: 3, HP: 9",Temporal Rift_15,Nyamura,9,Mystic Shield,"Attack: 3, Defence: 9, Speed: 2, HP: 6"
+Celestial,1,Galactic Adventures_58,Beanling,3,,,Galactic Adventures_53,Nebuleap,3,,,Temporal Rift_58,Funglet,3,,
+Celestial,2,Elemental Awakening_61,Astromelon,3,,,Elemental Awakening_49,Floonleef,4,,,Temporal Rift_53,Noonette,4,,
+Celestial,3,Elemental Awakening_59,Floretta,4,,,Galactic Adventures_55,Crocasprout,4,,,Temporal Rift_54,Anomortis,5,,
+Celestial,4,Temporal Rift_50,Lavandread,5,,,Temporal Rift_47,Petitelo,5,,,Elemental Awakening_62,Lunamelon,6,,
+Celestial,5,Galactic Adventures_52,Photosynthra,6,,,Temporal Rift_48,Pomelune,6,,,Exclusive_38,Tongroove,7,,
+Celestial,6,Galactic Adventures_63,Gigglewood,7,,,Elemental Awakening_60,Lizaflora,7,,,Temporal Rift_56,Craggit,7,Celestial Shield,"Attack: 1, Defence: 4, Speed: 1, HP: 2"
+Celestial,7,Elemental Awakening_52,Rosalia,7,,,Elemental Awakening_63,Orbitmelon,8,,"Defence: 2, Speed: 3, HP: 1",Temporal Rift_57,Florvulpa,8,Strength Sigil,"Attack: 5, Defence: 4, Speed: 2, HP: 1"
+Celestial,8,Temporal Rift_59,Myceloroot,8,,,Galactic Adventures_50,Planterdon,8,Miracle Coin,"Attack: 2, Defence: 3, Speed: 1, HP: 4",Exclusive_40,Florabouche,8,Celestial Gem,"Attack: 7, Defence: 5, Speed: 2, HP: 2"
+Celestial,9,Temporal Rift_52,Solflare,8,,"Attack: 4, Defence: 1, Speed: 2, HP: 1",Temporal Rift_55,Noctonona,9,Strength Sigil,"Attack: 6, Defence: 2, Speed: 2, HP: 4",Elemental Awakening_58,Aloetide,9,Celestial Gem,"Attack: 6, Defence: 2, Speed: 3, HP: 9"
+Celestial,10,Galactic Adventures_47,Starraffe,9,Miracle Coin,"Attack: 9, Defence: 2, Speed: 6, HP: 3",Exclusive_14,Tulippestus,9,Strength Sigil,"Attack: 9, Defence: 2, Speed: 6, HP: 3",Temporal Rift_46,Solyssa,9,Celestial Gem,"Attack: 9, Defence: 6, Speed: 3, HP: 2"
+Neutral,1,Exclusive_09,Castanito,3,,,Elemental Awakening_40,Babybara,3,,,Elemental Awakening_34,Baklavaff,3,,
+Neutral,2,Galactic Adventures_42,Cloudlet,3,,,Elemental Awakening_43,Serafini,4,,,Temporal Rift_45,Vulpetta,4,,
+Neutral,3,Galactic Adventures_28,Anter,4,,,Exclusive_12,Capyfrio,4,,,Elemental Awakening_41,Carmibara,5,,
+Neutral,4,Galactic Adventures_45,Weeweep,5,,,Galactic Adventures_34,Pangomancer,5,,,Elemental Awakening_44,Serafina,6,,
+Neutral,5,Galactic Adventures_40,Fluffbill,6,,,Galactic Adventures_43,Cloudboss,6,,,Temporal Rift_41,Snoozoth,7,,
+Neutral,6,Elemental Awakening_35,Galaktikreme,7,,,Temporal Rift_36,Anukara,7,,,Galactic Adventures_38,Mousucklord,7,Neutral Gem,"Attack: 4, Defence: 1, Speed: 2, HP: 1"
+Neutral,7,Exclusive_11,Brasquente,7,,,Temporal Rift_43,Earloam,8,,"Attack: 1, Defence: 2, HP: 3",Exclusive_13,Gelibara,8,Strength Sigil,"Attack: 5, Defence: 4, Speed: 1, HP: 2"
+Neutral,8,Exclusive_35,Tajmoanger,8,,,Galactic Adventures_30,Antaray,8,Neutral Cog,"Attack: 3, Defence: 2, Speed: 4, HP: 1",Temporal Rift_38,Harpuddle,8,Neutral Shield,"Attack: 2, Defence: 7, Speed: 2, HP: 5"
+Neutral,9,Galactic Adventures_35,Pangodice,8,,"Attack: 1, Defence: 2, Speed: 1, HP: 4",Elemental Awakening_42,Reddybara,9,Miracle Coin,"Attack: 2, Defence: 4, Speed: 2, HP: 6",Temporal Rift_40,Yawnshire,9,Growth Crystal,"Attack: 3, Defence: 9, Speed: 2, HP: 6"
+Neutral,10,Temporal Rift_37,Anukalith,9,Strength Sigil,"Attack: 9, Defence: 3, Speed: 6, HP: 2",Exclusive_36,Omnifine,9,Neutral Cog,"Attack: 6, Defence: 2, Speed: 9, HP: 3",Temporal Rift_44,Gazorilla,9,Neutral Shield,"Attack: 3, Defence: 6, Speed: 2, HP: 9"
+Wind,1,Galactic Adventures_21,Cockeriel,3,,,Temporal Rift_20,Loonaqua,3,,,Elemental Awakening_30,Blushbat,3,,
+Wind,2,Elemental Awakening_20,Stormbud,3,,,Elemental Awakening_28,Batakaze,4,,,Elemental Awakening_31,Cerisebat,4,,
+Wind,3,Elemental Awakening_25,Aeroquatic,4,,,Exclusive_07,Penkit,4,,,Exclusive_29,Chiquiloma,5,,
+Wind,4,Galactic Adventures_22,Cockatrike,5,,,Elemental Awakening_23,Dodrift,5,,,Exclusive_26,Audibolt,6,,
+Wind,5,Elemental Awakening_26,Prismarine,6,,,Elemental Awakening_21,Blossomgale,6,,,Temporal Rift_31,Faygoal Wind,7,,
+Wind,6,Elemental Awakening_32,Flutterwing,7,,,Exclusive_27,Tympanarch,7,,,Temporal Rift_26,Cryobbit,7,Growth Crystal,"Attack: 1, Defence: 2, Speed: 4, HP: 1"
+Wind,7,Galactic Adventures_16,Breezebuzz,7,,,Temporal Rift_28,Snickurl,8,,"Attack: 3, Defence: 2, HP: 1",Exclusive_28,Whifflen,8,Strength Sigil,"Attack: 5, Defence: 2, Speed: 4, HP: 1"
+Wind,8,Galactic Adventures_18,Zephyrbuzz,8,,,Temporal Rift_23,Nimbearis,8,Wind Cog,"Attack: 2, Defence: 1, Speed: 3, HP: 4",Temporal Rift_19,Aerolithon,8,Wind Gem,"Attack: 7, Defence: 2, Speed: 5, HP: 2"
+Wind,9,Elemental Awakening_24,Dodoryphon,8,,"Attack: 2, Defence: 1, Speed: 4, HP: 1",Galactic Adventures_19,Hoatzion,9,Miracle Coin,"Attack: 4, Defence: 2, Speed: 2, HP: 6",Exclusive_06,Chargorb Electro,9,Wind Shield,"Attack: 3, Defence: 9, Speed: 6, HP: 2"
+Wind,10,Galactic Adventures_24,Tielzor,9,Strength Sigil,"Attack: 9, Defence: 2, Speed: 3, HP: 6",Elemental Awakening_27,Pyrosora,9,Wind Gem,"Attack: 9, Defence: 2, Speed: 6, HP: 3",Galactic Adventures_20,Electrogriff,9,Miracle Coin,"Attack: 9, Defence: 3, Speed: 2, HP: 6"
+Mechanic,1,Galactic Adventures_64,Steellamb,3,,,Elemental Awakening_66,Venomgear,3,,,Elemental Awakening_77,Ghoulpole,3,,
+Mechanic,2,Elemental Awakening_75,Aeglet,3,,,Galactic Adventures_69,Gearpup,4,,,Elemental Awakening_71,Ponimetal,4,,
+Mechanic,3,Elemental Awakening_69,Struto,4,,,Galactic Adventures_72,Auregear,4,,,Galactic Adventures_66,Lithogarde,5,,
+Mechanic,4,Exclusive_43,Sprockub,5,,,Exclusive_18,Belliffel,5,,,Elemental Awakening_72,Equinix,6,,
+Mechanic,5,Elemental Awakening_64,Voltveil,6,,,Galactic Adventures_65,Pigmoat,6,,,Galactic Adventures_68,Notreclast,7,,
+Mechanic,6,Temporal Rift_65,Ignivault,7,,,Elemental Awakening_76,Aegiscelis,7,,,Temporal Rift_61,Gearachnid,7,Growth Crystal,"Attack: 1, Defence: 4, Speed: 2, HP: 1"
+Mechanic,7,Exclusive_19,Mechabeyle,7,,,Elemental Awakening_79,Poltergnet,8,,"Attack: 1, Defence: 3, HP: 2",Temporal Rift_64,Tangrash,8,Strength Sigil,"Attack: 5, Defence: 2, Speed: 1, HP: 4"
+Mechanic,8,Temporal Rift_70,Desklerk,8,,,Galactic Adventures_71,Steelspirit,8,Mechanic Shield,"Attack: 2, Defence: 4, Speed: 3, HP: 1",Elemental Awakening_73,Equinox,8,Mechanic Gem,"Attack: 5, Defence: 2, Speed: 2, HP: 7"
+Mechanic,9,Temporal Rift_69,Granigrit,8,,"Attack: 2, Defence: 1, Speed: 4, HP: 1",Exclusive_44,Tinkursuh,9,Miracle Coin,"Attack: 2, Defence: 4, Speed: 2, HP: 6",Exclusive_17,Chargorb Rusty,9,Strength Sigil,"Attack: 3, Defence: 9, Speed: 2, HP: 6"
+Mechanic,10,Elemental Awakening_68,Envoye,9,Mechanic Shield,"Attack: 6, Defence: 9, Speed: 2, HP: 3",Galactic Adventures_75,Metalmagma,9,Miracle Coin,"Attack: 3, Defence: 9, Speed: 2, HP: 6",Temporal Rift_71,Sanctuarch,9,Strength Sigil,"Attack: 3, Defence: 9, Speed: 2, HP: 6"

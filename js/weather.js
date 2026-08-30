@@ -127,6 +127,14 @@ async function fetchCurrent(lat, lng) {
 
     return {
       celsius,
+      /**
+       * Metres above sea level, which Open-Meteo returns alongside the weather
+       * for the grid square it answered with. Free — no extra request and no
+       * extra permission — and accurate enough for an ability that asks whether
+       * you are up a hill. It is the square's elevation rather than the exact
+       * spot's, which is the same rounding the rest of this reading already has.
+       */
+      elevation: numOrNull(json?.elevation),
       feelsLike: numOrNull(cur.apparent_temperature),
       humidity: numOrNull(cur.relative_humidity_2m),
       precipitation: numOrNull(cur.precipitation),
@@ -213,6 +221,32 @@ export const Weather = {
     lastError = null;
   }
 };
+
+/**
+ * The reading in the shape the condition evaluator in data.js expects, which is
+ * not quite the shape Open-Meteo returns: `windSpeed` becomes `wind`, and the
+ * temperature is the rounded figure the HUD shows so a clause and the chip can
+ * never disagree.
+ *
+ * Every field is null when unknown, which is what switches a condition off
+ * rather than letting it guess. Shared by battles, which judge abilities, and by
+ * the spawn pools, which judge which creatures are in season — those two must
+ * never read the weather differently.
+ */
+export function weatherContext(r = Weather.current) {
+  return {
+    temperature: r ? Math.round(r.celsius) : null,
+    cloudCover: r ? r.cloudCover : null,
+    humidity: r ? r.humidity : null,
+    wind: r ? r.windSpeed : null,
+    precipitation: r ? r.precipitation : null,
+    // Whether the sun is up, for the daylight condition. null when unknown.
+    isDay: r ? r.isDay : null
+  };
+}
+
+/** Metres above sea level where the player is, or null before a reading lands. */
+export const elevationNow = () => Weather.current?.elevation ?? null;
 
 /** "18°C", or a placeholder while the first reading is still on its way. */
 export function temperatureLabel() {

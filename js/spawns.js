@@ -26,12 +26,14 @@ import {
   BATTLE_TEAM_SIZE, DB, chance, RARE_INCENSE_WEIGHTS, RARITY_WEIGHTS,
   isRaidInvasion, applyRaidInvasionBonus,
   rollWildSpecies, isCreatureSpotlight, spotlightSpecies, dueSpotlightSpawn, familyRarity,
+  canSpawnNow,
+  hourlySpawnEvent, rollEventSpawnSpecies, EVENT_SPAWN_MS,
   essenceEligible, ESSENCE_MAX_RARITY,
   SPOTLIGHT_LABEL, SPOTLIGHT_SPAWN_MS, ESSENCE_SPAWN_MS
 } from './data.js';
 import { distance, offsetMeters } from './geo.js';
 import { fetchPOIs, splitPOIs } from './osm.js';
-import { store, gruntWindowKey, spotlightSlotKey, essenceWindowKey } from './state.js';
+import { store, gruntWindowKey, spotlightSlotKey, essenceWindowKey, eventSpawnKey } from './state.js';
 import { itemName } from './items.js';
 
 let scanning = false;
@@ -332,6 +334,10 @@ export async function runScan(pos, { force = false, forceKind = null, alwaysGrun
     if (created.length) store.addPoints(created);
     else store.touch('scan', { immediate: true });
 
+    // How built-up it is around here, which is the only such measure the game
+    // has. Two abilities read it — one rewards a busy street, one a quiet lane.
+    store.setPointsScanned(pois.length);
+
     return { created, pois: pois.length, places: places.length, parks: parks.length, counts, skipped };
   } finally {
     scanning = false;
@@ -406,6 +412,9 @@ export function spawnSpotlightCreature(pos, now = Date.now()) {
 
   const sp = spotlightSpecies(when);
   if (!sp) return null;
+  // A featured creature still has to be in season. Being the spotlight does not
+  // override a spawn restriction — the guaranteed visit is simply skipped.
+  if (!canSpawnNow(sp, when)) return null;
   const slot = dueSpotlightSpawn(when);
 
   const point = {
@@ -429,6 +438,55 @@ export function spawnSpotlightCreature(pos, now = Date.now()) {
 
   store.addPoints([point]);
   store.markSpotlightSpawned(when, slot);
+  return point;
+}
+
+/**
+ * An annual event's hourly creature: it appears on the player's own position at
+ * the top of each clock hour and waits EVENT_SPAWN_MS.
+ *
+ * Like the spotlight visit this is never a roll against the map — it is a gift —
+ * so it ignores the spacing rules and does not use up a point slot. Unlike the
+ * spotlight, *which* creature it is does get rolled, on the event's own flattened
+ * rarity odds.
+ *
+ * @returns the new point, or null when no event is running, this hour has already
+ *   had its creature, or the event has nothing to give yet.
+ */
+export function spawnEventCreature(pos, now = Date.now()) {
+  if (!pos) return null;
+  const when = new Date(now);
+  const event = hourlySpawnEvent(when);
+  if (!event) return null;
+  if (!store.canSpawnEventCreature(event.id, when)) return null;
+
+  const sp = rollEventSpawnSpecies(event, when);
+  // A missing cast file or a type with nothing unlocked in it. Deliberately not
+  // marked as spawned, so it will try again next hour rather than burning the
+  // slot on nothing.
+  if (!sp) return null;
+
+  const point = {
+    id: newId('event'),
+    kind: 'creature',
+    // Tagged so the capture path can pay the event's bonus candy and the map can
+    // give it its own look.
+    source: 'event',
+    eventId: event.id,
+    poiId: 'event/' + eventSpawnKey(event.id, when),
+    lat: pos.lat,
+    lng: pos.lng,
+    poiName: `${event.label}: a creature has come to you`,
+    poiKind: 'event',
+    poiKindValue: event.id,
+    speciesId: sp.id,
+    createdAt: now,
+    expiresAt: now + EVENT_SPAWN_MS,
+    collected: false
+  };
+
+  store.addPoints([point]);
+  store.markEventSpawned(event.id, when);
   return point;
 }
 

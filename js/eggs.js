@@ -98,6 +98,9 @@ export function renderEggs() {
         ? el('img', { class: 'egg-incu', src: itemImage(egg.incubator), alt: ITEMS[egg.incubator].name })
         : null,
       ready ? el('span', { class: 'egg-ready-tag', text: 'READY' }) : null,
+      // An egg started during Easter keeps half distance for its whole life, so
+      // the tile has to say why it needs less than the number on it.
+      p.halved ? el('span', { class: 'egg-halved-tag', title: 'Started during Easter — half distance', text: '🐣½' }) : null,
       el('img', { class: 'egg-img', src: eggImage(egg.type), alt: eggLabel(egg.type), loading: 'lazy' }),
       el('span', { class: 'nm', text: `${eggDef(egg.type).km} km` }),
       egg.incubator
@@ -128,6 +131,8 @@ export function openIncubatorPicker(eggId) {
   $('#picker-empty').textContent = 'No incubators free. You get an Incubator at player level 5, and Single Use Incubators from raids and missions.';
   $('#picker-empty').classList.toggle('hidden', Object.values(free).some(n => n > 0));
   $('#picker-bulk').innerHTML = '';
+  // The picker sheet is shared; hide the creature toolbar the item pickers use.
+  $('#picker-tools')?.classList.add('hidden');
 
   const grid = $('#picker-grid');
   grid.innerHTML = '';
@@ -162,6 +167,8 @@ export function openEggPickerFor(itemId) {
     : 'You have no eggs yet. They turn up when you collect discs, potions and revives.';
   $('#picker-empty').classList.toggle('hidden', idle.length > 0);
   $('#picker-bulk').innerHTML = '';
+  // The picker sheet is shared; hide the creature toolbar the item pickers use.
+  $('#picker-tools')?.classList.add('hidden');
 
   const grid = $('#picker-grid');
   grid.innerHTML = '';

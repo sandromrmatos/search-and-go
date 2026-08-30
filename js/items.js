@@ -193,8 +193,24 @@ export const ITEMS = {
     // The shipped filename is misspelled; kept as-is rather than renaming assets.
     image: 'resarch_lab.png',
     use: 'place',
+    // One is as good as two, so the Buildings list refuses to pin a second.
+    singleton: true,
     order: 12,
     blurb: 'Pin it to the map, like a Breeding Centre. Visit it to turn spare candy into Stat Boosters, and pick it back up any time to move it.'
+  },
+  battle_frontier: {
+    id: 'battle_frontier',
+    name: 'Battle Frontier',
+    plural: 'Battle Frontiers',
+    // Art shipped in `images/` rather than `items/`, like the Super Incubator.
+    image: 'images/Battle_Frontier.png',
+    use: 'place',
+    singleton: true,
+    order: 13,
+    blurb: 'Pin it to the map, like a Breeding Centre. Inside, a trainer waits at every level of every '
+      + 'challenge, and the creatures you are allowed to bring depend on the mode you take it on. '
+      + 'Clear all ten levels of a challenge in one mode to unlock its Grand Raid Challenge. '
+      + 'Pick it back up any time to move it.'
   }
 };
 

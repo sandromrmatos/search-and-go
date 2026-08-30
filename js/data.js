@@ -23,6 +23,17 @@ export const EXCLUSIVE_CSV_FILE = 'Raid Exclusive - Search and Go.csv';
  * order base and slot straight in after it.
  */
 export const EXCLUSIVE2_CSV_FILE = 'Exclusives2.csv';
+/**
+ * The third wave: the Grand Raid Challenge bosses at the top of each Battle
+ * Frontier challenge. They share the Exclusive collection tab, but unlike the
+ * first two waves nothing rolls them — no exclusive raid, no 15 km egg. Clearing
+ * all ten levels of a challenge in one mode is the only way to meet one, which
+ * is why they are filtered out of the roll pools in rebuildExclusivePools.
+ *
+ * Optional, like the event casts: without the file the challenges still run and
+ * simply have no Grand Raid at the top.
+ */
+export const EXCLUSIVE3_CSV_FILE = 'Exclusives3.csv';
 export const EXCLUSIVE_SET_NAME = 'Exclusive';
 
 /**
@@ -32,19 +43,66 @@ export const EXCLUSIVE_SET_NAME = 'Exclusive';
 export const GALACTIC_CSV_FILE = 'Galactic Adventures.csv';
 export const GALACTIC_SET_NAME = 'Galactic Adventures';
 
+/**
+ * The third full set, gated the same way as Galactic Adventures but off the
+ * back of *that* set's registrations rather than the first one's. Two things
+ * are new here and nowhere else:
+ *
+ *   • some creatures list more than one `Evolves to` target, and the player
+ *     chooses which way to go when they evolve one;
+ *   • some carry a `Spawn Restriction`, a condition that has to hold before
+ *     they will spawn, appear in a raid or hatch at all.
+ */
+export const TEMPORAL_CSV_FILE = 'Temporal Rift.csv';
+export const TEMPORAL_SET_NAME = 'Temporal Rift';
+
+/**
+ * Creature lists for the two annual events that use hand-picked casts rather
+ * than a type or the whole pool. One `id,name` row per creature, the same shape
+ * as the Creature Spotlight rota. Both files are optional: without one, that
+ * event simply hands out no hourly creature.
+ */
+export const HALLOWEEN_CSV_FILE = 'Halloween.csv';
+export const THANKSGIVING_CSV_FILE = 'Thanks Giving.csv';
+
+/**
+ * The Battle Frontier ladder: one row per challenge and level, carrying the
+ * three creatures the trainer brings, their levels, held items and stat boosts.
+ * Optional — without it the building still opens and simply has no challenges.
+ */
+export const FRONTIER_CSV_FILE = 'Battle Frontier.csv';
+
 /** Mythicals: rarity 6, one per egg, never in a spawn pool. */
 export const MYTHICAL_CSV_FILE = 'Mythicals.csv';
 export const MYTHICAL_SET_NAME = 'Mythical';
 export const MYTHICAL_RARITY = 6;
-/** The one mythical so far. Pinned so its egg can never hatch anything else. */
+/**
+ * The mythicals, each pinned to its own egg so adding another to the CSV can
+ * never dilute an egg that already exists.
+ */
 export const MYTHICAL_ASTRALYON_ID = 'Mythical_01';
+export const MYTHICAL_CHROMARION_ID = 'Mythical_02';
 
 /**
  * Dex numbers per set, spaced so the shared sort keeps each collection
  * together and in the same order as the Collection tabs.
  */
 export const GALACTIC_ORDER_BASE = 1000;
+/**
+ * Slotted between Galactic Adventures and the Exclusives rather than after the
+ * Mythicals, because the Collection shows the three numbered sets side by side
+ * and this base has to agree with that order.
+ */
+export const TEMPORAL_ORDER_BASE = 1500;
 export const EXCLUSIVE_ORDER_BASE = 2000;
+/**
+ * The Grand Raid bosses get their own base rather than sharing the Exclusive
+ * one. Their ids are `Exclusive_battlefrontier_01`..`_05`, whose trailing
+ * numbers would otherwise collide with `Exclusive_01`..`_05` and scatter them
+ * through the middle of the tab. This keeps them together at the bottom, after
+ * every exclusive from an ordinary raid.
+ */
+export const EXCLUSIVE_FRONTIER_ORDER_BASE = 2500;
 export const MYTHICAL_ORDER_BASE = 3000;
 
 export const IMAGE_DIR = 'images';
@@ -579,18 +637,27 @@ export const BATTLE_TEAM_SIZE = 3;
 
 export const ABILITIES_CSV_FILE = 'Abilities.csv';
 
-/** The four things an ability can do, and which multiplier each one moves. */
+/**
+ * What an ability can do.
+ *
+ * The first four move a damage multiplier and are the ordinary case. The fifth
+ * is different in kind: it deals a one-off hit at the moment its owner is
+ * knocked out, so it has no channel and is handled by the faint step rather than
+ * the damage step. `clauseMultiplier` leaves it alone.
+ */
 export const ABILITY_EFFECTS = {
   'deal more': { channel: 'deal', direction: 1 },
   'deal less': { channel: 'deal', direction: -1 },
   'take more': { channel: 'take', direction: 1 },
-  'take less': { channel: 'take', direction: -1 }
+  'take less': { channel: 'take', direction: -1 },
+  'deal on faint': { channel: 'faint', direction: 0 }
 };
 
 /** Triggers that read a list of allowed values out of the `Value` column. */
 export const ABILITY_LIST_TRIGGERS = [
   'opposing type', 'opposing stage', 'opposing rarity', 'opposing set',
-  'day', 'month', 'daylight'
+  'day', 'month', 'daylight',
+  'opposing held', 'opposing buffed', 'last standing', 'moon', 'team'
 ];
 /**
  * Triggers that depend on who is standing opposite. Everything else can be
@@ -598,14 +665,51 @@ export const ABILITY_LIST_TRIGGERS = [
  * picker say whether an ability will do anything before a battle starts.
  */
 export const ABILITY_OPPONENT_TRIGGERS = [
-  'opposing type', 'opposing stage', 'opposing rarity', 'opposing set'
+  'opposing type', 'opposing stage', 'opposing rarity', 'opposing set',
+  'opposing level', 'opposing held', 'opposing hp', 'opposing buffed'
 ];
-/** The only two values the daylight trigger accepts. */
+/**
+ * Triggers that cannot be judged until a battle is actually running: they read
+ * how hurt a creature is, how much of the team is left, or what the opponent has
+ * done to itself so far.
+ *
+ * The team picker reports these as "may apply" rather than yes or no, because
+ * answering with the state at the moment the team is chosen would be a
+ * confidently wrong answer rather than an honest "it depends".
+ */
+export const ABILITY_IN_BATTLE_TRIGGERS = [
+  'own hp', 'opposing hp', 'last standing', 'opposing buffed'
+];
+/**
+ * The only two values the daylight trigger accepts, plus the spellings the
+ * sheets actually use. "Daytime" and "Day" mean the same thing.
+ */
 export const DAYLIGHT_VALUES = ['Day', 'Night'];
+const DAYLIGHT_SYNONYMS = { day: 'Day', daytime: 'Day', night: 'Night', nighttime: 'Night' };
+/** Normalises a written daylight value, or null when it is not one. */
+export const daylightValue = raw => DAYLIGHT_SYNONYMS[String(raw ?? '').trim().toLowerCase()] || null;
 /** Triggers that read `Min` / `Max` instead. */
 export const ABILITY_RANGE_TRIGGERS = [
-  'temperature', 'time', 'cloud cover', 'humidity', 'wind'
+  'temperature', 'time', 'cloud cover', 'humidity', 'wind', 'precipitation',
+  'walked today', 'grunts today', 'raids today', 'captures today', 'shinies today',
+  'day of month', 'battery', 'elevation', 'points scanned',
+  'own hp', 'opposing hp', 'opposing level'
 ];
+
+/**
+ * Range triggers whose `Max` includes the number itself.
+ *
+ * The older weather and clock triggers treat `Max` as a ceiling you have to stay
+ * under, and everything written against them relies on that — a 12:00–14:00
+ * window must not also cover 14:00. The newer ones count whole things, where a
+ * sheet saying "the first five days of the month" plainly means the 5th is in,
+ * and "20% battery or less" means 20 is in.
+ */
+const INCLUSIVE_MAX_TRIGGERS = new Set([
+  'walked today', 'grunts today', 'raids today', 'captures today', 'shinies today',
+  'day of month', 'battery', 'elevation', 'points scanned',
+  'own hp', 'opposing hp', 'opposing level'
+]);
 
 /**
  * The weather-driven triggers, and the field each one reads. All follow the
@@ -615,9 +719,51 @@ export const ABILITY_WEATHER_TRIGGERS = {
   'temperature': { field: 'temperature', unit: '°C', label: 'temperature' },
   'cloud cover': { field: 'cloudCover', unit: '%', label: 'cloud cover' },
   'humidity': { field: 'humidity', unit: '%', label: 'humidity' },
-  'wind': { field: 'wind', unit: ' km/h', label: 'wind speed' }
+  'wind': { field: 'wind', unit: ' km/h', label: 'wind speed' },
+  'precipitation': { field: 'precipitation', unit: ' mm', label: 'precipitation' }
 };
-export const ABILITY_TRIGGERS = [...ABILITY_LIST_TRIGGERS, ...ABILITY_RANGE_TRIGGERS];
+
+/**
+ * Triggers read off the player's own day rather than the world. Kept separate
+ * because they need a figure pushed in from state.js — data.js must not import
+ * it, or the two would import each other.
+ *
+ * `walked today` is in kilometres, which is how both the sheets and the player
+ * think about it, even though the save counts metres.
+ */
+export const DAILY_COUNTER_TRIGGERS = {
+  'walked today': { field: 'kmToday', unit: ' km', label: 'distance walked today' },
+  'grunts today': { field: 'gruntsToday', unit: '', label: 'grunts beaten today' },
+  'raids today': { field: 'raidsToday', unit: '', label: 'raids won today' },
+  'captures today': { field: 'capturesToday', unit: '', label: 'creatures caught today' },
+  'shinies today': { field: 'shiniesToday', unit: '', label: 'shinies caught today' }
+};
+
+/**
+ * Triggers read off the device and the place the player is standing, rather than
+ * the clock, the weather or the battle. Pushed in from outside like everything
+ * else, and null when unavailable — the Battery Status API in particular does not
+ * exist on iOS, so a battery clause simply never fires there.
+ */
+export const WORLD_READING_TRIGGERS = {
+  'elevation': { field: 'elevation', unit: ' m', label: 'elevation' },
+  'battery': { field: 'battery', unit: '%', label: 'battery level' },
+  'points scanned': { field: 'pointsScanned', unit: '', label: 'points in range' }
+};
+
+/** In-battle readings: how hurt each side is, and how big the opponent is. */
+export const BATTLE_READING_TRIGGERS = {
+  'own hp': { field: 'selfHpPct', unit: '%', label: 'its own HP' },
+  'opposing hp': { field: 'foeHpPct', unit: '%', label: "the opponent's HP" },
+  'opposing level': { field: 'foeLevel', unit: '', label: "the opponent's level" }
+};
+
+/** Trigger that is simply always on. Used by effects that carry their own timing. */
+export const ALWAYS_TRIGGER = 'always';
+
+export const ABILITY_TRIGGERS = [
+  ...ABILITY_LIST_TRIGGERS, ...ABILITY_RANGE_TRIGGERS, ALWAYS_TRIGGER
+];
 
 /**
  * Clauses are only ever expected to fire one at a time, but if several do their
@@ -648,10 +794,98 @@ export function abilityWeather(ctx = {}) {
     cloudCover: pick(w.cloudCover),
     humidity: pick(w.humidity),
     wind: pick(w.wind),
+    precipitation: pick(w.precipitation),
     // Daylight is a flag rather than a reading, so it gets its own passthrough.
     // null means the reading is missing, which switches the trigger off.
     isDay: flag(w.isDay ?? ctx.isDay)
   };
+}
+
+/**
+ * Normalises the "what has the player done today" half of a context, the same
+ * way abilityWeather does for the world. A missing figure is null, which
+ * switches its trigger off rather than reading as zero.
+ */
+export function abilityDaily(ctx = {}) {
+  const d = ctx.daily || {};
+  const pick = v => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  const metres = pick(d.metresToday);
+  return {
+    kmToday: metres == null ? null : metres / 1000,
+    gruntsToday: pick(d.gruntsToday),
+    raidsToday: pick(d.raidsToday),
+    capturesToday: pick(d.capturesToday),
+    shiniesToday: pick(d.shiniesToday)
+  };
+}
+
+/** The device-and-place half of a context. Same never-guess rule throughout. */
+export function abilityWorld(ctx = {}) {
+  const w = ctx.world || {};
+  const pick = v => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  return {
+    elevation: pick(w.elevation),
+    battery: pick(w.battery),
+    pointsScanned: pick(w.pointsScanned)
+  };
+}
+
+/**
+ * The battle half of a context, as plain readings rather than battler objects.
+ *
+ * Deliberately not the battlers themselves: data.js knows nothing about battle.js
+ * and must not start to. The battle builds these five numbers and two lists, and
+ * outside a battle they are all null — which switches their clauses off, the same
+ * as a missing weather reading.
+ */
+export function abilityBattle(ctx = {}) {
+  const b = ctx.battle || {};
+  const pick = v => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  const flag = v => (typeof v === 'boolean' ? v : null);
+  return {
+    selfHpPct: pick(b.selfHpPct),
+    foeHpPct: pick(b.foeHpPct),
+    foeLevel: pick(b.foeLevel),
+    /** The held item id the opponent is carrying, or null for none. */
+    foeHeld: b.foeHeld || null,
+    /** stat -> percentage the opponent has moved it by, positive or negative. */
+    foeBuffs: b.foeBuffs || null,
+    lastStanding: flag(b.lastStanding),
+    /** Names of the *other* creatures on this creature's team, or null. */
+    teamMates: Array.isArray(b.teamMates) ? b.teamMates : null
+  };
+}
+
+/* ---- moon phase ----
+   Worked out from the date alone: the synodic month is a fixed 29.53 days and a
+   known new moon anchors it, so no API and no permission are needed. Good to
+   within a few hours, which is far better than the trigger needs.
+
+   The cycle is split into the eight named phases, so "Full" covers the couple of
+   nights either side of the exact full moon rather than one instant nobody would
+   ever catch. */
+
+/** A known new moon: 2000-01-06 18:14 UTC, the standard epoch for this. */
+const LUNAR_EPOCH = Date.UTC(2000, 0, 6, 18, 14);
+const SYNODIC_MONTH_MS = 29.530588853 * 86_400_000;
+
+export const MOON_PHASES = [
+  'New', 'Waxing Crescent', 'First Quarter', 'Waxing Gibbous',
+  'Full', 'Waning Gibbous', 'Last Quarter', 'Waning Crescent'
+];
+
+/** How far through the cycle `now` is, from 0 (new) to just under 1. */
+export function moonAge(now = new Date()) {
+  const since = now.getTime() - LUNAR_EPOCH;
+  const frac = (since % SYNODIC_MONTH_MS) / SYNODIC_MONTH_MS;
+  return frac < 0 ? frac + 1 : frac;
+}
+
+/** The named phase `now` falls in, e.g. "Full". */
+export function moonPhase(now = new Date()) {
+  // +0.5 of a slot so each name is centred on its moment rather than starting at it.
+  const slot = Math.floor(moonAge(now) * 8 + 0.5) % 8;
+  return MOON_PHASES[slot];
 }
 
 const clampAbilityMultiplier = m =>
@@ -666,6 +900,22 @@ export function clauseMultiplier(clause) {
 
 /** The rarity to judge an opponent by, falling back to its family's. */
 const rarityOf = sp => sp?.rarity || familyRarity(sp?.id) || null;
+
+/**
+ * "the temperature", but "its own HP" left alone. Trigger labels are plain nouns
+ * where an article reads naturally and already possessive where it does not, so
+ * one of these is needed rather than hard-coding "the" everywhere.
+ */
+const withArticle = label =>
+  /^(the|its|his|her|their)\b/i.test(label) ? label : `the ${label}`;
+
+/** Every table a numeric trigger's label and unit might live in. */
+const numericTriggerSpec = trigger =>
+  ABILITY_WEATHER_TRIGGERS[trigger]
+  || DAILY_COUNTER_TRIGGERS[trigger]
+  || WORLD_READING_TRIGGERS[trigger]
+  || BATTLE_READING_TRIGGERS[trigger]
+  || (trigger === 'day of month' ? { unit: '', label: 'day of the month' } : null);
 
 /** Two-digit clock label for the time trigger, e.g. 13.5 -> "13:30". */
 const hourLabel = h => {
@@ -692,6 +942,30 @@ export function evaluateClause(clause, ctx = {}) {
   const list = clause.values || [];
   const has = v => list.some(x => String(x).toLowerCase() === String(v).toLowerCase());
 
+  /* Bounds. `min` is inclusive by default. `max` is exclusive for the weather and
+     clock triggers, which is what everything written against them relies on, and
+     inclusive for the counting triggers, where "the first five days" plainly
+     includes the fifth. A spawn restriction can also ask for a strict `min`,
+     because "Precipitation > 0" has to mean *some* rain — an inclusive floor of 0
+     would be true in perfect sunshine. */
+  const inRange = value => {
+    const inclusiveMax = clause.maxInc || INCLUSIVE_MAX_TRIGGERS.has(clause.trigger);
+    const okMin = clause.min == null
+      || (clause.minEx ? value > clause.min : value >= clause.min);
+    const okMax = clause.max == null
+      || (inclusiveMax ? value <= clause.max : value < clause.max);
+    return okMin && okMax;
+  };
+
+  /** Shared shape for every "read a number, compare it to the bounds" trigger. */
+  const numeric = (value, { label, unit, decimals = 0, missing }) => {
+    if (value == null || !Number.isFinite(value)) {
+      return { active: false, reason: missing || `${withArticle(label)} is unknown` };
+    }
+    const shown = `${decimals ? value.toFixed(decimals) : Math.round(value)}${unit}`;
+    return { active: inRange(value), reason: `${withArticle(label)} is ${shown}` };
+  };
+
   switch (clause.trigger) {
     case 'opposing type': {
       if (!opponent) return { active: false, reason: 'no opponent yet' };
@@ -715,23 +989,127 @@ export function evaluateClause(clause, ctx = {}) {
     case 'temperature':
     case 'cloud cover':
     case 'humidity':
-    case 'wind': {
+    case 'wind':
+    case 'precipitation': {
       const spec = ABILITY_WEATHER_TRIGGERS[clause.trigger];
       const value = weather?.[spec.field];
       // Decision: never guess. No reading means the clause simply does not fire.
       if (value == null || !Number.isFinite(value)) {
-        return { active: false, reason: `${spec.label} unavailable` };
+        return { active: false, reason: `${withArticle(spec.label)} is unavailable` };
       }
-      const okMin = clause.min == null || value >= clause.min;
-      const okMax = clause.max == null || value < clause.max;
-      const shown = `${Math.round(value)}${spec.unit}`;
+      // Rain is reported to a tenth of a millimetre, and rounding it to whole
+      // millimetres would show "0 mm" during a real drizzle.
+      const shown = clause.trigger === 'precipitation'
+        ? `${value.toFixed(1)}${spec.unit}`
+        : `${Math.round(value)}${spec.unit}`;
       return {
-        active: okMin && okMax,
+        active: inRange(value),
         reason: clause.trigger === 'temperature'
           ? `it is ${shown}`
-          : `${spec.label} is ${shown}`
+          : `${withArticle(spec.label)} is ${shown}`
       };
     }
+    case 'walked today':
+    case 'grunts today':
+    case 'raids today':
+    case 'captures today':
+    case 'shinies today': {
+      const spec = DAILY_COUNTER_TRIGGERS[clause.trigger];
+      // Same rule as the weather: without the figure the clause does not fire.
+      return numeric(abilityDaily(ctx)[spec.field], {
+        label: spec.label, unit: spec.unit,
+        decimals: clause.trigger === 'walked today' ? 1 : 0
+      });
+    }
+    case 'elevation':
+    case 'battery':
+    case 'points scanned': {
+      const spec = WORLD_READING_TRIGGERS[clause.trigger];
+      return numeric(abilityWorld(ctx)[spec.field], {
+        label: spec.label, unit: spec.unit,
+        // Worth naming the reason for battery: on iOS it is never knowable, and
+        // "unknown" in the log is what tells the player why nothing happened.
+        missing: clause.trigger === 'battery'
+          ? 'the battery level cannot be read on this device'
+          : `${spec.label} unknown`
+      });
+    }
+    case 'own hp':
+    case 'opposing hp':
+    case 'opposing level': {
+      const spec = BATTLE_READING_TRIGGERS[clause.trigger];
+      return numeric(abilityBattle(ctx)[spec.field], {
+        label: spec.label, unit: spec.unit,
+        missing: `${spec.label} is not known outside a battle`
+      });
+    }
+    case 'opposing held': {
+      const held = abilityBattle(ctx).foeHeld;
+      if (!opponent) return { active: false, reason: 'no opponent yet' };
+      // "Any" means any held item at all; anything else names the item wanted.
+      const wantAny = !list.length || has('Any') || has('Yes');
+      const name = held ? (heldItem(held)?.name || held) : null;
+      if (!held) return { active: false, reason: 'the opponent is carrying nothing' };
+      return {
+        active: wantAny || has(held) || (name && has(name)),
+        reason: `the opponent is carrying a ${name}`
+      };
+    }
+    case 'opposing buffed': {
+      const buffs = abilityBattle(ctx).foeBuffs;
+      if (!opponent) return { active: false, reason: 'no opponent yet' };
+      if (!buffs) return { active: false, reason: 'not known outside a battle' };
+      // Only a stat the opponent has raised counts. A stat it has had *lowered*
+      // is the opposite situation and must not fire this.
+      const raised = STAT_KEYS.filter(k => (Number(buffs[k]) || 0) > 0);
+      const wanted = list.length
+        ? STAT_KEYS.filter(k => has(k) || has(STAT_LABELS[k]))
+        : STAT_KEYS;
+      const hit = wanted.filter(k => raised.includes(k));
+      return {
+        active: hit.length > 0,
+        reason: raised.length
+          ? `the opponent has raised its ${raised.map(k => STAT_LABELS[k]).join(' and ')}`
+          : 'the opponent has raised nothing'
+      };
+    }
+    case 'last standing': {
+      const alone = abilityBattle(ctx).lastStanding;
+      if (alone == null) return { active: false, reason: 'not known outside a battle' };
+      // The value says which way round the clause wants it, so one ability can
+      // reward being alone and another reward not being.
+      const wantAlone = !list.length || has('Yes') || has('True');
+      return {
+        active: wantAlone ? alone : !alone,
+        reason: alone ? 'it is the last one standing' : 'it still has team mates'
+      };
+    }
+    case 'team': {
+      const mates = abilityBattle(ctx).teamMates;
+      if (!mates) return { active: false, reason: 'the team is not known yet' };
+      if (!list.length) return { active: false, reason: 'no team mates named' };
+      const lower = mates.map(m => String(m).toLowerCase());
+      // Every name listed has to be there. That covers both shapes the sheet
+      // uses: one companion named, or a whole line-up that must be complete.
+      const missing = list.filter(v => !lower.includes(String(v).toLowerCase()));
+      return {
+        active: missing.length === 0,
+        reason: missing.length
+          ? `the team is missing ${missing.join(' and ')}`
+          : `the team has ${list.join(' and ')}`
+      };
+    }
+    case 'moon': {
+      const phase = moonPhase(now);
+      return { active: has(phase), reason: `the moon is ${phase}` };
+    }
+    case 'day of month': {
+      return numeric(now.getDate(), { label: 'the day of the month', unit: '' });
+    }
+    case ALWAYS_TRIGGER:
+      // No condition to report, so the reason describes when the effect that
+      // uses this trigger actually lands.
+      return { active: true, reason: 'on being knocked out' };
     case 'time': {
       const h = now.getHours() + now.getMinutes() / 60;
       const { min, max } = clause;
@@ -748,8 +1126,10 @@ export function evaluateClause(clause, ctx = {}) {
       // Whether the sun is up where the player is, straight from the weather
       // reading. Same rule as every other reading: no data, no trigger.
       if (weather.isDay == null) return { active: false, reason: 'daylight unavailable' };
+      const nowIs = weather.isDay ? 'Day' : 'Night';
       return {
-        active: has(weather.isDay ? 'Day' : 'Night'),
+        // Matched through the synonym table so a sheet saying "Daytime" works.
+        active: list.some(v => daylightValue(v) === nowIs),
         reason: weather.isDay ? 'it is daytime' : 'it is night'
       };
     }
@@ -776,6 +1156,12 @@ export function evaluateAbility(ability, ctx = {}) {
     clauses: [],
     dealMultiplier: 1,
     takeMultiplier: 1,
+    /**
+     * Percentage of the opponent's remaining HP to deal when this creature is
+     * knocked out, or 0 for the great majority of abilities. Kept apart from the
+     * two multipliers because it is not a multiplier: it fires once, on a faint.
+     */
+    faintPercent: 0,
     anyActive: false
   };
   if (!ability) return out;
@@ -788,11 +1174,26 @@ export function evaluateAbility(ability, ctx = {}) {
     const channel = ABILITY_EFFECTS[clause.effect]?.channel;
     if (channel === 'deal') out.dealMultiplier *= clauseMultiplier(clause);
     if (channel === 'take') out.takeMultiplier *= clauseMultiplier(clause);
+    // Several faint clauses would be odd authoring; the biggest one wins rather
+    // than compounding into something unbounded.
+    if (channel === 'faint') out.faintPercent = Math.max(out.faintPercent, clause.percent);
   }
 
   out.dealMultiplier = clampAbilityMultiplier(out.dealMultiplier);
   out.takeMultiplier = clampAbilityMultiplier(out.takeMultiplier);
   return out;
+}
+
+/**
+ * Damage a parting shot should do: a share of what the opponent has left,
+ * rounded like every other hit and never less than 1, so an opponent on 1 HP is
+ * taken down with it.
+ */
+export function faintDamage(percent, opponentHp) {
+  const pct = Number(percent) || 0;
+  const hp = Math.max(0, Number(opponentHp) || 0);
+  if (pct <= 0 || hp <= 0) return 0;
+  return Math.max(1, Math.round(hp * pct / 100));
 }
 
 /** "deals 50% more damage" — the effect half of a clause, in words. */
@@ -803,6 +1204,8 @@ export function clauseEffectText(clause) {
     case 'deal less': return `deals ${pct}% less damage`;
     case 'take more': return `takes ${pct}% more damage`;
     case 'take less': return `takes ${pct}% less damage`;
+    case 'deal on faint':
+      return `deals ${pct}% of the opponent's remaining HP as it faints`;
     default: return 'has no effect';
   }
 }
@@ -822,15 +1225,46 @@ export function clauseConditionText(clause) {
     case 'temperature':
     case 'cloud cover':
     case 'humidity':
-    case 'wind': {
-      const { unit, label } = ABILITY_WEATHER_TRIGGERS[clause.trigger];
+    case 'wind':
+    case 'precipitation':
+    case 'walked today':
+    case 'grunts today':
+    case 'raids today':
+    case 'captures today':
+    case 'shinies today':
+    case 'elevation':
+    case 'battery':
+    case 'points scanned':
+    case 'own hp':
+    case 'opposing hp':
+    case 'opposing level':
+    case 'day of month': {
+      const { unit, label } = numericTriggerSpec(clause.trigger);
+      const what = withArticle(label);
       const n = v => `${v}${unit}`;
-      if (clause.min != null && clause.max != null) {
-        return `the ${label} is between ${n(clause.min)} and ${n(clause.max)}`;
+      const inclusiveMax = clause.maxInc || INCLUSIVE_MAX_TRIGGERS.has(clause.trigger);
+      // "at full HP" rather than "HP is 100% or above", which invites the
+      // question of how HP could ever be above its maximum.
+      if (clause.trigger === 'opposing hp' && clause.min === 100 && clause.max == null) {
+        return 'the opposing creature is at full HP';
       }
-      if (clause.max != null) return `the ${label} is below ${n(clause.max)}`;
-      if (clause.min != null) return `the ${label} is ${n(clause.min)} or above`;
-      return `the ${label} is known`;
+      if (clause.trigger === 'own hp' && clause.min === 100 && clause.max == null) {
+        return 'it is at full HP';
+      }
+      if (clause.min != null && clause.max != null) {
+        return `${what} is between ${n(clause.min)} and ${n(clause.max)}`;
+      }
+      if (clause.max != null) {
+        return inclusiveMax
+          ? `${what} is ${n(clause.max)} or below`
+          : `${what} is below ${n(clause.max)}`;
+      }
+      if (clause.min != null) {
+        return clause.minEx
+          ? `${what} is over ${n(clause.min)}`
+          : `${what} is ${n(clause.min)} or above`;
+      }
+      return `${what} is known`;
     }
     case 'time': {
       if (clause.min != null && clause.max != null) {
@@ -841,9 +1275,32 @@ export function clauseConditionText(clause) {
       return 'any time';
     }
     case 'daylight':
-      return `it is ${join(list.map(v => (String(v).toLowerCase() === 'day' ? 'daytime' : 'night')))}`;
+      return `it is ${join(list.map(v => (daylightValue(v) === 'Day' ? 'daytime' : 'night')))}`;
     case 'day': return `it is ${join(list)}`;
     case 'month': return `it is ${join(list)}`;
+    case 'moon': return `the moon is ${join(list)}`;
+    case 'opposing held':
+      return list.length && !list.some(v => /^(any|yes)$/i.test(v))
+        ? `the opposing creature is carrying ${join(list)}`
+        : 'the opposing creature is carrying a held item';
+    case 'opposing buffed': {
+      const stats = list.length
+        ? list.map(v => STAT_LABELS[String(v).toLowerCase()] || v)
+        : STAT_KEYS.map(k => STAT_LABELS[k]);
+      return `the opposing creature has raised its ${join(stats)}`;
+    }
+    case 'last standing':
+      return list.some(v => /^(no|false)$/i.test(v))
+        ? 'it still has team mates left'
+        : 'it is the last creature standing';
+    case 'team':
+      // "and", not "or": every creature listed has to be there. The shared
+      // `join` reads as "or", which would describe the opposite rule.
+      if (!list.length) return 'the team matches';
+      return list.length === 1
+        ? `the team includes ${list[0]}`
+        : `the rest of the team is ${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`;
+    case ALWAYS_TRIGGER: return 'it faints';
     default: return 'an unknown condition';
   }
 }
@@ -851,6 +1308,208 @@ export function clauseConditionText(clause) {
 /** One clause as a sentence: "Deals 50% more damage if …". */
 export const clauseText = clause =>
   `${clauseEffectText(clause).replace(/^./, ch => ch.toUpperCase())} if ${clauseConditionText(clause)}.`;
+
+/* ---------------------------------------------------------------
+   Spawn restrictions
+
+   A creature in Temporal Rift can carry a `Spawn Restriction`: a condition that
+   has to hold before it will spawn on the map, head a raid or hatch from an egg.
+   Outside its window it is simply not in the pool.
+
+   The conditions are written in the sheet in plain language — "Daylight =
+   Night", "Temperature > 18", "Humidity > 75", "Day = Monday" — and are parsed
+   into exactly the same clause shape abilities use, so there is one condition
+   evaluator in the game rather than two that can drift apart.
+
+   Everything is forgiving on the way in: an expression we cannot read is
+   reported as a warning and the creature is left *unrestricted*, because a typo
+   in a spreadsheet should make a creature slightly too easy to find rather than
+   impossible.
+   --------------------------------------------------------------- */
+
+/** Triggers a Spawn Restriction may use, mapped from how the sheets write them. */
+const RESTRICTION_TRIGGERS = {
+  'daylight': 'daylight',
+  'day': 'day',
+  'month': 'month',
+  'temperature': 'temperature',
+  'temp': 'temperature',
+  'cloud cover': 'cloud cover',
+  'cloudcover': 'cloud cover',
+  'clouds': 'cloud cover',
+  'humidity': 'humidity',
+  'wind': 'wind',
+  'precipitation': 'precipitation',
+  'rain': 'precipitation',
+  'hour': 'time',
+  'time': 'time',
+  'walked today': 'walked today',
+  'grunts today': 'grunts today'
+};
+
+/**
+ * "9" and "5" in "Hour between 9 and 5" are opening hours, not a window that
+ * wraps around midnight, so the smaller end is read as an afternoon time. Only
+ * applied to a `between` on the clock, where a backwards range is otherwise
+ * almost certainly a 12-hour-clock shorthand.
+ */
+function normaliseHourWindow(from, to) {
+  if (from == null || to == null) return { min: from, max: to };
+  return { min: from, max: to < from && to + 12 > from ? to + 12 : to };
+}
+
+/** Parses one side of a Spawn Restriction, e.g. "Temperature > 18". */
+function parseRestrictionClause(text, where) {
+  const raw = String(text ?? '').trim();
+  if (!raw) return null;
+
+  const fail = why => { DB.warnings.push(`${where}: ${why} in "${raw}" — restriction ignored`); return null; };
+
+  const m = raw.match(/^([A-Za-z][A-Za-z\s]*?)\s*(>=|<=|=|>|<|between)\s*(.+)$/i);
+  if (!m) return fail('could not tell the condition from the value');
+
+  const trigger = RESTRICTION_TRIGGERS[m[1].trim().toLowerCase()];
+  if (!trigger) return fail(`"${m[1].trim()}" is not a condition we know`);
+  const op = m[2].toLowerCase();
+  const rest = m[3].trim();
+
+  if (op === '=') {
+    const values = splitList(rest);
+    if (!values.length) return fail('nothing listed after the "="');
+    if (!ABILITY_LIST_TRIGGERS.includes(trigger)) {
+      return fail(`"${trigger}" needs a comparison such as > or <, not "="`);
+    }
+    if (trigger === 'daylight') {
+      const bad = values.filter(v => !daylightValue(v));
+      if (bad.length) return fail(`"${bad.join(', ')}" is not day or night`);
+      return { trigger, values: values.map(daylightValue), min: null, max: null };
+    }
+    if (trigger === 'day') {
+      const bad = values.filter(v =>
+        !DAY_NAMES_LONG.some(d => d.toLowerCase() === v.toLowerCase()));
+      if (bad.length) return fail(`"${bad.join(', ')}" is not a day of the week`);
+    }
+    if (trigger === 'month') {
+      const bad = values.filter(v =>
+        !MONTH_NAMES_LONG.some(d => d.toLowerCase() === v.toLowerCase()));
+      if (bad.length) return fail(`"${bad.join(', ')}" is not a month`);
+    }
+    return { trigger, values, min: null, max: null };
+  }
+
+  if (!ABILITY_RANGE_TRIGGERS.includes(trigger)) {
+    return fail(`"${trigger}" is a list condition, so it needs "=" and a value`);
+  }
+
+  if (op === 'between') {
+    const ends = rest.split(/\s*(?:and|&|-|to)\s*/i).map(numOrNull).filter(v => v != null);
+    if (ends.length !== 2) return fail('a "between" needs two numbers');
+    const [lo, hi] = ends;
+    const { min, max } = trigger === 'time'
+      ? normaliseHourWindow(lo, hi)
+      : { min: Math.min(lo, hi), max: Math.max(lo, hi) };
+    // Inclusive at both ends: "between 9 and 5" plainly includes 5 o'clock.
+    return { trigger, values: [], min, max, maxInc: true };
+  }
+
+  const n = numOrNull(rest);
+  if (n == null) return fail(`"${rest}" is not a number`);
+  switch (op) {
+    // Strictly greater. This is the difference between "Precipitation > 0"
+    // meaning "it is raining" and it meaning "always".
+    case '>':  return { trigger, values: [], min: n, max: null, minEx: true };
+    case '>=': return { trigger, values: [], min: n, max: null };
+    case '<':  return { trigger, values: [], min: null, max: n };
+    case '<=': return { trigger, values: [], min: null, max: n, maxInc: true };
+    default:   return fail('unsupported comparison');
+  }
+}
+
+/**
+ * Parses a whole `Spawn Restriction` cell. Sides joined by `&` all have to hold
+ * at once, which is how "Day = Monday … & Hour between 9 and 5" reads.
+ *
+ * @returns {{text:string, clauses:Array}|null} null when there is no restriction
+ */
+function parseSpawnRestriction(raw, name) {
+  const text = String(raw ?? '').trim();
+  if (!text) return null;
+  const where = `${name}: spawn restriction`;
+
+  const clauses = [];
+  for (const part of text.split('&')) {
+    if (!part.trim()) continue;
+    const clause = parseRestrictionClause(part, where);
+    // One unreadable side would make the whole restriction a guess, so the
+    // creature is left unrestricted rather than half-restricted.
+    if (!clause) return null;
+    clauses.push(clause);
+  }
+  if (!clauses.length) return null;
+  return { text, clauses };
+}
+
+/**
+ * The conditions spawn restrictions are judged against, pushed in from outside.
+ *
+ * data.js cannot read the weather or the save directly — state.js and weather.js
+ * both sit above it — so the same "owner pushes it down" arrangement the unlocks
+ * use applies here. Until something pushes a reading in, every weather-based and
+ * counter-based restriction is simply unmet.
+ */
+let spawnConditions = { weather: null, daily: null, world: null };
+
+/**
+ * The last filtered pools, kept because a scan rolls many creatures in a row
+ * against conditions that have not moved. Keyed on everything a restriction can
+ * read, so it cannot go stale: change the weather, the hour, the day or a
+ * counter and the key changes with it.
+ */
+let restrictedCache = { key: null, byRarity: null, list: null };
+
+/** Replaces the conditions and drops the cached pools. Cheap to call often. */
+export function setSpawnConditions({ weather = null, daily = null, world = null } = {}) {
+  spawnConditions = { weather, daily, world };
+  restrictedCache = { key: null, byRarity: null, list: null };
+  return spawnConditions;
+}
+
+/** What a restriction is currently being judged against. Exposed for the UI. */
+export const spawnConditionContext = (now = new Date()) => ({
+  now,
+  weather: spawnConditions.weather,
+  daily: spawnConditions.daily,
+  world: spawnConditions.world
+});
+
+/**
+ * Is this creature allowed to appear right now? True for anything without a
+ * restriction, which is every creature outside Temporal Rift.
+ */
+export function canSpawnNow(sp, now = new Date()) {
+  const r = sp?.spawnRestriction;
+  if (!r) return true;
+  const ctx = spawnConditionContext(now);
+  return r.clauses.every(c => evaluateClause(c, ctx).active);
+}
+
+/**
+ * Why a restricted creature is or is not available, for the Collection sheet:
+ * one line per condition with the reading behind it.
+ */
+export function spawnRestrictionState(sp, now = new Date()) {
+  const r = sp?.spawnRestriction;
+  if (!r) return null;
+  const ctx = spawnConditionContext(now);
+  const clauses = r.clauses.map(c => {
+    const { active, reason } = evaluateClause(c, ctx);
+    return { clause: c, active, reason, text: clauseConditionText(c) };
+  });
+  return { text: r.text, clauses, active: clauses.every(c => c.active) };
+}
+
+/** Every creature that only appears under some condition. */
+export const restrictedSpecies = () => DB.species.filter(s => s.spawnRestriction);
 
 /** The whole ability in words, using the authored text when there is one. */
 export function abilityText(ability) {
@@ -862,6 +1521,19 @@ export function abilityText(ability) {
 /** True when any clause depends on who is standing opposite. */
 export const abilityNeedsOpponent = ability =>
   !!ability?.clauses.some(c => ABILITY_OPPONENT_TRIGGERS.includes(c.trigger));
+
+/**
+ * True when any clause can only be judged once a battle is under way — how hurt
+ * something is, who is left standing, what the opponent has buffed.
+ *
+ * The team picker uses this to say "may apply" instead of guessing.
+ */
+export const abilityNeedsBattle = ability =>
+  !!ability?.clauses.some(c => ABILITY_IN_BATTLE_TRIGGERS.includes(c.trigger));
+
+/** True when the ability does its work by fainting rather than by hitting. */
+export const abilityFaintsToFire = ability =>
+  !!ability?.clauses.some(c => ABILITY_EFFECTS[c.effect]?.channel === 'faint');
 
 /**
  * Would this ability actually do anything in a battle that has not started yet?
@@ -879,7 +1551,8 @@ export const abilityNeedsOpponent = ability =>
  * @param {Date}     [ctx.now]
  * @param {object}   [ctx.weather]
  */
-export function abilityOutlook(ability, { opponents = [], now = new Date(), weather = {} } = {}) {
+export function abilityOutlook(ability, ctx = {}) {
+  const { opponents = [], now = new Date() } = ctx;
   const out = {
     ability: ability || null,
     has: !!ability,
@@ -887,6 +1560,14 @@ export function abilityOutlook(ability, { opponents = [], now = new Date(), weat
     against: 0,
     total: 0,
     needsOpponent: abilityNeedsOpponent(ability),
+    /**
+     * True when the answer genuinely cannot be known yet: the ability turns on
+     * how hurt something is, who is left standing, or what the opponent has
+     * buffed. The picker shows "may apply" rather than a confident no.
+     */
+    mayApply: abilityNeedsBattle(ability),
+    /** True when the ability works by being knocked out rather than by hitting. */
+    onFaint: abilityFaintsToFire(ability),
     detail: ''
   };
   if (!ability) return out;
@@ -895,7 +1576,7 @@ export function abilityOutlook(ability, { opponents = [], now = new Date(), weat
   const foes = opponents.length ? opponents : [null];
   out.total = foes.length;
 
-  const reads = foes.map(op => evaluateAbility(ability, { opponent: op, now, weather }));
+  const reads = foes.map(op => evaluateAbility(ability, { ...ctx, opponent: op, now }));
   const hits = reads.filter(r => r.anyActive);
   out.against = hits.length;
   out.applies = hits.length > 0;
@@ -914,6 +1595,14 @@ export function abilityOutlook(ability, { opponents = [], now = new Date(), weat
 export function abilityOutlookLabel(look) {
   if (!look?.has) return '';
   const name = look.ability.name;
+  // Checked before `applies`, because a parting shot's condition is always true
+  // and yet it only pays out on being knocked out.
+  if (look.onFaint) {
+    return `${name} — fires only when this creature is knocked out. ${look.detail}.`;
+  }
+  if (!look.applies && look.mayApply) {
+    return `${name} — depends on how the battle goes, so it cannot be called yet. ${look.detail}.`;
+  }
   if (!look.applies) return `${name} — will not apply in this battle. ${look.detail}.`;
   const scope = look.needsOpponent && look.total > 1 && look.against < look.total
     ? ` against ${look.against} of their ${look.total}`
@@ -989,7 +1678,8 @@ export const RAID_REWARD = {
   incubatorItem: 'single_use_incubator',
   incubatorChanceByRarity: { 4: 1, 5: 1 },
   rareIncenseItem: 'rare_incense',
-  rareIncenseChanceByRarity: { 4: 0.25, 5: 0.25 },
+  /** Halved from 25%: an incense was turning up more often than it felt worth. */
+  rareIncenseChanceByRarity: { 4: 0.125, 5: 0.125 },
   always: { revive: 2 }   // every raid win, win or catch
 };
 
@@ -1017,7 +1707,8 @@ export const RAID_BONUS_RARITIES =
  * two rolls are independent, so one win can pay both, either or neither.
  */
 export const EXCLUSIVE_RAID_REWARD = {
-  shinyIncenseChance: 0.25,
+  /** Halved from 25%, along with every other incense drop in the game. */
+  shinyIncenseChance: 0.125,
   shinyIncenseItem: 'shiny_incense',
   eggChance: 0.25,
   eggType: '15km'
@@ -1030,10 +1721,15 @@ export const GRUNT_REWARD = {
    * Heal coin flip — see WIN_FULL_HEAL_CHANCE.
    */
   always: {},
+  /**
+   * At most one of these per win. Weights are out of 200 rather than 100 so the
+   * halved 2.5% odds stay whole numbers: an Incense and a Stardust Magnet were
+   * each 5% and are now each 2.5%, with the freed 5% going back to "nothing".
+   */
   bonus: [
-    { weight: 5,  item: 'incense' },
-    { weight: 5,  item: 'stardust_magnet' },
-    { weight: 90, item: null }
+    { weight: 5,   item: 'incense' },
+    { weight: 5,   item: 'stardust_magnet' },
+    { weight: 190, item: null }
   ],
   /**
    * Independent rolls, unlike `bonus` which picks at most one thing. Each is
@@ -1053,6 +1749,405 @@ export const GRUNT_ITEM_DROPS = [
 ];
 
 export const rollGruntItems = () => ({ ...weightedPick(GRUNT_ITEM_DROPS).items });
+
+/* ---------------------------------------------------------------
+   Battle Frontier
+
+   A building you pin to the map, holding one challenge per type. Each challenge
+   is a ten-level ladder of trainer battles, and each level can be beaten once
+   per *mode* — a restriction on the creatures you are allowed to bring. Fifteen
+   modes times ten levels is a lot of fights out of one building, which is the
+   point: the ladder is fixed, and the mode is what makes it hard.
+
+   Clear all ten levels in one mode and the Grand Raid Challenge opens: a level
+   11 in all but name, against a boss that exists nowhere else in the game. It
+   is scored per mode, so the same boss can be won fifteen times over.
+   --------------------------------------------------------------- */
+
+/** Levels in every challenge. The Grand Raid sits one above the top. */
+export const FRONTIER_LEVELS = 10;
+export const FRONTIER_GRAND_LEVEL = FRONTIER_LEVELS + 1;
+export const FRONTIER_GRAND_LABEL = 'Grand Raid Challenge';
+
+/** The Grand Raid boss is always this level, whatever the mode or challenge. */
+export const FRONTIER_RAID_LEVEL = 8;
+
+/** Creatures a Frontier trainer brings, matching an ordinary battle. */
+export const FRONTIER_TEAM_SIZE = 3;
+
+/**
+ * One challenge per type. `name` has to match the "Challenge name" column in
+ * Battle Frontier.csv, and `trainer` the artwork shipped in `images/`.
+ */
+export const FRONTIER_CHALLENGES = [
+  {
+    id: 'mystic', name: 'Mystic', type: 'Mystic',
+    trainer: 'challenge mystic.png', trainerName: 'Seer Vionne',
+    phrase: 'I already know how this ends. Show me I am wrong.'
+  },
+  {
+    id: 'celestial', name: 'Celestial', type: 'Celestial',
+    trainer: 'challenge celestial.png', trainerName: 'Warden Lyrae',
+    phrase: 'Every light in the sky is watching. Do not disappoint them.'
+  },
+  {
+    id: 'neutral', name: 'Neutral', type: 'Neutral',
+    trainer: 'challenge neutral.png', trainerName: 'Steward Bram',
+    phrase: 'No tricks, no advantages. Just which of us trained harder.'
+  },
+  {
+    id: 'wind', name: 'Wind', type: 'Wind',
+    trainer: 'challenge wind.png', trainerName: 'Gale Rider Isa',
+    phrase: 'If you can keep up with my team, you have earned the win.'
+  },
+  {
+    id: 'mechanic', name: 'Mechanic', type: 'Mechanic',
+    trainer: 'challenge mechanic.png', trainerName: 'Engineer Kovak',
+    phrase: 'My machines do not get tired, and they do not get nervous.'
+  }
+];
+
+export const frontierChallenge = id =>
+  FRONTIER_CHALLENGES.find(c => c.id === id) || null;
+
+/** The artwork path for a challenge's trainer. */
+export const frontierTrainerImage = id => {
+  const ch = frontierChallenge(id);
+  return ch ? `${IMAGE_DIR}/${encodeURIComponent(ch.trainer)}` : '';
+};
+
+/**
+ * The restrictions you can take a ladder on. `kind` is what gets checked:
+ *
+ *   'type'      — every creature must be this type
+ *   'rarity'    — every creature must be this rarity, its family's if it has none
+ *   'set'       — every creature must come from this set
+ *   'exclusive' — every creature must be an Exclusive
+ *   'any'       — bring whatever you like
+ *
+ * A mode is not required to be *possible*: "Only Rarity 1" at level 10 is meant
+ * to be brutal, and "Only Exclusives" is meant to be a late-game bragging right.
+ * The picker says how many creatures qualify rather than hiding the option.
+ */
+export const FRONTIER_MODES = [
+  ...TYPES.map(type => ({
+    id: `type_${type.toLowerCase()}`,
+    label: `Only ${type}`,
+    kind: 'type', value: type,
+    blurb: `Every creature on your team must be ${type}.`
+  })),
+  ...[1, 2, 3, 4, 5].map(rarity => ({
+    id: `rarity_${rarity}`,
+    label: `Only Rarity ${rarity}`,
+    kind: 'rarity', value: rarity,
+    blurb: `Every creature on your team must be rarity ${rarity} (${RARITY_NAMES[rarity]}).`
+  })),
+  {
+    id: 'set_elemental', label: `Only ${SET_NAME}`,
+    kind: 'set', value: SET_NAME,
+    blurb: `Every creature on your team must come from ${SET_NAME}.`
+  },
+  {
+    id: 'set_galactic', label: `Only ${GALACTIC_SET_NAME}`,
+    kind: 'set', value: GALACTIC_SET_NAME,
+    blurb: `Every creature on your team must come from ${GALACTIC_SET_NAME}.`
+  },
+  {
+    id: 'set_temporal', label: `Only ${TEMPORAL_SET_NAME}`,
+    kind: 'set', value: TEMPORAL_SET_NAME,
+    blurb: `Every creature on your team must come from ${TEMPORAL_SET_NAME}.`
+  },
+  {
+    id: 'set_exclusive', label: 'Only Exclusives',
+    kind: 'exclusive',
+    blurb: 'Every creature on your team must be an Exclusive.'
+  },
+  {
+    id: 'open', label: 'No restriction',
+    kind: 'any',
+    blurb: 'Bring any three creatures you like.'
+  }
+];
+
+export const frontierMode = id => FRONTIER_MODES.find(m => m.id === id) || null;
+
+/** Whether one stored creature is allowed in under this mode. */
+export function frontierModeAllows(mode, creature) {
+  const def = typeof mode === 'string' ? frontierMode(mode) : mode;
+  if (!def) return false;
+  const sp = species(creature?.speciesId);
+  if (!sp) return false;
+  switch (def.kind) {
+    case 'any': return true;
+    case 'type': return String(sp.type).toLowerCase() === String(def.value).toLowerCase();
+    // A creature with no rarity of its own is judged by its family's, the same
+    // way the Collection filter and the storage search judge it.
+    case 'rarity': return (sp.rarity || familyRarity(sp.id) || 1) === Number(def.value);
+    case 'set': return sp.set === def.value;
+    case 'exclusive': return !!sp.exclusive;
+    default: return false;
+  }
+}
+
+/* ---------------------------------------------------------------
+   What beating a level pays
+
+   Three bands on top of a base every level hands over, exactly as specified.
+   `heldItem` is rolled on the win rather than fixed here, so two players who
+   clear level 7 do not walk away with the same trinket.
+   --------------------------------------------------------------- */
+export const FRONTIER_REWARD_BASE = {
+  potion: 1, full_heal: 1, revive: 2, ultra_disc: 1, molten_seeker: 1
+};
+
+export const FRONTIER_REWARD_BANDS = [
+  { fromLevel: 4, heldItem: true, items: {} },
+  { fromLevel: 6, items: { stat_booster: 1 } },
+  { fromLevel: 8, items: { strength_reroll: 1, mysterious_incense: 1 } }
+];
+
+/**
+ * Everything one level win pays: `items` for the ordinary inventory, and
+ * `heldItem` for "and one random held item on top".
+ */
+export function frontierLevelRewards(level) {
+  const lvl = Number(level) || 0;
+  const items = { ...FRONTIER_REWARD_BASE };
+  let heldItem = false;
+  for (const band of FRONTIER_REWARD_BANDS) {
+    if (lvl < band.fromLevel) continue;
+    if (band.heldItem) heldItem = true;
+    for (const [id, n] of Object.entries(band.items || {})) {
+      items[id] = (items[id] || 0) + n;
+    }
+  }
+  return { items, heldItem };
+}
+
+/* ---------------------------------------------------------------
+   The ladder itself, read from Battle Frontier.csv
+   --------------------------------------------------------------- */
+
+/**
+ * "Attack: 10, Defence: 5, Speed: 5" -> { attack: 10, defence: 5, speed: 5 }.
+ *
+ * Capped at the player's own ceiling: a trainer is allowed exactly the twenty
+ * points a Stat Booster user gets, so a typo in the sheet cannot hand one of
+ * them a stat spread no player could ever match.
+ */
+export function parseFrontierBoosts(raw, where = 'Battle Frontier') {
+  const out = emptyBoosts();
+  const text = String(raw ?? '').trim();
+  if (!text) return out;
+  for (const part of text.split(/[,;]/)) {
+    const bit = part.trim();
+    if (!bit) continue;
+    const m = bit.match(/^([A-Za-z ]+)\s*[:=]\s*(-?\d+)$/);
+    if (!m) {
+      DB.warnings.push(`${where}: cannot read stat boost "${bit}" — ignored`);
+      continue;
+    }
+    const key = normaliseStatKey(m[1]);
+    const n = Number(m[2]);
+    if (!key) {
+      DB.warnings.push(`${where}: "${m[1].trim()}" is not a stat — boost ignored`);
+      continue;
+    }
+    if (!(n > 0)) continue;
+    out[key] += n;
+  }
+  const total = totalBoosts(out);
+  if (total > MAX_STAT_BOOSTS) {
+    DB.warnings.push(
+      `${where}: stat boosts add up to ${total}, above the ${MAX_STAT_BOOSTS} a player can reach — scaled back`);
+    /* Scaled proportionally rather than trimmed off the top, so a sheet asking
+       for twice the budget still gets the build it described. Flooring can leave
+       a few points spare, which go to the biggest stats in turn. */
+    const scale = MAX_STAT_BOOSTS / total;
+    for (const k of STAT_KEYS) out[k] = Math.floor(out[k] * scale);
+    const byBiggest = [...STAT_KEYS].sort((a, b) => out[b] - out[a]);
+    let spare = MAX_STAT_BOOSTS - totalBoosts(out);
+    for (let i = 0; spare > 0; i = (i + 1) % byBiggest.length, spare--) {
+      out[byBiggest[i]]++;
+    }
+  }
+  return out;
+}
+
+/** "Defense", "defence", "HP" -> a STAT_KEYS entry, or null. */
+function normaliseStatKey(raw) {
+  const low = String(raw ?? '').trim().toLowerCase();
+  if (low === 'defense') return 'defence';
+  return STAT_KEYS.includes(low) ? low : null;
+}
+
+/**
+ * A held item written in the sheet, by display name or by id. Names are what
+ * the generated file uses because they are what a person would type.
+ */
+export function resolveHeldItemName(raw) {
+  const text = String(raw ?? '').trim();
+  if (!text) return null;
+  if (isHeldItem(text)) return text;
+  const low = text.toLowerCase();
+  for (const def of Object.values(HELD_ITEMS)) {
+    if (def.name.toLowerCase() === low) return def.id;
+  }
+  const underscored = low.replace(/\s+/g, '_');
+  return isHeldItem(underscored) ? underscored : null;
+}
+
+/**
+ * Reads Battle Frontier.csv into DB.frontier: challenge id -> level -> team.
+ *
+ * A row whose creatures cannot be resolved is dropped with a warning rather
+ * than half-loaded, because a trainer with two creatures would quietly be an
+ * easier fight than the sheet intends.
+ */
+function loadFrontierLadder(rows) {
+  DB.frontier = new Map();
+  for (const ch of FRONTIER_CHALLENGES) DB.frontier.set(ch.id, new Map());
+
+  for (const r of rows) {
+    const name = (r['challenge name'] || '').trim();
+    const ch = FRONTIER_CHALLENGES.find(c =>
+      c.name.toLowerCase() === name.toLowerCase() || c.id === name.toLowerCase());
+    if (!ch) {
+      if (name) DB.warnings.push(`Battle Frontier: unknown challenge "${name}" — row skipped`);
+      continue;
+    }
+    const level = int(r['challenge level']);
+    if (!level || level < 1 || level > FRONTIER_LEVELS) {
+      DB.warnings.push(`Battle Frontier ${ch.name}: level "${r['challenge level']}" is not 1-${FRONTIER_LEVELS} — row skipped`);
+      continue;
+    }
+    const where = `Battle Frontier ${ch.name} level ${level}`;
+
+    const team = [];
+    for (let i = 1; i <= FRONTIER_TEAM_SIZE; i++) {
+      const rawId = (r[`creature ${i} id`] || '').trim().replace(/\.png$/i, '');
+      const rawName = (r[`creature ${i} name`] || '').trim();
+      const sp = (rawId && DB.byId.get(rawId))
+        || (rawName && DB.byName.get(rawName.toLowerCase()))
+        || null;
+      if (!sp) {
+        DB.warnings.push(`${where}: no creature matches "${rawId || rawName}"`);
+        continue;
+      }
+      if (rawName && sp.name.toLowerCase() !== rawName.toLowerCase()) {
+        DB.warnings.push(`${where}: id "${rawId}" is ${sp.name}, not "${rawName}" — going by the id`);
+      }
+      const cLevel = Math.min(MAX_CREATURE_LEVEL,
+        Math.max(1, int(r[`creature ${i} level`]) || 1));
+      const held = resolveHeldItemName(r[`creature ${i} held item`]);
+      if (!held && (r[`creature ${i} held item`] || '').trim()) {
+        DB.warnings.push(`${where}: "${r[`creature ${i} held item`]}" is not a held item — ignored`);
+      }
+      team.push({
+        speciesId: sp.id,
+        name: sp.name,
+        level: cLevel,
+        held,
+        boosts: parseFrontierBoosts(r[`creature ${i} stat boosts`], where)
+      });
+    }
+
+    if (team.length !== FRONTIER_TEAM_SIZE) {
+      DB.warnings.push(`${where}: only ${team.length} of ${FRONTIER_TEAM_SIZE} creatures resolved — level skipped`);
+      continue;
+    }
+    if (DB.frontier.get(ch.id).has(level)) {
+      DB.warnings.push(`${where}: listed twice — keeping the first`);
+      continue;
+    }
+    DB.frontier.get(ch.id).set(level, team);
+  }
+}
+
+/** The trainer's team for one challenge level, or null if the sheet lacks it. */
+export function frontierTeam(challengeId, level) {
+  const team = DB.frontier?.get(challengeId)?.get(Number(level));
+  // Handed out as copies: a battle should never be able to write back into the
+  // loaded sheet and change the ladder for the next attempt.
+  return team ? team.map(t => ({ ...t, boosts: { ...t.boosts } })) : null;
+}
+
+/** How many of the ten levels this challenge actually has creatures for. */
+export const frontierLevelsLoaded = challengeId =>
+  DB.frontier?.get(challengeId)?.size || 0;
+
+/** True once the ladder has enough of the sheet to be playable. */
+export const frontierReady = () =>
+  FRONTIER_CHALLENGES.some(ch => frontierLevelsLoaded(ch.id) > 0);
+
+/* ---------------------------------------------------------------
+   Grand Raid Challenge bosses
+
+   One per challenge, from Exclusives3.csv. Matched on type first, so the Mystic
+   ladder ends against the Mystic boss whatever order the file is written in,
+   with the file's own order as the fallback when the types do not line up.
+   --------------------------------------------------------------- */
+export function rebuildFrontierBosses() {
+  DB.frontierBossByChallenge = new Map();
+  const pool = DB.exclusive.filter(s => s.frontier);
+  if (!pool.length) return 0;
+
+  const taken = new Set();
+  // Pass one: the boss whose own type is the challenge's type.
+  for (const ch of FRONTIER_CHALLENGES) {
+    const hit = pool.find(sp =>
+      !taken.has(sp.id) && String(sp.type).toLowerCase() === ch.type.toLowerCase());
+    if (hit) {
+      taken.add(hit.id);
+      DB.frontierBossByChallenge.set(ch.id, hit.id);
+    }
+  }
+  /* Pass two: anything still unclaimed, in file order, for challenges that did
+     not find a type match. This only happens when the file is short or a Type
+     cell is wrong, and pairing a Mystic ladder with a Wind boss is exactly the
+     sort of thing that should be said out loud rather than shipped quietly. */
+  const spare = pool.filter(sp => !taken.has(sp.id));
+  for (const ch of FRONTIER_CHALLENGES) {
+    if (DB.frontierBossByChallenge.has(ch.id)) continue;
+    const next = spare.shift();
+    if (!next) {
+      DB.warnings.push(
+        `Battle Frontier: no Grand Raid boss for the ${ch.name} challenge — `
+        + `Exclusives3.csv has no ${ch.type} creature and none spare`);
+      continue;
+    }
+    DB.warnings.push(
+      `Battle Frontier: no ${ch.type} creature in Exclusives3.csv, so the ${ch.name} `
+      + `challenge falls back to ${next.name} (${next.type})`);
+    DB.frontierBossByChallenge.set(ch.id, next.id);
+  }
+  return DB.frontierBossByChallenge.size;
+}
+
+/** The Grand Raid boss species for a challenge, or null if the file is absent. */
+export const frontierBoss = challengeId =>
+  species(DB.frontierBossByChallenge?.get(challengeId)) || null;
+
+/**
+ * The Grand Raid, in the shape the raid machinery already understands: an
+ * exclusive raid at a fixed level, so it gets the tougher boss modifiers, raid
+ * shiny odds and the Ultra Disc catch without any of that code changing.
+ */
+export function frontierGrandRaid(challengeId) {
+  const sp = frontierBoss(challengeId);
+  if (!sp) return null;
+  const rarity = sp.rarity >= 3 && sp.rarity <= 5 ? sp.rarity : 5;
+  const tier = RAID_TIERS[rarity];
+  return {
+    speciesId: sp.id,
+    rarity,
+    exclusive: true,
+    frontier: challengeId,
+    level: FRONTIER_RAID_LEVEL,
+    xp: tier.xp,
+    dustRange: tier.dust
+  };
+}
 
 /* ---------------------------------------------------------------
    Shiny
@@ -1100,12 +2195,12 @@ export const mysteriousIncenseDurationMs = rarity =>
 export const mysteriousIncenseSpawns = rarity =>
   Math.floor(mysteriousIncenseDurationMs(rarity) / RULES.INCENSE_EVERY_MS);
 
-/** Chance of one dropping from a grunt win. */
-export const MYSTERIOUS_INCENSE_GRUNT_CHANCE = 0.01;
+/** Chance of one dropping from a grunt win. Halved, like every incense drop. */
+export const MYSTERIOUS_INCENSE_GRUNT_CHANCE = 0.005;
 
-/** Chance of one dropping from a raid win, by boss rarity. */
+/** Chance of one dropping from a raid win, by boss rarity. Halved throughout. */
 export const MYSTERIOUS_INCENSE_RAID_CHANCE = {
-  1: 0.01, 2: 0.01, 3: 0.02, 4: 0.03, 5: 0.04
+  1: 0.005, 2: 0.005, 3: 0.01, 4: 0.015, 5: 0.02
 };
 
 export const mysteriousIncenseRaidChance = rarity =>
@@ -1167,6 +2262,260 @@ export const GALACTIC_TAKEOVER_LABEL = 'Galactic Adventures Take Over';
 export const GALACTIC_TAKEOVER_DAY = 4;      // Thursday
 export const GALACTIC_TAKEOVER_START = 18;   // 18:00
 export const GALACTIC_TAKEOVER_END = 19;     // 19:00
+
+/* ---------------------------------------------------------------
+   Annual events
+
+   Nine events that come round once a year. Unlike the weekly ones these run for
+   whole days rather than an hour, so they are defined by a *date window* rather
+   than a day-and-hour, and they all share one table: everything that varies
+   between them — what spawns, what the bonuses are — is data on the entry, not
+   another predicate somewhere else.
+
+   Most of them hand out one creature an hour, on the player's own position,
+   lasting half an hour. Where those creatures come from is the only real
+   difference between them:
+
+     • Halloween and Thanksgiving draw from a hand-written list in their own CSV.
+     • The Holiday event draws from everything you could normally catch.
+     • The five awareness days each draw from a single type.
+
+   All of them use the same flattened rarity odds, which are much kinder to the
+   rare end than an ordinary spawn: a Legendary is 15% here against 1% in the
+   wild. That is the point of them.
+   --------------------------------------------------------------- */
+
+/** How long an event creature waits on your position. */
+export const EVENT_SPAWN_MS = 30 * 60_000;
+
+/**
+ * Rarity odds for an event spawn. Deliberately flat compared with
+ * RARITY_WEIGHTS — these are a once-an-hour treat, not the everyday pool.
+ */
+export const EVENT_SPAWN_WEIGHTS = { 1: 15, 2: 20, 3: 30, 4: 20, 5: 15 };
+
+/** Local midnight on `y-m-d`. Month is 0-based, matching Date. */
+const localDay = (y, m, d) => new Date(y, m, d);
+
+/**
+ * Easter Sunday for a Gregorian year, by the Meeus/Jones/Butcher algorithm.
+ *
+ * Worked out rather than tabulated so the events keep working for every future
+ * year without anyone having to maintain a list. Returns local midnight.
+ */
+export function easterSunday(year) {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);   // 3 = March, 4 = April
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return localDay(year, month - 1, day);
+}
+
+/**
+ * The `n`th `weekday` of a month, e.g. the 4th Thursday of November.
+ * `weekday` is 0 = Sunday, matching Date.getDay().
+ */
+export function nthWeekdayOfMonth(year, month, weekday, n) {
+  const first = localDay(year, month, 1);
+  const shift = (weekday - first.getDay() + 7) % 7;
+  return localDay(year, month, 1 + shift + (n - 1) * 7);
+}
+
+/** Local midnight, so two dates can be compared as calendar days. */
+const atMidnight = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+
+/** Is `day` within [from, to], counting whole days at both ends? */
+const dayWithin = (day, from, to) =>
+  atMidnight(day) >= atMidnight(from) && atMidnight(day) <= atMidnight(to);
+
+/**
+ * A window of `days` days that starts on a fixed date every year.
+ * Returns a predicate for the calendar table, which is given local midnight.
+ */
+const annualWindow = (month, date, days) => day => {
+  const from = localDay(day.getFullYear(), month, date);
+  const to = localDay(day.getFullYear(), month, date + days - 1);
+  return dayWithin(day, from, to);
+};
+
+/** Good Friday to Easter Sunday: three days, moving with Easter every year. */
+export function easterWindow(year) {
+  const sunday = easterSunday(year);
+  const friday = new Date(sunday);
+  friday.setDate(friday.getDate() - 2);
+  return { from: friday, to: sunday };
+}
+
+/**
+ * The Tuesday, Wednesday and Thursday of US Thanksgiving week.
+ *
+ * Anchored on the 4th Thursday and counted back two days, rather than looking up
+ * "the 4th Tuesday": in a year where November starts on a Thursday the 4th
+ * Tuesday falls *after* the 4th Thursday, so the two do not always describe the
+ * same week.
+ */
+export function thanksgivingWindow(year) {
+  const thursday = nthWeekdayOfMonth(year, 10, 4, 4);   // November, Thursday, 4th
+  const tuesday = new Date(thursday);
+  tuesday.setDate(tuesday.getDate() - 2);
+  return { from: tuesday, to: thursday };
+}
+
+/**
+ * Every annual event, in calendar order.
+ *
+ * `onDay` is handed local midnight and must only look at the calendar. The rest
+ * of the fields describe what the event *does*, and are read by the spawn loop,
+ * the reward paths and the missions — none of which needs to know which event it
+ * is looking at.
+ *
+ * Behaviour fields, all optional:
+ *   hourlySpawn  {type} | {list} | {any}  where the once-an-hour creature comes from
+ *   catchBonus   {candy, stardust}        added to catches and raid catches
+ *   hatchBonus   {candy, stardust}        added to egg hatches
+ *   halveEggs    true                     eggs incubated now need half the distance
+ *   dailyMission missionId                a daily mission that only exists now
+ */
+export const ANNUAL_EVENTS = [
+  {
+    id: 'easter',
+    label: 'Easter Egg Hunt',
+    icon: '🐣',
+    onDay: day => {
+      const { from, to } = easterWindow(day.getFullYear());
+      return dayWithin(day, from, to);
+    },
+    halveEggs: true,
+    hatchBonus: { candy: 3, stardust: 20 },
+    blurb: 'Eggs you start now need half the distance, and every hatch pays +3 candy and +20 stardust.'
+  },
+  {
+    id: 'labourDay',
+    label: 'Labour Day',
+    icon: '🔧',
+    onDay: annualWindow(4, 1, 3),           // 1–3 May
+    hourlySpawn: { type: 'Mechanic' },
+    blurb: 'A Mechanic creature comes to you every hour, with far better odds of a rare one.'
+  },
+  {
+    id: 'environmentDay',
+    label: 'World Environment Day',
+    icon: '🌱',
+    onDay: annualWindow(5, 5, 3),           // 5–7 June
+    hourlySpawn: { type: 'Celestial' },
+    blurb: 'A Celestial creature comes to you every hour, with far better odds of a rare one.'
+  },
+  {
+    id: 'seabirdDay',
+    label: 'World Seabird Day',
+    icon: '🐦',
+    onDay: annualWindow(6, 3, 3),           // 3–5 July
+    hourlySpawn: { type: 'Wind' },
+    blurb: 'A Wind creature comes to you every hour, with far better odds of a rare one.'
+  },
+  {
+    id: 'humanitarianDay',
+    label: 'World Humanitarian Day',
+    icon: '🕊',
+    onDay: annualWindow(7, 19, 3),          // 19–21 August
+    hourlySpawn: { type: 'Mystic' },
+    blurb: 'A Mystic creature comes to you every hour, with far better odds of a rare one.'
+  },
+  {
+    id: 'peaceDay',
+    label: 'International Day of Peace',
+    icon: '☮',
+    onDay: annualWindow(8, 21, 3),          // 21–23 September
+    hourlySpawn: { type: 'Neutral' },
+    blurb: 'A Neutral creature comes to you every hour, with far better odds of a rare one.'
+  },
+  {
+    id: 'halloween',
+    label: 'Halloween',
+    icon: '🎃',
+    onDay: annualWindow(9, 29, 3),          // 29–31 October
+    hourlySpawn: { list: 'halloween' },
+    catchBonus: { candy: 3 },
+    hatchBonus: { candy: 3 },
+    blurb: 'Every catch, raid catch and hatch pays +3 candy, and a costumed creature comes to you every hour.'
+  },
+  {
+    id: 'thanksgiving',
+    label: 'Thanksgiving',
+    icon: '🦃',
+    onDay: day => {
+      const { from, to } = thanksgivingWindow(day.getFullYear());
+      return dayWithin(day, from, to);
+    },
+    hourlySpawn: { list: 'thanksgiving' },
+    blurb: 'A creature comes to you every hour, from Tuesday to Thanksgiving Thursday.'
+  },
+  {
+    id: 'holiday',
+    label: 'Holiday Season',
+    icon: '🎁',
+    // The only window that crosses a year boundary, so it is written as two
+    // pieces rather than a range.
+    onDay: day => (day.getMonth() === 11 && day.getDate() >= 20)
+      || (day.getMonth() === 0 && day.getDate() === 1),
+    hourlySpawn: { any: true },
+    catchBonus: { candy: 1, stardust: 15 },
+    hatchBonus: { candy: 1, stardust: 15 },
+    dailyMission: 'holidayLogin',
+    blurb: 'Every catch, raid catch and hatch pays +1 candy and +15 stardust, a creature comes to you '
+      + 'every hour, and there is a daily gift for logging in.'
+  }
+];
+
+export const annualEvent = id => ANNUAL_EVENTS.find(e => e.id === id) || null;
+
+/** Every annual event running on the day `now` falls in. */
+export function activeAnnualEvents(now = new Date()) {
+  const day = atMidnight(now);
+  return ANNUAL_EVENTS.filter(e => e.onDay(day));
+}
+
+/** True when this particular event is running. */
+export const isAnnualEvent = (id, now = new Date()) =>
+  activeAnnualEvents(now).some(e => e.id === id);
+
+/**
+ * The flat bonuses owed on a reward right now, totalled across every running
+ * event so two overlapping ones could never silently cancel out.
+ *
+ * `kind` is 'catch' for a capture or raid catch, 'hatch' for an egg.
+ */
+export function eventRewardBonus(kind, now = new Date()) {
+  const field = kind === 'hatch' ? 'hatchBonus' : 'catchBonus';
+  let candy = 0, stardust = 0;
+  const from = [];
+  for (const e of activeAnnualEvents(now)) {
+    const b = e[field];
+    if (!b) continue;
+    candy += b.candy || 0;
+    stardust += b.stardust || 0;
+    from.push(e.label);
+  }
+  return { candy, stardust, from };
+}
+
+/** True while eggs put into an incubator should need only half the distance. */
+export const eggsAreHalved = (now = new Date()) =>
+  activeAnnualEvents(now).some(e => e.halveEggs);
+
+/** The running event that hands out an hourly creature, or null. */
+export const hourlySpawnEvent = (now = new Date()) =>
+  activeAnnualEvents(now).find(e => e.hourlySpawn) || null;
 
 /* ---------------------------------------------------------------
    Essence Harvesting
@@ -1379,13 +2728,30 @@ export const EGG_TYPES = {
     speciesId: MYTHICAL_ASTRALYON_ID,
     noShiny: true,
     ignoresStorageLimit: true
+  },
+  /**
+   * Chromarion's egg — the promised "own egg entry" for the second mythical,
+   * rather than a second creature added to the pool of the first. Identical to
+   * Astralyon's in every number; only the creature inside differs, which is why
+   * it carries a `label` of its own. Two eggs both reading "50 km egg" in the
+   * list would be impossible to tell apart.
+   */
+  '50km-chromarion': {
+    id: '50km-chromarion', km: 50, dust: 500, xp: 100, image: '50km_egg.png', bonusCandy: 25,
+    label: 'Chromarion 50 km egg',
+    mythical: true,
+    speciesId: MYTHICAL_CHROMARION_ID,
+    noShiny: true,
+    ignoresStorageLimit: true
   }
 };
 
 /** The egg type Exclusive Raids drop. */
 export const EXCLUSIVE_EGG_TYPE = '15km';
-/** The egg the final Set mission hands over. */
+/** The egg the last Galactic Adventures Set mission hands over. */
 export const MYTHICAL_EGG_TYPE = '50km';
+/** The egg the last Temporal Rift Set mission hands over. */
+export const CHROMARION_EGG_TYPE = '50km-chromarion';
 
 /** Which egg you get when one drops. */
 export const EGG_TYPE_ROLL = [
@@ -1407,15 +2773,30 @@ export const incubatorDiscount = itemId => INCUBATOR_DISCOUNT[itemId] || 0;
 
 export const eggDef = type => EGG_TYPES[type] || EGG_TYPES['5km'];
 export const eggImage = type => `${EGG_DIR}/${encodeURIComponent(eggDef(type).image)}`;
-export const eggLabel = type => `${eggDef(type).km} km egg`;
+/** A name for the egg. Distances are not unique, so a def may override it. */
+export const eggLabel = type => eggDef(type).label || `${eggDef(type).km} km egg`;
 export const eggMetres = type => eggDef(type).km * 1000;
 
+/** What an Easter incubation takes off the distance, on top of the incubator. */
+export const EASTER_EGG_MULTIPLIER = 0.5;
+
 /**
- * The distance this egg actually needs, given the incubator it is sitting in.
- * A Super Incubator takes 25% off, so a 10 km egg hatches after 7.5 km.
+ * The distance this egg actually needs, given the incubator it is sitting in and
+ * whether it was started during Easter.
+ *
+ * A Super Incubator takes 25% off, so a 10 km egg hatches after 7.5 km. Easter
+ * then halves whatever is left, which is why the two are applied in this order: a
+ * 15 km egg in a Super Incubator comes to 15 × 0.75 × 0.5 = 5.625 km.
+ *
+ * `halved` is a property of the *egg*, stamped on when it went into the
+ * incubator, not a question about today. The event lasts three days and a 15 km
+ * egg does not, so an egg started during Easter has to keep its discount after
+ * the event has ended — otherwise the requirement would jump back up mid-walk.
  */
-export const eggMetresFor = (type, incubatorId = null) =>
-  Math.round(eggMetres(type) * (1 - incubatorDiscount(incubatorId)));
+export const eggMetresFor = (type, incubatorId = null, halved = false) =>
+  Math.round(eggMetres(type)
+    * (1 - incubatorDiscount(incubatorId))
+    * (halved ? EASTER_EGG_MULTIPLIER : 1));
 export const rollEggType = () => weightedPick(EGG_TYPE_ROLL).type;
 /** True for the 15 km egg, which uses the separate exclusive slots. */
 export const isExclusiveEgg = type => !!eggDef(type).exclusive;
@@ -1708,6 +3089,12 @@ export const MISSIONS = [
     xp: 50, dust: 200, items: { incense: 1, research_lab: 1 },
     label: 'Reach level 7 and register 70 creatures'
   },
+  /** The same shape one rung further along, and it hands over the Battle Frontier. */
+  {
+    id: 'frontier', kind: 'registered', target: 100, requireLevel: 9,
+    xp: 100, dust: 300, items: { rare_incense: 1, battle_frontier: 1 },
+    label: 'Reach level 9 and register 100 creatures'
+  },
   { id: 'cat50',   kind: 'captures',   target: 50,   xp: 5,   dust: 20,  label: 'Catch 50 creatures' },
   { id: 'cat100',  kind: 'captures',   target: 100,  xp: 10,  dust: 50,  label: 'Catch 100 creatures' },
   { id: 'cat200',  kind: 'captures',   target: 200,  xp: 20,  dust: 100, label: 'Catch 200 creatures' },
@@ -1881,16 +3268,18 @@ export const WEEKLY_MISSIONS = [
 /* ---------------------------------------------------------------
    Set missions
 
-   A ladder that opens Galactic Adventures one rarity at a time. Each rung wants
-   a number of Elemental Awakening creatures registered *and* an amount of total
-   player XP, so the set cannot be rushed by a single very active week.
+   Two ladders, each opening a set one rarity at a time, plus the one-rung
+   exclusive ladder. Every rung wants a number of creatures registered from the
+   *previous* set *and* an amount of total player XP, so a set cannot be rushed
+   by a single very active week: Elemental Awakening opens Galactic Adventures,
+   and Galactic Adventures opens Temporal Rift.
 
    `requireXp` is deliberately total lifetime XP rather than a player level:
    levels are a coarse, front-loaded curve, and XP keeps the gate meaningful
    past the level cap.
 
-   `unlockGalacticRarity` is applied on claim, which is what puts those creatures
-   into the spawn pools. They never reset.
+   `unlockGalacticRarity` / `unlockTemporalRarity` are applied on claim, which is
+   what puts those creatures into the spawn pools. They never reset.
    --------------------------------------------------------------- */
 export const SET_MISSIONS = [
   {
@@ -1919,6 +3308,39 @@ export const SET_MISSIONS = [
     items: { breeding_center: 1 },
     grantEgg: MYTHICAL_EGG_TYPE,
     label: `Register all 79 creatures in ${SET_NAME}`
+  },
+  /**
+   * The Temporal Rift ladder. Same shape as the one above, one set further along:
+   * it counts Galactic Adventures registrations, so a player has to have worked
+   * through the second set before the third opens at all. The XP gates carry on
+   * from where the Galactic ladder left off.
+   */
+  {
+    id: 'tr1', kind: 'registeredInSet', set: GALACTIC_SET_NAME, target: 65, requireXp: 24_000,
+    xp: 30, dust: 300, unlockTemporalRarity: 1,
+    label: `Register 65 creatures from ${GALACTIC_SET_NAME}`
+  },
+  {
+    id: 'tr2', kind: 'registeredInSet', set: GALACTIC_SET_NAME, target: 70, requireXp: 27_000,
+    xp: 45, dust: 450, unlockTemporalRarity: 2,
+    label: `Register 70 creatures from ${GALACTIC_SET_NAME}`
+  },
+  {
+    id: 'tr3', kind: 'registeredInSet', set: GALACTIC_SET_NAME, target: 73, requireXp: 30_000,
+    xp: 65, dust: 650, unlockTemporalRarity: 3,
+    label: `Register 73 creatures from ${GALACTIC_SET_NAME}`
+  },
+  {
+    id: 'tr4', kind: 'registeredInSet', set: GALACTIC_SET_NAME, target: 75, requireXp: 33_000,
+    xp: 85, dust: 850, unlockTemporalRarity: 4,
+    label: `Register 75 creatures from ${GALACTIC_SET_NAME}`
+  },
+  {
+    id: 'tr5', kind: 'registeredInSet', set: GALACTIC_SET_NAME, target: 77, requireXp: 38_000,
+    xp: 175, dust: 1750, unlockTemporalRarity: 5,
+    items: { mysterious_incense: 1 },
+    grantEgg: CHROMARION_EGG_TYPE,
+    label: `Register all 77 creatures in ${GALACTIC_SET_NAME}`
   },
   /**
    * The exclusive ladder. Filling in the first wave of Exclusives opens the
@@ -1960,8 +3382,37 @@ export const DAILY_MISSIONS = [
     id: 'dailyEssence3', kind: 'essenceToday', target: 3, xp: 10, dust: 75,
     items: { ultra_disc: 1 },
     label: 'Get candies through Essence Harvesting 3 times'
+  },
+
+  /**
+   * The Holiday gift. `onlyDuring` names an annual event, and the mission does
+   * not exist at all outside it — the Missions tab has no room for eleven months
+   * of a greyed-out row nobody can do anything about.
+   *
+   * Opening the game is the whole task, so it is complete the moment it appears.
+   */
+  {
+    id: 'holidayLogin', kind: 'loggedInToday', target: 1,
+    onlyDuring: 'holiday',
+    xp: 20, dust: 200,
+    heldItem: 'random',
+    randomIncense: true,
+    label: 'Log in today'
   }
 ];
+
+/**
+ * Which incense the Holiday mission hands over. Weighted so the plain one is the
+ * usual outcome and a Mysterious Incense is a genuine surprise.
+ */
+export const HOLIDAY_INCENSE_ODDS = [
+  { weight: 45, item: 'incense' },
+  { weight: 30, item: 'rare_incense' },
+  { weight: 15, item: 'shiny_incense' },
+  { weight: 10, item: 'mysterious_incense' }
+];
+
+export const rollHolidayIncense = () => weightedPick(HOLIDAY_INCENSE_ODDS).item;
 
 /* ---------------------------------------------------------------
    Sets shown in the Collection menu
@@ -1969,6 +3420,7 @@ export const DAILY_MISSIONS = [
 export const SETS = [
   { id: 'elemental-awakening', title: SET_NAME, available: true, setName: SET_NAME },
   { id: 'galactic-adventures', title: GALACTIC_SET_NAME, available: true, setName: GALACTIC_SET_NAME, galactic: true },
+  { id: 'temporal-rift', title: TEMPORAL_SET_NAME, available: true, setName: TEMPORAL_SET_NAME, temporal: true },
   { id: 'exclusive', title: EXCLUSIVE_SET_NAME, available: true, exclusive: true, setName: EXCLUSIVE_SET_NAME },
   { id: 'mythical', title: MYTHICAL_SET_NAME, available: true, mythical: true, setName: MYTHICAL_SET_NAME },
   { id: 'coming-soon', title: 'Coming Soon', available: false }
@@ -1984,6 +3436,17 @@ export const SETS = [
    --------------------------------------------------------------- */
 
 let galacticUnlocked = new Set();
+
+/* ---------------------------------------------------------------
+   Temporal Rift unlocks
+
+   Identical in shape to the Galactic ladder above, and deliberately a separate
+   set of rarities rather than a shared one: the two ladders are climbed at
+   different times and a player can be several rungs up one and none up the
+   other.
+   --------------------------------------------------------------- */
+
+let temporalUnlocked = new Set();
 
 /* ---------------------------------------------------------------
    Exclusive wave 2 unlock
@@ -2010,8 +3473,12 @@ export function setExclusive2Unlocked(on = false) {
  */
 export function rebuildExclusivePools() {
   DB.exclusiveInPlay = DB.exclusive.filter(s => !s.exclusive2 || exclusive2Unlocked);
+  // Frontier bosses are in the Collection but never in a roll. Everything that
+  // draws an exclusive at random reads `exclusiveRollable` or the rarity
+  // buckets below, so leaving them out here keeps them out of raids and eggs.
+  DB.exclusiveRollable = DB.exclusiveInPlay.filter(s => !s.frontier);
   DB.exclusiveByRarity = { 3: [], 4: [], 5: [] };
-  for (const sp of DB.exclusiveInPlay) {
+  for (const sp of DB.exclusiveRollable) {
     if (sp.stage === 1 && DB.exclusiveByRarity[sp.rarity]) DB.exclusiveByRarity[sp.rarity].push(sp);
   }
   return DB.exclusiveInPlay.length;
@@ -2039,6 +3506,17 @@ export function setGalacticUnlocked(rarities = []) {
   return unlockedGalacticRarities();
 }
 
+/** True once the Set mission for this Temporal Rift rarity has been claimed. */
+export const isTemporalRarityUnlocked = r => temporalUnlocked.has(Number(r));
+export const unlockedTemporalRarities = () => [...temporalUnlocked].sort((a, b) => a - b);
+
+/** The Temporal Rift twin of setGalacticUnlocked. */
+export function setTemporalUnlocked(rarities = []) {
+  temporalUnlocked = new Set((rarities || []).map(Number).filter(r => r >= 1 && r <= 5));
+  if (DB.loaded) rebuildSpawnPools();
+  return unlockedTemporalRarities();
+}
+
 /**
  * Recomputes every pool a roll can draw from.
  *
@@ -2049,6 +3527,7 @@ export function rebuildSpawnPools() {
   const inPlay = sp => {
     if (sp.exclusive || sp.mythical) return false;
     if (sp.galactic) return isGalacticRarityUnlocked(sp.rarity || familyRarity(sp.id));
+    if (sp.temporal) return isTemporalRarityUnlocked(sp.rarity || familyRarity(sp.id));
     return true;
   };
 
@@ -2079,19 +3558,25 @@ export const hasAbility = speciesId => DB.abilities.has(speciesId);
  */
 export function speciesForSet(set) {
   if (set?.galactic) return DB.galactic;
+  if (set?.temporal) return DB.temporal;
   // In play only: the second wave of exclusives stays out of the tab entirely
   // until its Set mission is claimed, rather than sitting there as a spoiler.
   if (set?.exclusive) return DB.exclusiveInPlay;
   if (set?.mythical) return DB.mythical;
-  return DB.species.filter(s => !s.galactic && !s.exclusive && !s.mythical);
+  return DB.species.filter(s =>
+    !s.galactic && !s.exclusive && !s.mythical && !s.temporal);
 }
 
 /* ---------------------------------------------------------------
    Ability file parsing
    --------------------------------------------------------------- */
 
-/** Splits a `Value` cell into trimmed entries. Blank yields an empty list. */
-function abilityValues(raw) {
+/**
+ * Splits a comma-separated cell into trimmed entries. Blank yields an empty
+ * list. Used for an ability's `Value` column and for the `Evolves to` column,
+ * which can now name more than one creature.
+ */
+function splitList(raw) {
   return String(raw ?? '')
     .split(',')
     .map(s => s.trim())
@@ -2163,22 +3648,88 @@ function buildAbilities(rows) {
       return;
     }
 
+    const channel = ABILITY_EFFECTS[effect].channel;
+
     // A single clause beyond the cap would be silently clamped in battle, which
-    // is confusing to author against, so say so up front.
-    const single = 1 + ABILITY_EFFECTS[effect].direction * (percent / 100);
-    if (single < ABILITY_MULTIPLIER_MIN || single > ABILITY_MULTIPLIER_MAX) {
-      DB.warnings.push(
-        `Abilities line ${line}: ${percent}% is outside the ` +
-        `${ABILITY_MULTIPLIER_MIN}x–${ABILITY_MULTIPLIER_MAX}x cap and will be clamped`);
+    // is confusing to author against, so say so up front. A faint effect moves no
+    // multiplier, so the cap does not apply to it — its percentage is a share of
+    // the opponent's HP, and anything over 100% of that is meaningless.
+    if (channel === 'faint') {
+      if (percent > 100) {
+        DB.warnings.push(
+          `Abilities line ${line}: "${effect}" cannot exceed 100% of the opponent's HP`);
+        return;
+      }
+    } else {
+      const single = 1 + ABILITY_EFFECTS[effect].direction * (percent / 100);
+      if (single < ABILITY_MULTIPLIER_MIN || single > ABILITY_MULTIPLIER_MAX) {
+        DB.warnings.push(
+          `Abilities line ${line}: ${percent}% is outside the ` +
+          `${ABILITY_MULTIPLIER_MIN}x–${ABILITY_MULTIPLIER_MAX}x cap and will be clamped`);
+      }
     }
 
-    const values = abilityValues(r['value']);
+    const values = splitList(r['value']);
     const min = numOrNull(r['min']);
     const max = numOrNull(r['max']);
+
+    /* `always` carries no condition at all, which is the point: the effects that
+       use it bring their own timing. It is only meaningful with such an effect,
+       so pairing it with a damage multiplier is a mistake worth naming. */
+    if (trigger === ALWAYS_TRIGGER) {
+      if (channel !== 'faint') {
+        DB.warnings.push(
+          `Abilities line ${line}: "${ALWAYS_TRIGGER}" has no condition, so it only ` +
+          `makes sense with an effect that has its own timing, not "${effect}"`);
+        return;
+      }
+    } else if (channel === 'faint') {
+      DB.warnings.push(
+        `Abilities line ${line}: "${effect}" fires when the creature faints, so its ` +
+        `trigger must be "${ALWAYS_TRIGGER}", not "${trigger}"`);
+      return;
+    }
 
     if (ABILITY_LIST_TRIGGERS.includes(trigger) && !values.length) {
       DB.warnings.push(`Abilities line ${line}: "${trigger}" needs a Value`);
       return;
+    }
+    // A team clause names creatures, so a typo would parse happily and then never
+    // fire. Checked against the database, which is already loaded by this point.
+    if (trigger === 'team') {
+      const bad = values.filter(v => !DB.byName.has(String(v).toLowerCase()));
+      if (bad.length) {
+        DB.warnings.push(
+          `Abilities line ${line}: "team" names no such creature: "${bad.join(', ')}"`);
+        return;
+      }
+      if (values.length >= BATTLE_TEAM_SIZE) {
+        DB.warnings.push(
+          `Abilities line ${line}: "team" lists ${values.length} creatures, but a team ` +
+          `is only ${BATTLE_TEAM_SIZE} including this one — it could never fire`);
+        return;
+      }
+    }
+    // Same reasoning for a stat name.
+    if (trigger === 'opposing buffed') {
+      const bad = values.filter(v =>
+        !STAT_KEYS.some(k => k === String(v).toLowerCase()
+          || STAT_LABELS[k].toLowerCase() === String(v).toLowerCase()));
+      if (bad.length) {
+        DB.warnings.push(
+          `Abilities line ${line}: "opposing buffed" takes a stat name, not "${bad.join(', ')}"`);
+        return;
+      }
+    }
+    if (trigger === 'moon') {
+      const bad = values.filter(v =>
+        !MOON_PHASES.some(p => p.toLowerCase() === String(v).toLowerCase()));
+      if (bad.length) {
+        DB.warnings.push(
+          `Abilities line ${line}: "moon" takes one of ${MOON_PHASES.join(', ')}, ` +
+          `not "${bad.join(', ')}"`);
+        return;
+      }
     }
     // Daylight has exactly two legal values, and a typo would otherwise parse
     // happily and then silently never fire.
@@ -2329,21 +3880,63 @@ export function moveLevelFor(move, offsets) {
  * whether the middle form evolves again.
  */
 export function finalEvolutionOf(speciesId) {
-  const chain = familyChain(speciesId);
-  return chain[chain.length - 1] || species(speciesId) || null;
+  const path = lineagePath(speciesId);
+  return path[path.length - 1] || species(speciesId) || null;
 }
 
 /**
- * Every move a creature line can ever learn, gathered across the whole family
- * so an early form still lists all four. Earlier forms often only carry the
- * first two or three slots, and the missing ones live on the final evolution.
+ * The one lineage a creature is certain to follow: every form it grew out of,
+ * itself, and then its evolutions only for as long as there is a single way
+ * forward.
  *
- * Each entry keeps the first species in the chain that actually has that slot,
+ * A branch stops the walk on purpose. Which arm a creature takes is the
+ * player's choice at evolve time, so following one of them would promise moves
+ * and a final form it may never get. `familyChain` is still the whole tree —
+ * that is what the shared candy pool and the Collection entry are built on.
+ */
+export function lineagePath(speciesId) {
+  const start = species(speciesId);
+  if (!start) return [];
+
+  // Up to the root first. `evolvesFrom` holds one parent per creature, so this
+  // is unambiguous even in a branching family.
+  const path = [];
+  let cur = start, guard = 0;
+  while (cur && guard++ < 24) {
+    path.unshift(cur);
+    const parentId = DB.evolvesFrom.get(cur.id);
+    cur = parentId ? DB.byId.get(parentId) : null;
+  }
+
+  cur = start; guard = 0;
+  while (cur && guard++ < 24) {
+    if (cur.evolvesToIds?.length !== 1) break;
+    const next = DB.byId.get(cur.evolvesToIds[0]);
+    if (!next || path.includes(next)) break;
+    path.push(next);
+    cur = next;
+  }
+  return path;
+}
+
+/** Every creature this one can turn into. Empty for a final form. */
+export const evolutionTargets = speciesId =>
+  (species(speciesId)?.evolvesToIds || []).map(species).filter(Boolean);
+
+/**
+ * Every move a creature line can ever learn, gathered along its lineage so an
+ * early form still lists all four. Earlier forms often only carry the first two
+ * or three slots, and the missing ones live on the final evolution.
+ *
+ * Each entry keeps the first species in the line that actually has that slot,
  * which is what decides whether the move needs an evolution to become usable.
+ *
+ * Read along `lineagePath`, not the whole family: a creature facing a choice of
+ * evolutions would otherwise list moves from arms it will never take.
  */
 export function fullLearnset(speciesId) {
   const bySlot = new Map();
-  for (const sp of familyChain(speciesId)) {
+  for (const sp of lineagePath(speciesId)) {
     if (!sp) continue;
     for (const m of sp.moves) {
       // The earliest form to learn a slot wins: that is where it unlocks.
@@ -2377,7 +3970,23 @@ export const DB = {
    * or caught. Rebuilt by setExclusive2Unlocked.
    */
   exclusiveInPlay: [],
+  /**
+   * The exclusives a roll may actually produce: `exclusiveInPlay` without the
+   * Battle Frontier bosses. Those show up in the Collection tab like any other
+   * exclusive, but no raid and no egg can reach them — clearing a Frontier
+   * challenge is the only route, so they are filtered out here rather than at
+   * each of the several places that roll one.
+   */
+  exclusiveRollable: [],
   exclusiveByRarity: { 3: [], 4: [], 5: [] },
+  /**
+   * The Battle Frontier ladder: challenge id -> level -> the trainer's team of
+   * three. Empty when Battle Frontier.csv is missing, which simply means the
+   * building has nothing to fight.
+   */
+  frontier: new Map(),
+  /** challenge id -> the species id of its Grand Raid boss. */
+  frontierBossByChallenge: new Map(),
   /** Galactic Adventures, all 77 whether unlocked or not. */
   galactic: [],
   /**
@@ -2387,6 +3996,8 @@ export const DB = {
    */
   galacticSpawnable: [],
   galacticByRarity: { 1: [], 2: [], 3: [], 4: [], 5: [] },
+  /** Temporal Rift, all 74 whether unlocked or not. */
+  temporal: [],
   /** Rarity 6 creatures. Only ever obtained from their own egg. */
   mythical: [],
   /**
@@ -2405,6 +4016,11 @@ export const DB = {
    * when the CSV is missing, which simply means the event never fires.
    */
   spotlight: [],
+  /**
+   * Hand-picked casts for the annual events that use one, keyed by event id.
+   * Empty lists are normal and simply mean that event has no hourly creature.
+   */
+  eventPools: { halloween: [], thanksgiving: [] },
   familyOf: new Map(),
   familyMembers: new Map(),
   evolvesFrom: new Map(),
@@ -2421,7 +4037,12 @@ export async function loadDatabase(
   galacticUrl = GALACTIC_CSV_FILE,
   mythicalUrl = MYTHICAL_CSV_FILE,
   spotlightUrl = SPOTLIGHT_CSV_FILE,
-  exclusive2Url = EXCLUSIVE2_CSV_FILE
+  exclusive2Url = EXCLUSIVE2_CSV_FILE,
+  temporalUrl = TEMPORAL_CSV_FILE,
+  halloweenUrl = HALLOWEEN_CSV_FILE,
+  thanksgivingUrl = THANKSGIVING_CSV_FILE,
+  exclusive3Url = EXCLUSIVE3_CSV_FILE,
+  frontierUrl = FRONTIER_CSV_FILE
 ) {
   DB.warnings = [];
 
@@ -2432,7 +4053,8 @@ export async function loadDatabase(
   });
 
   const [baseText, statsText, exclusiveText, abilitiesText, galacticText, mythicalText,
-         spotlightText, exclusive2Text] =
+         spotlightText, exclusive2Text, temporalText, halloweenText, thanksgivingText,
+         exclusive3Text, frontierText] =
     await Promise.all([
       fetchText(csvUrl),
       fetchText(statsUrl),
@@ -2443,7 +4065,17 @@ export async function loadDatabase(
       optional(galacticUrl, GALACTIC_SET_NAME),
       optional(mythicalUrl, 'Mythicals'),
       optional(spotlightUrl, SPOTLIGHT_LABEL),
-      optional(exclusive2Url, 'Exclusive creatures (second wave)')
+      optional(exclusive2Url, 'Exclusive creatures (second wave)'),
+      optional(temporalUrl, TEMPORAL_SET_NAME),
+      // Both event casts are optional by design: the event still runs, it just
+      // has no hourly creature to hand out until the file exists.
+      optional(halloweenUrl, 'Halloween creatures'),
+      optional(thanksgivingUrl, 'Thanksgiving creatures'),
+      // Both halves of the Battle Frontier are optional too: without the boss
+      // file the ladders simply have no Grand Raid, and without the ladder file
+      // the building opens to an empty challenge list.
+      optional(exclusive3Url, 'Battle Frontier raid bosses'),
+      optional(frontierUrl, 'Battle Frontier challenges')
     ]);
 
   const baseRows = toRecords(parseCSV(baseText));
@@ -2453,6 +4085,11 @@ export async function loadDatabase(
   const mythicalRows = mythicalText ? toRecords(parseCSV(mythicalText)) : [];
   const exclusive2Rows = exclusive2Text ? toRecords(parseCSV(exclusive2Text)) : [];
   const spotlightRows = spotlightText ? toRecords(parseCSV(spotlightText)) : [];
+  const temporalRows = temporalText ? toRecords(parseCSV(temporalText)) : [];
+  const halloweenRows = halloweenText ? toRecords(parseCSV(halloweenText)) : [];
+  const thanksgivingRows = thanksgivingText ? toRecords(parseCSV(thanksgivingText)) : [];
+  const exclusive3Rows = exclusive3Text ? toRecords(parseCSV(exclusive3Text)) : [];
+  const frontierRows = frontierText ? toRecords(parseCSV(frontierText)) : [];
 
   const statsById = new Map();
   const statsByName = new Map();
@@ -2468,7 +4105,7 @@ export async function loadDatabase(
   DB.moveIndex.clear();
   DB.abilities = new Map();
   DB.stage1 = []; DB.spawnable = []; DB.exclusive = [];
-  DB.galactic = []; DB.mythical = []; DB.available = [];
+  DB.galactic = []; DB.mythical = []; DB.available = []; DB.temporal = [];
   DB.spotlight = [];
   DB.byRarity = { 1: [], 2: [], 3: [], 4: [], 5: [] };
   DB.exclusiveByRarity = { 3: [], 4: [], 5: [] };
@@ -2495,7 +4132,7 @@ export async function loadDatabase(
       image: r['image'] || `${name}.png`,
       shinyImage: shinyFileFor(name, r['image'] || `${name}.png`),
       rarity: rarityRaw ? Number(rarityRaw) : null,
-      evolvesToName: r['evolves to'] || null,
+      evolvesToNames: splitList(r['evolves to']),
       evolutionCandy: candyRaw ? Number(candyRaw) : null,
       set: SET_NAME,
       baseStats: readStats(s, name),
@@ -2527,39 +4164,83 @@ export async function loadDatabase(
     setName: EXCLUSIVE_SET_NAME, orderBase: EXCLUSIVE_ORDER_BASE,
     bucket: DB.exclusive, flags: { exclusive: true, exclusive2: true }
   });
+  /* The Grand Raid bosses. Same tab and same bucket again, but on their own
+     order base so they sit after every ordinary exclusive, and flagged
+     `frontier` so rebuildExclusivePools keeps them out of the roll pools. They
+     are deliberately *not* `exclusive2`: the second wave's Set mission has
+     nothing to do with reaching one. */
+  addSelfContainedSet(exclusive3Rows, {
+    setName: EXCLUSIVE_SET_NAME, orderBase: EXCLUSIVE_FRONTIER_ORDER_BASE,
+    bucket: DB.exclusive, flags: { exclusive: true, frontier: true }
+  });
   addSelfContainedSet(mythicalRows, {
     setName: MYTHICAL_SET_NAME, orderBase: MYTHICAL_ORDER_BASE,
     bucket: DB.mythical, flags: { mythical: true }
   });
+  addSelfContainedSet(temporalRows, {
+    setName: TEMPORAL_SET_NAME, orderBase: TEMPORAL_ORDER_BASE,
+    bucket: DB.temporal, flags: { temporal: true }
+  });
 
   DB.species.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
-  for (const list of [DB.galactic, DB.exclusive, DB.mythical]) {
+  for (const list of [DB.galactic, DB.exclusive, DB.mythical, DB.temporal]) {
     list.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
   }
 
-  // evolution links
+  /* ---- evolution links ----
+     A creature may name several targets, which is how a branching line is
+     written: "Noctivane, Zephyraun, Florvulpa, Rustarok". `evolvesToId` is kept
+     as the first of them so everything written before branching existed still
+     reads naturally; anything offering a choice must use `evolvesToIds`. */
   for (const sp of DB.species) {
-    sp.evolvesToId = null;
-    if (sp.evolvesToName) {
-      const target = DB.byName.get(sp.evolvesToName.toLowerCase());
-      if (target) {
-        sp.evolvesToId = target.id;
-        DB.evolvesFrom.set(target.id, sp.id);
+    sp.evolvesToIds = [];
+    for (const wanted of sp.evolvesToNames || []) {
+      const target = DB.byName.get(wanted.toLowerCase());
+      if (!target) {
+        DB.warnings.push(`"${sp.name}" evolves to unknown creature "${wanted}"`);
+        continue;
+      }
+      if (target.id === sp.id) {
+        DB.warnings.push(`"${sp.name}" evolves into itself — ignored`);
+        continue;
+      }
+      if (sp.evolvesToIds.includes(target.id)) continue;   // listed twice
+      sp.evolvesToIds.push(target.id);
+      // One parent per target. Two would make the family tree ambiguous and
+      // silently lose a branch, so the second is refused rather than accepted.
+      const already = DB.evolvesFrom.get(target.id);
+      if (already && already !== sp.id) {
+        DB.warnings.push(
+          `"${target.name}" is listed as an evolution of both ` +
+          `"${species(already)?.name || already}" and "${sp.name}" — keeping the first`);
       } else {
-        DB.warnings.push(`"${sp.name}" evolves to unknown creature "${sp.evolvesToName}"`);
+        DB.evolvesFrom.set(target.id, sp.id);
       }
     }
+    sp.evolvesToId = sp.evolvesToIds[0] || null;
+    /** True when the player has to choose which way this creature evolves. */
+    sp.branchingEvolution = sp.evolvesToIds.length > 1;
   }
 
-  // families
+  /* ---- families ----
+     Breadth-first from each root so a branching line still gathers every
+     descendant into one family: they share a candy pool and one Collection
+     entry however many arms the tree has. Breadth-first also keeps the members
+     roughly in stage order, which is what the chain display wants. */
   for (const sp of DB.species) {
     if (DB.evolvesFrom.has(sp.id)) continue;
     const chain = [];
-    let cur = sp, guard = 0;
-    while (cur && guard++ < 12) {
+    const seen = new Set();
+    const queue = [sp];
+    while (queue.length && chain.length < 24) {
+      const cur = queue.shift();
+      if (!cur || seen.has(cur.id)) continue;
+      seen.add(cur.id);
       chain.push(cur.id);
       DB.familyOf.set(cur.id, sp.id);
-      cur = cur.evolvesToId ? DB.byId.get(cur.evolvesToId) : null;
+      for (const id of cur.evolvesToIds) {
+        if (!seen.has(id) && DB.byId.has(id)) queue.push(DB.byId.get(id));
+      }
     }
     DB.familyMembers.set(sp.id, chain);
   }
@@ -2574,6 +4255,10 @@ export async function loadDatabase(
   rebuildSpawnPools();
 
   DB.exclusive2 = DB.exclusive.filter(s => s.exclusive2);
+  /* The Battle Frontier, once every species exists: the ladder resolves its
+     creatures by id, and the boss mapping matches on type. */
+  loadFrontierLadder(frontierRows);
+  rebuildFrontierBosses();
   // Fills exclusiveInPlay and exclusiveByRarity, honouring the unlock. Called
   // again by setExclusive2Unlocked when the mission is claimed.
   rebuildExclusivePools();
@@ -2594,6 +4279,13 @@ export async function loadDatabase(
   for (const s of DB.species) if (!DB.types.includes(s.type)) DB.types.push(s.type);
 
   buildSpotlightRota(spotlightRows);
+
+  // Event casts come last for the same reason abilities do: they are lists of
+  // creature ids, so every set has to exist before they can be resolved.
+  DB.eventPools = {
+    halloween: buildEventPool(halloweenRows, 'Halloween'),
+    thanksgiving: buildEventPool(thanksgivingRows, 'Thanksgiving')
+  };
 
   DB.loaded = true;
   if (DB.warnings.length) console.warn('[data]', DB.warnings);
@@ -2642,6 +4334,33 @@ function buildSpotlightRota(rows) {
   DB.spotlight.sort((a, b) => a.monday - b.monday);
 }
 
+/**
+ * Turns an event's `id,name` CSV into a list of species.
+ *
+ * Matched on id first and name second, exactly like the spotlight rota, and a
+ * row that resolves to nothing is dropped with a warning rather than guessed at.
+ * An empty result is not an error: it means that event has no cast yet.
+ */
+function buildEventPool(rows, label) {
+  const out = [];
+  const seen = new Set();
+  for (const r of rows) {
+    const rawId = r['id'] || r['id_output'];
+    const name = String(r['name'] || '').trim();
+    if (!rawId && !name) continue;
+    const cleanId = String(rawId || '').replace(/\.png$/i, '').trim();
+    const sp = DB.byId.get(cleanId) || DB.byName.get(name.toLowerCase());
+    if (!sp) {
+      DB.warnings.push(`${label} creatures: no creature matches "${name}" (${cleanId})`);
+      continue;
+    }
+    if (seen.has(sp.id)) continue;
+    seen.add(sp.id);
+    out.push(sp);
+  }
+  return out;
+}
+
 async function fetchText(url) {
   const res = await fetch(encodeURI(url) + '?v=' + Date.now());
   if (!res.ok) throw new Error(`Could not load "${url}" (HTTP ${res.status})`);
@@ -2688,8 +4407,9 @@ function addSelfContainedSet(rows, { setName, orderBase, bucket, flags = {} }) {
       image,
       shinyImage: shinyFileFor(name, image),
       rarity: rarityRaw ? Number(rarityRaw) : null,
-      evolvesToName: r['evolves to'] || null,
+      evolvesToNames: splitList(r['evolves to']),
       evolutionCandy: candyRaw ? Number(candyRaw) : null,
+      spawnRestriction: parseSpawnRestriction(r['spawn restriction'], name),
       set: setName,
       ...flags,
       baseStats: readStats(r, name),
@@ -2747,7 +4467,13 @@ const DEFAULT_BUFF_PCT = 0.10;
  *   "Buff self <stat>"         → number is a percentage, e.g. 25%
  *   "Debuff self <stat>"       → number is a percentage
  *   "Debuff opponent <stat>"   → number is a percentage
+ *   "Buff opponent <stat>"     → number is a percentage
  * `<stat>` is attack, defence or speed, and more than one may be listed.
+ *
+ * The last two are drawbacks, and they are what pays for an unusually strong
+ * move: "Wind Goal" hits for 65 and hands the opponent 30% more Attack. Buffing
+ * the opponent used to be refused as a mistake; it is now taken at face value,
+ * so a sheet that means it gets what it asked for.
  *
  * @returns {{kind:string, stats:string[], pct:number|null, amount:number|null}|null}
  */
@@ -2785,10 +4511,6 @@ function readEffect(rawEffect, rawNumber, { name, slot, moveName }) {
     DB.warnings.push(`${where} tries to change HP, which only "Heal self" can do — effect ignored`);
     return null;
   }
-  if (!down && !onSelf) {
-    DB.warnings.push(`${where} tries to buff the opponent, which is not a thing — effect ignored`);
-    return null;
-  }
   const p = pct(rawNumber);
   if (p == null || p <= 0) {
     DB.warnings.push(`${where} needs a percentage, got "${rawNumber}" — effect ignored`);
@@ -2796,7 +4518,9 @@ function readEffect(rawEffect, rawNumber, { name, slot, moveName }) {
   }
 
   return {
-    kind: down ? (onSelf ? 'debuffSelf' : 'debuffOpponent') : 'buffSelf',
+    kind: down
+      ? (onSelf ? 'debuffSelf' : 'debuffOpponent')
+      : (onSelf ? 'buffSelf' : 'buffOpponent'),
     stats,
     pct: p,
     amount: null
@@ -2826,6 +4550,7 @@ export function moveEffectText(move) {
     case 'buffSelf': return `Raises your ${statListLabel(fx.stats)} by ${amountPct}`;
     case 'debuffSelf': return `Lowers your own ${statListLabel(fx.stats)} by ${amountPct}`;
     case 'debuffOpponent': return `Lowers the opponent's ${statListLabel(fx.stats)} by ${amountPct}`;
+    case 'buffOpponent': return `Raises the opponent's ${statListLabel(fx.stats)} by ${amountPct}`;
     default: return '';
   }
 }
@@ -2960,6 +4685,170 @@ export function speciesMatching(text) {
  */
 export const familyRootsMatching = text =>
   [...new Set(speciesMatching(text).map(sp => familyRoot(sp.id)))];
+
+/* ---------------------------------------------------------------
+   Storage search
+
+   The box takes a name fragment, as it always did, but it also takes filters:
+
+     type = celestial          only Celestial creatures
+     level > 4                 above level 4
+     speed > 120               by any of the four stats, as they are right now
+     buff = attack             the stat its +10% roll landed on
+     debuff = speed            and the stat that took the -10%
+
+   Several are joined with `&` and all of them have to hold, so
+   `type = mystic & attack > 70` is the two conditions together. Anything without
+   an operator in it is still read as a name, which is what keeps the old
+   behaviour intact — and a name can be one of the terms, so
+   `toxi & level > 5` works too.
+
+   Only reported as a mistake when the text plainly *tried* to be a filter: an
+   operator with a field nobody recognises. Otherwise it is a name and the worst
+   that happens is no matches.
+   --------------------------------------------------------------- */
+
+/** The fields a storage query may compare, and how each one reads. */
+const STORAGE_QUERY_FIELDS = {
+  type: 'type',
+  level: 'level',
+  lvl: 'level',
+  buff: 'buff',
+  buffed: 'buff',
+  debuff: 'debuff',
+  debuffed: 'debuff',
+  rarity: 'rarity',
+  stage: 'stage'
+};
+
+/** Comparisons, longest first so `>=` is read before `>`. */
+const STORAGE_QUERY_OPS = ['>=', '<=', '==', '!=', '=', '>', '<'];
+
+/** Compares two numbers with one of the operators above. */
+export function compareWithOp(a, op, b) {
+  switch (op) {
+    case '>': return a > b;
+    case '<': return a < b;
+    case '>=': return a >= b;
+    case '<=': return a <= b;
+    case '!=': return a !== b;
+    default: return a === b;    // '=' and '=='
+  }
+}
+
+/**
+ * Parses one `&`-separated piece of a storage query.
+ * @returns {object} a term, or `{ kind: 'error', text, why }`
+ */
+function parseStorageTerm(raw) {
+  const text = String(raw ?? '').trim();
+  if (!text) return null;
+
+  // Find the operator, if there is one. Nothing to do with filters otherwise.
+  let op = null, at = -1;
+  for (const candidate of STORAGE_QUERY_OPS) {
+    const i = text.indexOf(candidate);
+    if (i > 0 && (at === -1 || i < at)) { op = candidate; at = i; }
+  }
+  if (!op) return { kind: 'name', text: text.toLowerCase() };
+
+  const rawField = text.slice(0, at).trim().toLowerCase();
+  const rawValue = text.slice(at + op.length).trim();
+  const fail = why => ({ kind: 'error', text, why });
+
+  if (!rawValue) return fail('nothing after the ' + op);
+
+  // A stat name is a field in its own right: "speed > 120".
+  const stat = normaliseStat(rawField);
+  const field = STORAGE_QUERY_FIELDS[rawField] || (stat ? 'stat' : null);
+  if (!field) return fail(`"${text.slice(0, at).trim()}" is not something you can filter on`);
+
+  // The numeric comparisons.
+  if (field === 'stat' || field === 'level' || field === 'rarity' || field === 'stage') {
+    const n = numOrNull(rawValue);
+    if (n == null) return fail(`"${rawValue}" is not a number`);
+    return field === 'stat'
+      ? { kind: 'stat', stat, op, value: n, text }
+      : { kind: field, op, value: n, text };
+  }
+
+  // The rest name things, and may name more than one: "type = mystic, wind".
+  const values = splitList(rawValue);
+  if (!values.length) return fail('nothing listed after the ' + op);
+  // `!=` on a list reads as "none of these".
+  const negate = op === '!=';
+
+  if (field === 'type') {
+    const resolved = [];
+    for (const v of values) {
+      const hit = TYPES.find(t => t.toLowerCase() === v.toLowerCase());
+      if (!hit) return fail(`"${v}" is not a type — try ${TYPES.join(', ')}`);
+      resolved.push(hit);
+    }
+    return { kind: 'type', values: resolved, negate, text };
+  }
+
+  // buff / debuff name one of the four stats.
+  const stats = [];
+  for (const v of values) {
+    const s = normaliseStat(v);
+    if (!s) return fail(`"${v}" is not a stat — try ${STAT_KEYS.join(', ')}`);
+    stats.push(s);
+  }
+  return { kind: field, stats, negate, text };
+}
+
+/**
+ * Parses a whole storage query into terms plus whatever could not be read.
+ *
+ * @returns {{terms:Array, errors:Array<{text:string, why:string}>, names:Array}}
+ */
+export function parseStorageQuery(raw) {
+  const terms = [];
+  const errors = [];
+  for (const part of String(raw ?? '').split('&')) {
+    const term = parseStorageTerm(part);
+    if (!term) continue;
+    if (term.kind === 'error') errors.push({ text: term.text, why: term.why });
+    else terms.push(term);
+  }
+  return {
+    terms,
+    errors,
+    /** The name fragments on their own, for whole-family mode to widen. */
+    names: terms.filter(t => t.kind === 'name').map(t => t.text),
+    /** True when the query is doing more than matching a name. */
+    hasFilters: terms.some(t => t.kind !== 'name')
+  };
+}
+
+/** "type = Mystic" back out of a parsed term, for the filter chip. */
+export function storageTermLabel(term) {
+  switch (term.kind) {
+    case 'name': return `"${term.text}"`;
+    case 'type': return `type ${term.negate ? '≠' : '='} ${term.values.join(' / ')}`;
+    case 'buff': return `+10% ${term.stats.map(s => STAT_LABELS[s]).join(' / ')}`;
+    case 'debuff': return `−10% ${term.stats.map(s => STAT_LABELS[s]).join(' / ')}`;
+    case 'stat': return `${STAT_LABELS[term.stat]} ${term.op} ${term.value}`;
+    case 'level': return `level ${term.op} ${term.value}`;
+    case 'rarity': return `rarity ${term.op} ${term.value}`;
+    case 'stage': return `stage ${term.op} ${term.value}`;
+    default: return '';
+  }
+}
+
+/** Every filter the search box understands, for the help sheet. */
+export const STORAGE_QUERY_HELP = [
+  { example: 'type = celestial', means: 'only Celestial creatures. Any of the five types.' },
+  { example: 'level > 4', means: 'above level 4. Also =, <, >= and <=.' },
+  { example: 'speed > 120', means: 'by the stat it has right now, level and boosts included. HP, Attack, Defence or Speed.' },
+  { example: 'buff = attack', means: 'the stat its +10% roll landed on.' },
+  { example: 'debuff = speed', means: 'the stat that took the −10%.' },
+  { example: 'rarity = 5', means: 'by rarity, 1 to 6.' },
+  { example: 'stage = 2', means: 'by evolution stage.' },
+  { example: 'type = mystic & attack > 70', means: 'join filters with & and all of them have to hold.' },
+  { example: 'toxi & level > 5', means: 'a plain name still works, on its own or as one of the terms.' }
+];
 export const familyRoot = id => DB.familyOf.get(id) || id;
 export const familyRootSpecies = id => species(familyRoot(id));
 export const familyName = id => (familyRootSpecies(id)?.name ?? '?');
@@ -3012,18 +4901,28 @@ export function rollRarityWith(weights) {
  * Weighted rarity, then a uniform pick inside that tier. Stage 1 only.
  * Pass a weight table to use different odds, as Rare Incense does.
  */
+/**
+ * The last resort when six rarity rolls all landed on an empty tier.
+ *
+ * During a takeover the unlocked Galactic rarities may not cover the tier that
+ * was drawn, so the fallback has to come from the same pool the buckets did —
+ * otherwise the event would leak an Elemental Awakening spawn. `DB.spawnable` is
+ * only reached if even that is empty, and it deliberately ignores restrictions:
+ * handing back nothing at all would leave a map point with no creature in it.
+ */
+function spawnFallback(now) {
+  const flat = spawnPoolList(now);
+  const list = flat.length ? flat : DB.spawnable;
+  return list.length ? list[Math.floor(Math.random() * list.length)] : null;
+}
+
 export function rollSpawnSpecies(weights = RARITY_WEIGHTS, now = new Date()) {
   const buckets = spawnPoolByRarity(now);
   for (let attempt = 0; attempt < 6; attempt++) {
     const pool = buckets[rollRarityWith(weights)];
     if (pool?.length) return pool[Math.floor(Math.random() * pool.length)];
   }
-  // During a takeover the unlocked Galactic rarities may not cover the tier
-  // that was drawn, so the fallback has to come from the same pool as the
-  // buckets did — otherwise the event would leak an Elemental Awakening spawn.
-  const flat = spawnPoolList(now);
-  const list = flat.length ? flat : DB.spawnable;
-  return list[Math.floor(Math.random() * list.length)];
+  return spawnFallback(now);
 }
 
 /**
@@ -3040,7 +4939,10 @@ export function rollSpawnSpecies(weights = RARITY_WEIGHTS, now = new Date()) {
  * about what walks past you on the map.
  */
 export function rollWildSpecies(weights = RARITY_WEIGHTS, now = new Date()) {
-  const featured = isCreatureSpotlight(now) ? spotlightSpecies(now) : null;
+  // The featured creature still has to be in season. A spotlight cannot conjure
+  // a creature the weather says is not around.
+  const spotlit = isCreatureSpotlight(now) ? spotlightSpecies(now) : null;
+  const featured = spotlit && canSpawnNow(spotlit, now) ? spotlit : null;
   const featuredRarity = featured ? (featured.rarity || familyRarity(featured.id) || 1) : 0;
   const buckets = spawnPoolByRarity(now);
 
@@ -3052,9 +4954,60 @@ export function rollWildSpecies(weights = RARITY_WEIGHTS, now = new Date()) {
     const pool = buckets[tier];
     if (pool?.length) return pool[Math.floor(Math.random() * pool.length)];
   }
-  const flat = spawnPoolList(now);
-  const list = flat.length ? flat : DB.spawnable;
-  return list[Math.floor(Math.random() * list.length)];
+  return spawnFallback(now);
+}
+
+/**
+ * The pool an annual event's hourly creature is drawn from, as rarity buckets.
+ *
+ * Built from the ordinary capturable pool, so it already excludes Exclusives and
+ * Mythicals and already honours which sets you have unlocked. Spawn restrictions
+ * are honoured too: an event cannot conjure a creature the weather says is not
+ * around.
+ *
+ * The weekly Galactic takeover is deliberately *not* consulted. An event spawn is
+ * a once-an-hour gift with its own odds, and having one Thursday hour a year
+ * quietly narrow it to a single set would be a confusing interaction with no
+ * upside.
+ */
+export function eventSpawnPool(spec, now = new Date()) {
+  const buckets = { 1: [], 2: [], 3: [], 4: [], 5: [] };
+  if (!spec) return buckets;
+
+  // A hand-written cast ignores rarity odds entirely: it is a short list and the
+  // point is that you meet those creatures, not that you roll a tier.
+  if (spec.list) return buckets;
+
+  const ok = sp => canSpawnNow(sp, now)
+    && (!spec.type || sp.type === spec.type);
+  for (const r of [1, 2, 3, 4, 5]) buckets[r] = DB.byRarity[r].filter(ok);
+  return buckets;
+}
+
+/**
+ * What an annual event's hourly spawn turns into, or null when it has nothing to
+ * give — a cast whose CSV is missing, or a type with nothing unlocked in it yet.
+ */
+export function rollEventSpawnSpecies(event, now = new Date()) {
+  const spec = event?.hourlySpawn;
+  if (!spec) return null;
+
+  // Hand-picked casts are a uniform pick from the list.
+  if (spec.list) {
+    const pool = (DB.eventPools[spec.list] || []).filter(sp => canSpawnNow(sp, now));
+    if (!pool.length) return null;
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  const buckets = eventSpawnPool(spec, now);
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const pool = buckets[rollRarityWith(EVENT_SPAWN_WEIGHTS)];
+    if (pool?.length) return pool[Math.floor(Math.random() * pool.length)];
+  }
+  // Every tier the odds landed on was empty — a narrow type early in the game,
+  // say. Fall back to anything in the pool rather than skipping the hour.
+  const flat = [1, 2, 3, 4, 5].flatMap(r => buckets[r]);
+  return flat.length ? flat[Math.floor(Math.random() * flat.length)] : null;
 }
 
 /**
@@ -3065,7 +5018,7 @@ export function rollExclusiveSpecies(weights = EXCLUSIVE_RAID_WEIGHTS) {
     const pool = DB.exclusiveByRarity[rollRarityWith(weights)];
     if (pool?.length) return pool[Math.floor(Math.random() * pool.length)];
   }
-  const all = DB.exclusiveInPlay.filter(s => s.stage === 1);
+  const all = DB.exclusiveRollable.filter(s => s.stage === 1);
   return all.length ? all[Math.floor(Math.random() * all.length)] : rollSpawnSpecies();
 }
 
@@ -3108,19 +5061,61 @@ export function isGalacticTakeover(now = new Date()) {
 }
 
 /**
+ * A signature for everything a spawn restriction can read. Values are rounded
+ * so an imperceptible change in the weather does not rebuild the pools, but not
+ * so far that a threshold could be crossed without the key moving.
+ */
+function restrictionCacheKey(now) {
+  const w = spawnConditions.weather || {};
+  const d = spawnConditions.daily || {};
+  const n = v => (typeof v === 'number' && Number.isFinite(v) ? Math.round(v * 10) : 'x');
+  return [
+    isGalacticTakeover(now) ? 'g' : 'n',
+    now.getDay(), now.getHours(),
+    n(w.temperature), n(w.cloudCover), n(w.humidity), n(w.precipitation),
+    w.isDay === true ? 'd' : w.isDay === false ? 'n' : 'x',
+    // A restriction reads whole kilometres, so 100 m of resolution is plenty.
+    Math.floor((Number(d.metresToday) || 0) / 100),
+    Number(d.gruntsToday) || 0
+  ].join('|');
+}
+
+/**
+ * The pools with anything currently out of season removed.
+ *
+ * Filtered here, at the one place every ordinary roll already comes through,
+ * rather than in each roll: that is what makes a restriction hold for wild
+ * spawns, incense, raids and eggs alike without any of them knowing about it.
+ */
+function restrictedPools(now) {
+  const key = restrictionCacheKey(now);
+  if (restrictedCache.key === key) return restrictedCache;
+
+  const takeover = isGalacticTakeover(now);
+  const baseByRarity = takeover ? DB.galacticByRarity : DB.byRarity;
+  const baseList = takeover ? DB.galacticSpawnable : DB.spawnable;
+  const ok = sp => canSpawnNow(sp, now);
+
+  const byRarity = { 1: [], 2: [], 3: [], 4: [], 5: [] };
+  for (const r of [1, 2, 3, 4, 5]) byRarity[r] = baseByRarity[r].filter(ok);
+  restrictedCache = { key, byRarity, list: baseList.filter(ok) };
+  return restrictedCache;
+}
+
+/**
  * The rarity buckets any ordinary roll should draw from right now.
  *
  * One accessor rather than a check in each roll, so wild spawns, incense,
- * normal raids and ordinary eggs are taken over together or not at all.
+ * normal raids and ordinary eggs are taken over together or not at all — and
+ * honour a creature's spawn restriction together or not at all.
  */
 export function spawnPoolByRarity(now = new Date()) {
-  return isGalacticTakeover(now) ? DB.galacticByRarity : DB.byRarity;
+  return restrictedPools(now).byRarity;
 }
 
 /** The flat fallback list matching `spawnPoolByRarity`. */
 export function spawnPoolList(now = new Date()) {
-  if (isGalacticTakeover(now)) return DB.galacticSpawnable;
-  return DB.spawnable;
+  return restrictedPools(now).list;
 }
 
 /* ---------------------------------------------------------------
@@ -3316,6 +5311,19 @@ export const poiGruntsAreUncapped = (now = new Date()) => isTrainingDojo(now);
    --------------------------------------------------------------- */
 
 export const CALENDAR_EVENTS = [
+  /* The annual events first, so a day that has one leads with it: they come round
+     once a year and everything else on the list is weekly or daily. Their entries
+     are generated from ANNUAL_EVENTS rather than written out again here, so
+     retuning a date or a bonus is a one-line change in one place. */
+  ...ANNUAL_EVENTS.map(e => ({
+    id: e.id,
+    label: e.label,
+    icon: e.icon,
+    allDay: true,
+    annual: true,
+    onDay: e.onDay,
+    blurb: e.blurb
+  })),
   {
     id: 'stardustSunday',
     label: STARDUST_SUNDAY_LABEL,
@@ -3439,11 +5447,15 @@ export function eventsOnDay(date) {
       blurb: resolve(e.blurb, day),
       art: resolve(e.art, day) || null,
       allDay: !!e.allDay,
+      annual: !!e.annual,
       start: e.start ?? null,
       end: e.end ?? null
     }))
+    // Annual first, then the other all-day ones, then by start time.
     .sort((a, b) =>
-      Number(!!b.allDay) - Number(!!a.allDay) || (a.start ?? 0) - (b.start ?? 0));
+      Number(!!b.annual) - Number(!!a.annual)
+      || Number(!!b.allDay) - Number(!!a.allDay)
+      || (a.start ?? 0) - (b.start ?? 0));
 }
 
 /**

@@ -14,13 +14,12 @@
    ============================================================ */
 
 import {
-  damageOf, effectivenessOf, statsFor, raidBossStats, species,
-  evaluateAbility, clauseEffectText, clauseConditionText, buffStatsLabel,
+  damageOf, effectivenessOf, statsFor, raidBossStats, species, heldStatBonus,
+  evaluateAbility, faintDamage, clauseEffectText, clauseConditionText, buffStatsLabel,
   moveEffectText, moveSummaryText,
   STAT_KEYS, STAT_LABELS, BATTLE_TEAM_SIZE, moveLevelFor, heldItem
 } from './data.js';
-import { Weather } from './weather.js';
-import { creatureStats, maxHpOf, hpOf } from './state.js';
+import { store, creatureStats, maxHpOf, hpOf } from './state.js';
 
 /* ---------------------------------------------------------------
    Battler
@@ -145,6 +144,29 @@ export function battlerFromEnemySpec({ speciesId, level, shiny = false }) {
   });
 }
 
+/**
+ * A Battle Frontier trainer's creature. Unlike a grunt's, this one is allowed
+ * everything the player is: a held item and up to twenty Stat Booster points,
+ * both fed through exactly the same maths as `creatureStats` so a level 10
+ * trainer is as strong as a fully kitted-out team and no stronger.
+ *
+ * No stat modifier, though: the ±10% roll is luck of the draw on a capture, and
+ * a fixed ladder handing itself the good end of it every time would be quietly
+ * unfair. The boosts in the sheet are the difficulty knob instead.
+ */
+export function battlerFromFrontierSpec({ speciesId, level, held = null, boosts = null }) {
+  const sp = species(speciesId);
+  const extra = heldStatBonus({ speciesId, level, held }, sp);
+  return new Battler({
+    speciesId,
+    level,
+    stats: statsFor(sp, level, null, boosts, extra),
+    moves: sp.movesAt(level, null),
+    label: sp.name,
+    held
+  });
+}
+
 /* ---------------------------------------------------------------
    AI
    --------------------------------------------------------------- */
@@ -248,8 +270,54 @@ export class Battle {
     return evaluateAbility(self.species.ability, {
       opponent: foe?.species || null,
       now: this.env.now,
-      weather: this.env.weather
+      weather: this.env.weather,
+      daily: this.env.daily,
+      world: this.env.world,
+      battle: this.battleReadings(side)
     });
+  }
+
+  /**
+   * The in-battle half of an ability context for whoever is on `side`: how hurt
+   * each side is, how big the opponent is, what it is carrying and what it has
+   * buffed, whether this creature is the last one left, and who its team mates
+   * are.
+   *
+   * Plain numbers and names rather than the battlers themselves, because data.js
+   * evaluates the conditions and knows nothing about this module.
+   */
+  battleReadings(side) {
+    const self = side === 'player' ? this.playerActive : this.enemyActive;
+    const foe = side === 'player' ? this.enemyActive : this.playerActive;
+    const ownTeam = side === 'player' ? this.player : this.enemy;
+
+    return {
+      selfHpPct: self ? self.hpPct : null,
+      foeHpPct: foe ? foe.hpPct : null,
+      foeLevel: foe ? (Number(foe.level) || null) : null,
+      foeHeld: foe?.held || null,
+      // The cumulative multipliers as percentages, so +25% reads as 25 and a
+      // debuff reads as a negative. Only a raised stat fires "opposing buffed".
+      foeBuffs: foe
+        ? Object.fromEntries(STAT_KEYS.map(k => [k, foe.buffPercent(k) ?? 0]))
+        : null,
+      /**
+       * True when nothing else on this side can still fight. Read off the whole
+       * team rather than a counter so it is right however the team got here.
+       */
+      lastStanding: ownTeam
+        ? ownTeam.filter(b => !b.fainted).length <= 1
+        : null,
+      /**
+       * The other creatures on this side, by species name. Fainted mates are
+       * deliberately included: a team-composition ability is about who you
+       * brought, not who is still up, and having it switch itself off mid-battle
+       * for invisible reasons would be worse than the alternative.
+       */
+      teamMates: ownTeam
+        ? ownTeam.filter(b => b !== self).map(b => b.species?.name).filter(Boolean)
+        : null
+    };
   }
 
   /**
@@ -423,11 +491,14 @@ export class Battle {
 
     const onSelf = fx.kind === 'buffSelf' || fx.kind === 'debuffSelf';
     const who = onSelf ? actor : target;
-    // Nothing worth weakening on something already knocked out — it is about to
-    // be replaced by a fresh creature anyway.
+    // Nothing worth changing on something already knocked out — it is about to
+    // be replaced by a fresh creature anyway. True of a drawback that would
+    // strengthen the opponent as much as of a debuff that weakens it.
     if (!onSelf && who.fainted) return [];
 
-    const up = fx.kind === 'buffSelf';
+    // Whether the stats go up or down, which is independent of who they land on:
+    // a move can raise the *opponent's* stats as the price of its own power.
+    const up = fx.kind === 'buffSelf' || fx.kind === 'buffOpponent';
     // A mythical's buff raises several stats at once, so this is always a list.
     const applied = fx.stats.map(stat => {
       const r = up ? who.applyBuff(stat, fx.pct) : who.applyDebuff(stat, fx.pct);
@@ -528,6 +599,60 @@ export class Battle {
         side: side === 'player' ? 'enemy' : 'player',
         actor: target.key, label: target.label
       });
+      // Whatever the creature that just went down was carrying in its ability
+      // goes off now, on the way out.
+      events.push(...this.partingShot(target, actor, side === 'player' ? 'enemy' : 'player'));
+    }
+    return events;
+  }
+
+  /**
+   * A knocked-out creature's last act, for an ability that deals damage as it
+   * faints. Takes a share of whatever the attacker has left, so it punishes
+   * something healthy walking in and does little against something nearly down.
+   *
+   * Read at the moment of the faint rather than in advance, because the
+   * condition and the attacker's remaining HP are both only true now.
+   */
+  partingShot(fallen, attacker, fallenSide) {
+    const ability = fallen?.species?.ability;
+    if (!ability || !attacker || attacker.fainted) return [];
+
+    const read = evaluateAbility(ability, {
+      opponent: attacker.species || null,
+      now: this.env.now,
+      weather: this.env.weather,
+      daily: this.env.daily,
+      world: this.env.world,
+      battle: this.battleReadings(fallenSide)
+    });
+    if (!read.faintPercent) return [];
+
+    const dealt = faintDamage(read.faintPercent, attacker.hp);
+    if (dealt <= 0) return [];
+
+    const hpBefore = attacker.hp;
+    attacker.takeDamage(dealt);
+
+    const events = [{
+      type: 'partingShot',
+      side: fallenSide,
+      targetSide: fallenSide === 'player' ? 'enemy' : 'player',
+      actor: fallen.key, actorLabel: fallen.label,
+      target: attacker.key, targetLabel: attacker.label,
+      ability: read.ability.name,
+      percent: read.faintPercent,
+      amount: dealt,
+      hpBefore, hpAfter: attacker.hp, maxHp: attacker.maxHp
+    }];
+
+    // It can take the attacker with it, which is the whole point of a last hit.
+    if (attacker.fainted) {
+      events.push({
+        type: 'faint',
+        side: fallenSide === 'player' ? 'enemy' : 'player',
+        actor: attacker.key, label: attacker.label
+      });
     }
     return events;
   }
@@ -587,18 +712,10 @@ export class Battle {
  * that is unknown, which switches temperature clauses off entirely.
  */
 export function battleEnv() {
-  const r = Weather.current;
-  return {
-    now: new Date(),
-    weather: {
-      temperature: r ? r.celsius : null,
-      cloudCover: r ? r.cloudCover : null,
-      humidity: r ? r.humidity : null,
-      wind: r ? r.windSpeed : null,
-      // Whether the sun is up, for the daylight trigger. null when unknown.
-      isDay: r ? r.isDay : null
-    }
-  };
+  // The same assembled world spawn restrictions are judged against, so an
+  // ability and a restriction can never disagree about the temperature or how
+  // far the player has walked today.
+  return store.ambientContext();
 }
 
 export function buildRaidBattle(creatures, raid, rng = Math.random) {
@@ -615,6 +732,23 @@ export function buildGruntBattle(creatures, team, rng = Math.random) {
   return new Battle({
     player: creatures.map(battlerFromCreature),
     enemy: team.map(battlerFromEnemySpec),
+    kind: 'grunt',
+    rng,
+    env: battleEnv()
+  });
+}
+
+/**
+ * A Battle Frontier trainer battle. Three against three like a grunt, but the
+ * opposing team carries held items and stat boosts, so it gets its own spec
+ * reader. `kind` stays 'grunt' for the turn loop's purposes — nothing in the
+ * fight itself behaves differently, only the reward and the restriction around
+ * it do.
+ */
+export function buildFrontierBattle(creatures, team, rng = Math.random) {
+  return new Battle({
+    player: creatures.map(battlerFromCreature),
+    enemy: team.map(battlerFromFrontierSpec),
     kind: 'grunt',
     rng,
     env: battleEnv()

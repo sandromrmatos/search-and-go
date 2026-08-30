@@ -373,6 +373,20 @@ a { color: var(--accent); }
 @keyframes glowPulse { 0%,100% { transform: scale(.8); opacity: .5; } 50% { transform: scale(1.2); opacity: 1; } }
 .spawn-marker.in-range .spawn-timer { color: #b9ffd0; border-color: #4ade8066; }
 .spawn-marker.in-range .stars .s { color: #eaffef; text-shadow: 0 0 9px #4ade80, 0 0 18px #4ade8055; }
+
+/* An incense spawn is purple whatever the distance, because distance does not
+   apply to it: you summoned it, so it is always tappable. Placed after the
+   in-range rules so it wins over both of them, and the marker is never dimmed
+   for being "out of range" when there is no range to be out of. */
+.spawn-marker.src-incense .stars .s {
+  color: #f3e6ff; text-shadow: 0 0 9px #b07cff, 0 0 18px #b07cff66;
+}
+/* Scoped the same way as the essence aura, so it outranks the base gold glow. */
+.spawn-marker.src-incense .glow {
+  background: radial-gradient(circle, #b07cff66 0%, transparent 70%);
+}
+.spawn-marker.src-incense .spawn-timer { color: #e8dcff; border-color: #b07cff77; }
+.spawn-marker.src-incense.out-range { opacity: 1; }
 .spawn-marker.out-range { opacity: .78; }
 
 /* ---- non-creature point icons ---- */
@@ -552,14 +566,20 @@ a { color: var(--accent); }
 .spawn-marker.collected .icon-wrap > span { animation: none; }
 .spawn-marker.collected .spawn-timer { color: var(--muted); border-color: var(--line); }
 
-/* ---- breeding centre pin ---- */
+/* ---- breeding centre pin ----
+   The real item artwork rather than a glyph, so the pin on the map and the card
+   in your Items are recognisably the same thing. Deliberately not animated: a
+   building is a fixed landmark, and having it bob made the map feel restless
+   when several were in view. In range it just glows green. */
 .breed-flag {
   position: relative;   /* anchors .breed-badge */
   width: 40px; height: 46px; display: grid; place-items: center;
-  font-size: 26px; color: #ffd9f0;
+}
+.breed-flag img {
+  width: 38px; height: 38px; object-fit: contain;
   filter: drop-shadow(0 0 8px #ff8ec7) drop-shadow(0 2px 4px #0008);
 }
-.breed-flag.in-range { animation: gruntBob 1.4s ease-in-out infinite; color: #b9ffd0; filter: drop-shadow(0 0 10px #4ade80); }
+.breed-flag.in-range img { filter: drop-shadow(0 0 11px #4ade80) drop-shadow(0 2px 4px #0008); }
 
 /* "A pair has finished its candy" — a candy-coloured pip on the flag. It sits
    on the flag rather than the rotating wrapper so it stays upright with it. */
@@ -578,10 +598,10 @@ a { color: var(--accent); }
   50% { transform: scale(1.22); }
 }
 /* Research Lab shares the pin shape, in its own colour. */
-.breed-flag.lab-flag {
-  font-size: 23px; color: #cfe3ff;
+.breed-flag.lab-flag img {
   filter: drop-shadow(0 0 8px #56b6ff) drop-shadow(0 2px 4px #0008);
 }
+.breed-flag.lab-flag.in-range img { filter: drop-shadow(0 0 11px #4ade80) drop-shadow(0 2px 4px #0008); }
 
 /* ============================ GRID / CARDS ============================ */
 .toolbar { display: flex; align-items: flex-end; gap: 8px; padding: 6px 14px 10px; }
@@ -697,6 +717,22 @@ a { color: var(--accent); }
 .boost-row { width: 100%; text-align: left; cursor: pointer; }
 .boost-row:active { transform: scale(.99); }
 
+/* ---- Battle Frontier ---- */
+/* The challenge cards and the Grand Raid share the lab's recipe-cell shape; the
+   ladder rows are full width, because ten of them in a column reads as a ladder
+   and a grid of ten does not. */
+.frontier-card, .frontier-grand { margin: 0 12px 8px; max-width: 220px; }
+.frontier-level {
+  margin: 0 12px 6px; max-width: none; width: calc(100% - 24px);
+  text-align: left; align-items: flex-start;
+}
+/* Beaten on this mode: green tick and a dimmer card, so the eye goes to the next
+   one to do rather than the ones already done. */
+.frontier-level.done { border-color: #7bd88f4d; background: #7bd88f14; opacity: 0.75; }
+.frontier-level.done .qty { background: #7bd88f; color: #06240f; }
+/* The one you can actually attempt. */
+.frontier-level.open { border-color: #ffc75f66; background: #ffc75f14; }
+
 /* ---- Research Lab ---- */
 .lab-recipe { margin: 0 12px; max-width: 220px; }
 /* The Exchange corner has no item picture of its own, so it gets a glyph in the
@@ -805,6 +841,14 @@ a { color: var(--accent); }
   border-color: #8fb4ff88; color: #dbe7ff;
   background: linear-gradient(135deg, rgba(46,60,120,.95), rgba(11,16,36,.95));
   box-shadow: 0 0 12px #8fb4ff33;
+}
+/* Annual events. A warm festive green, distinct from every weekly event so it is
+   obvious at a glance that this one is the rare kind. No countdown on it, so it
+   is a little narrower than its neighbours. */
+.fx-chip.event-annual {
+  border-color: #4ade8099; color: #d8ffe6;
+  background: linear-gradient(135deg, rgba(22,84,50,.95), rgba(11,16,36,.95));
+  box-shadow: 0 0 12px #4ade8044;
 }
 /* Weekly events. Raid Invasion borrows the raid flame's orange, Training Dojo
    the grunt's purple, so the chip matches what is filling the map. */
@@ -937,6 +981,14 @@ a { color: var(--accent); }
 }
 @keyframes abGlow { to { box-shadow: 0 0 17px #b07cffcc; } }
 .ab-badge.off { color: #8c93ad; }
+/* A third state for abilities that turn on something the battle has not decided
+   yet — how hurt something gets, who is left standing, being knocked out. Dimmer
+   than "on" and warmer than "off", with its own glyph so colour is not the only
+   difference. The narrower glyph needs a little more room than the single stars. */
+.ab-badge.maybe {
+  color: #ffe1a8; background: #ffd16626; border-color: #ffd16688;
+  font-size: 10px; letter-spacing: -0.5px;
+}
 /* Inline in the legend line rather than pinned to a tile. */
 #bt-ability-legend .ab-badge { position: static; vertical-align: middle; margin: 0 2px; }
 
@@ -1075,6 +1127,36 @@ a { color: var(--accent); }
 .progress-mini i { display: block; height: 100%; background: linear-gradient(90deg, var(--good), #a3f7bf); }
 .hint { font-size: 11.5px; color: var(--muted); margin: 8px 0 0; }
 .hint.bad { color: #ff9b9b; font-weight: 600; }
+/* "Caught on 30 August 2026 in Manchester" — a quiet footnote, set apart from the
+   buttons above it since it is a memory rather than an action. */
+.caught-line {
+  margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line);
+  text-align: center; font-style: italic;
+}
+
+/* A filter chip reporting a query it could not read. Warm rather than alarming:
+   it is a typo, not a failure. Wraps, because the reason can be a sentence. */
+.filter-chip.bad {
+  border-color: #ff9b9b66; color: #ffd9d9; background: #ff6b6b1a;
+  white-space: normal;
+}
+/* The search help sheet: the example in monospace, what it does beside it. */
+.search-help-row { align-items: flex-start; gap: 10px; }
+.search-help-row code {
+  font-family: ui-monospace, monospace; font-size: 11.5px;
+  padding: 2px 6px; border-radius: 7px; flex: 0 0 auto;
+  background: #ffffff14; border: 1px solid var(--line); color: #dfe6ff;
+}
+.search-help-row .small { margin-left: 0; text-align: left; }
+
+/* Spawn restrictions: what a creature is waiting for before it will appear.
+   Tinted as a whole so "can I find this today" is answerable at a glance,
+   then per row so it is clear which condition is the one holding it back. */
+.restriction { border-left: 3px solid #ff9b9b66; padding-left: 8px; }
+.restriction.met { border-left-color: var(--good); }
+.restriction .det-row b.good { color: var(--good); }
+.restriction .det-row b.muted { color: var(--muted); font-weight: 500; }
+.restriction .det-row > span:first-child { width: 1.1em; text-align: center; }
 
 /* ============================ DEBUG ============================ */
 .dbg-block { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
@@ -1250,6 +1332,18 @@ a { color: var(--accent); }
 .bt-grunt-face { font-size: 74px; line-height: 1; }
 .bt-roster { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
 .bt-roster .cell { padding: 8px 4px; }
+/* A Battle Frontier trainer, not a creature: the artwork is a person, so it gets
+   its own glow rather than borrowing the raid boss's orange. */
+.bt-boss.frontier img { filter: drop-shadow(0 6px 22px #ffc75f66); }
+/* The held item a trainer's creature is carrying, under its stat line. */
+.frontier-held { display: flex; align-items: center; justify-content: center; gap: 3px; }
+.frontier-held img { width: 14px; height: 14px; object-fit: contain; }
+
+/* ---- team picker: the mode restriction ---- */
+.bt-restrict {
+  margin: 8px 14px; padding: 9px 11px; border-radius: 11px; font-size: 12.5px;
+  background: #ffc75f1a; border: 1px solid #ffc75f4d; color: #ffe3ab;
+}
 
 /* ---- team picker: hold-to-peek move preview ---- */
 .move-peek {
@@ -1268,8 +1362,19 @@ a { color: var(--accent); }
 .move-peek-top { display: flex; align-items: center; gap: 11px; margin-bottom: 10px; }
 .move-peek-top img { width: 64px; height: 64px; object-fit: contain; flex: 0 0 auto; }
 .move-peek-top b { font-size: 15px; }
-.move-peek .move-list { max-height: 46vh; overflow: hidden; }
+/* Trimmed to leave room for the ability block underneath it. */
+.move-peek .move-list { max-height: 36vh; overflow: hidden; }
 .move-peek .hint { margin: 8px 0 0; text-align: center; }
+/* The ability, set apart from the moves so the two do not read as one list. */
+.move-peek-ability {
+  margin-top: 9px; padding: 9px 10px; border-radius: 12px;
+  background: #b07cff14; border: 1px solid #b07cff44;
+}
+.move-peek-ability .move-top { display: flex; align-items: center; gap: 8px; }
+.move-peek-ability .move-top b { font-size: 12.5px; color: #e8dcff; }
+.move-peek-ability .ab-badge { margin-left: auto; position: static; }
+.move-peek-ability .move-meta { margin-top: 4px; }
+.move-peek-ability .small { margin-top: 3px; }
 
 /* ---- team picker ---- */
 .cell.picked { border-color: var(--accent); box-shadow: 0 0 0 2px #7b8cff66 inset; }
@@ -1324,6 +1429,10 @@ a { color: var(--accent); }
 .bt-buff {
   font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 99px;
   background: #4ade8026; border: 1px solid #4ade8066; color: #b9ffd0;
+}
+/* A lowered stat, so the green "this is good" pill is not used for bad news. */
+.bt-buff.down {
+  background: #ff6b6b26; border-color: #ff6b6b66; color: #ffc9c9;
 }
 
 .bt-team { display: flex; gap: 5px; margin-bottom: 6px; }
@@ -1646,6 +1755,14 @@ a.ad-link:active { transform: scale(.98); }
   font-size: 9px; font-weight: 800; letter-spacing: .5px;
   padding: 2px 6px; border-radius: 99px;
   background: #4ade80; color: #06240f;
+}
+/* Easter half-distance marker. Bottom-right, so it never collides with the READY
+   tag opposite it — an egg can easily be both. */
+.egg-halved-tag {
+  position: absolute; bottom: 5px; right: 5px; z-index: 2;
+  font-size: 10px; font-weight: 700;
+  padding: 1px 5px; border-radius: 99px;
+  background: #ffd16633; border: 1px solid #ffd16688; color: #fff3cd;
 }
 /* Exclusive 15 km eggs, tinted to match the exclusive raid flame. A ready
    exclusive egg keeps the green ready border, which wins on specificity. */

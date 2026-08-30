@@ -3,6 +3,7 @@
    ============================================================ */
 
 import { RULES, species } from './data.js';
+import { itemImage } from './items.js';
 import { distance, formatDistance } from './geo.js';
 import { timeLeftLabel } from './ui.js';
 
@@ -86,6 +87,7 @@ export const GameMap = {
   onSpawnClick: null,
   onBreedingClick: null,
   onResearchLabClick: null,
+  onBattleFrontierClick: null,
   followMe: true,
   _lastPos: null,
   _paintedRange: null,  // interaction radius the green ring is currently drawn at
@@ -363,7 +365,12 @@ export const GameMap = {
       }
 
       const root = document.createElement('div');
-      root.className = `spawn-marker kind-${point.kind}${point.collected ? ' collected' : ''}`;
+      // `src-<source>` lets a spawn that came from somewhere special look it:
+      // an incense spawn is purple, because it is yours and reachable from
+      // anywhere rather than something you have to walk to.
+      root.className = `spawn-marker kind-${point.kind}`
+        + (point.source ? ` src-${point.source}` : '')
+        + (point.collected ? ' collected' : '');
       root.innerHTML =
         `<div class="spawn-timer">--:--</div>${iconFor(point)}<div class="tick">✓</div>`;
 
@@ -484,7 +491,8 @@ export const GameMap = {
         // in-range bobbing animation, which also uses transform.
         // The badge shows when a slot has finished its candy — `tick` fills it
         // in, because this HTML is only ever built once.
-        html: '<div class="breed-rot"><div class="breed-flag"><span>⚑</span>'
+        html: '<div class="breed-rot"><div class="breed-flag">'
+            + `<img src="${itemImage('breeding_center')}" alt="Breeding Centre">`
             + '<i class="breed-badge hidden"></i></div></div>',
         iconSize: [40, 46],
         iconAnchor: [20, 42]
@@ -515,13 +523,41 @@ export const GameMap = {
     this.labMarker = L.marker([lab.lat, lab.lng], {
       icon: L.divIcon({
         className: '',
-        html: '<div class="breed-rot"><div class="breed-flag lab-flag"><span>🔬</span></div></div>',
+        html: '<div class="breed-rot"><div class="breed-flag lab-flag">'
+            + `<img src="${itemImage('research_lab')}" alt="Research Lab"></div></div>`,
         iconSize: [40, 46],
         iconAnchor: [20, 42]
       }),
       zIndexOffset: 400
     }).addTo(this.breedingLayer);
     this.labMarker.on('click', () => this.onResearchLabClick?.(lab));
+  },
+
+  /** The Battle Frontier is the third permanent pin, and works the same way. */
+  syncBattleFrontier(frontier) {
+    if (!this.map || !this.breedingLayer) return;
+    if (!frontier) {
+      if (this.frontierMarker) {
+        this.breedingLayer.removeLayer(this.frontierMarker);
+        this.frontierMarker = null;
+      }
+      return;
+    }
+    if (this.frontierMarker) {
+      this.frontierMarker.setLatLng([frontier.lat, frontier.lng]);
+      return;
+    }
+    this.frontierMarker = L.marker([frontier.lat, frontier.lng], {
+      icon: L.divIcon({
+        className: '',
+        html: '<div class="breed-rot"><div class="breed-flag lab-flag">'
+            + `<img src="${itemImage('battle_frontier')}" alt="Battle Frontier"></div></div>`,
+        iconSize: [40, 46],
+        iconAnchor: [20, 42]
+      }),
+      zIndexOffset: 400
+    }).addTo(this.breedingLayer);
+    this.frontierMarker.on('click', () => this.onBattleFrontierClick?.(frontier));
   },
 
   /* ===============================================================

@@ -117,9 +117,11 @@
           <label class="sel">
             <span>Find</span>
             <input id="storage-search" class="search-input" type="search"
-                   placeholder="Creature name…" autocomplete="off"
-                   aria-label="Filter your storage by creature name" />
+                   placeholder="Name, or type = mystic & attack > 70" autocomplete="off"
+                   aria-label="Filter your storage by name, type, level, stat, buff or debuff" />
           </label>
+          <button id="storage-search-help" class="mini-btn" type="button"
+                  title="What you can type in the Find box">?</button>
           <label class="tool-toggle" id="storage-family-all-label"
                  title="Also show the pre-evolutions and evolutions of what you searched for">
             <input type="checkbox" id="storage-family-all" />
@@ -538,6 +540,7 @@
       <span id="bt-pick-count" class="muted">0 of 3 chosen</span>
     </div>
     <p class="hint" style="padding:0 14px">They battle in the order you tap them. Fainted creatures and any in the breeding centre can't come.</p>
+    <p id="bt-restrict" class="bt-restrict hidden"></p>
     <p id="bt-ability-legend" class="hint hidden" style="padding:0 14px"></p>
     <div id="bt-pick-care" class="pick-care"></div>
     <div id="bt-pick-grid" class="grid"></div>
@@ -660,6 +663,32 @@
   </div>
 </div>
 
+<!-- ============ BATTLE FRONTIER ============
+     The building's front page: one card per challenge. Tapping one opens
+     #frontier-challenge on top of it. -->
+<div id="battle-frontier" class="sheet-wrap hidden">
+  <div class="sheet-backdrop" data-close="battle-frontier"></div>
+  <div class="sheet">
+    <button class="sheet-close" data-close="battle-frontier">✕</button>
+    <h3>⚔ Battle Frontier</h3>
+    <p id="frontier-hint" class="muted small"></p>
+    <div id="frontier-body"></div>
+  </div>
+</div>
+
+<!-- ============ BATTLE FRONTIER: ONE CHALLENGE ============
+     The mode picker and the ten-level ladder. Stacks on top of
+     #battle-frontier, the way the lab's sub-sheets stack on the lab. -->
+<div id="frontier-challenge" class="sheet-wrap hidden">
+  <div class="sheet-backdrop" data-close="frontier-challenge"></div>
+  <div class="sheet">
+    <button class="sheet-close" data-close="frontier-challenge">✕</button>
+    <h3 id="frontier-challenge-title">Challenge</h3>
+    <p id="frontier-challenge-hint" class="muted small"></p>
+    <div id="frontier-challenge-body"></div>
+  </div>
+</div>
+
 <!-- ============ HELD ITEM PICKER ============
      Serves both directions: pick an item for a creature, or a creature for an
      item. Stacks on top of whatever opened it. -->
@@ -770,6 +799,7 @@
     <button class="sheet-close" data-close="picker">✕</button>
     <h3 id="picker-title">Choose a creature</h3>
     <p id="picker-hint" class="muted small"></p>
+    <div id="picker-tools" class="toolbar wrap hidden"></div>
     <div id="picker-bulk" class="picker-bulk"></div>
     <div id="picker-grid" class="grid"></div>
     <p id="picker-empty" class="empty hidden">No eligible creatures.</p>

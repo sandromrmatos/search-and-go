@@ -10,15 +10,18 @@ import {
   species, familyRoot, familyName, familyRarity, levelUpCost, moveLevelFor, statsFor,
   familyRootsMatching,
   heldItem, heldItemImage, heldItemRequirement, heldStatBonus,
-  fullLearnset, finalEvolutionOf,
+  fullLearnset, finalEvolutionOf, evolutionTargets, spawnRestrictionState,
+  parseStorageQuery, storageTermLabel, compareWithOp, STORAGE_QUERY_HELP,
   breedingSlotsFor, BREEDING_UNLOCK_LEVEL, bonanzaState,
   isRelaxHour, relaxHourEndsIn, RELAX_HOUR_LABEL, RULES, BUDDY_KM_PER_CANDY,
   isStardustSunday, STARDUST_SUNDAY_LABEL, STARDUST_SUNDAY_MULTIPLIER,
   MAX_EGGS, MAX_EXCLUSIVE_EGGS, INCUBATOR_ITEMS, poiEventState, SPOTLIGHT_BONUS_CANDY,
+  activeAnnualEvents,
   MAX_STAT_BOOSTS, STAT_BOOSTER_CANDY_COST, statBoosterCost,
   abilityText, clauseConditionText, clauseEffectText, buffMoveText,
   moveEffectText, moveSummaryText,
   GALACTIC_SET_NAME, MYTHICAL_RARITY, unlockedGalacticRarities,
+  TEMPORAL_SET_NAME, unlockedTemporalRarities,
   discoverableSpeciesCount
 } from './data.js';
 import { renderEggs, renderEggTabBadge, openEggPickerFor } from './eggs.js';
@@ -32,6 +35,7 @@ import {
   needsSpeciesChoice
 } from './items.js';
 import { Weather, temperatureLabel, weatherRows, conditionOf } from './weather.js';
+import { placeLabel } from './place.js';
 import {
   $, $$, el, appendAll, toast, openSheet, closeSheet, num, timeLeftLabel,
   clampPage, pageSlice, pagerBar, pageOfIndex, wireSwipe, bumpEl, openImageViewer
@@ -277,8 +281,12 @@ let multiSelected = new Set();
 /** The search text, trimmed. '' when the box is empty. */
 const storageQuery = () => String(store.s.ui.storageQuery ?? '').trim();
 
-/** Whole-family mode is only ever on while there is something to match. */
-const familyModeOn = () => !!store.s.ui.storageFamilyAll && !!storageQuery();
+/**
+ * Whole-family mode is only ever on while there is a *name* to build a family
+ * from. "level > 8" has no line to widen to, so the box stays off for it.
+ */
+const familyModeOn = () =>
+  !!store.s.ui.storageFamilyAll && storageQueryParts().names.length > 0;
 
 /** Does this creature's own name — or the nickname you gave it — match? */
 function nameHit(c, q) {
@@ -287,25 +295,79 @@ function nameHit(c, q) {
     || String(c.nickname || '').toLowerCase().includes(q);
 }
 
+/** The parsed query, so the matcher, the chip and the error line agree. */
+const storageQueryParts = () => parseStorageQuery(storageQuery());
+
 /**
- * The predicate the grid filters on.
+ * Does one parsed term hold for this creature?
  *
- * In whole-family mode the search is resolved to family roots through the
- * species database, not through storage, so searching for an evolution you
- * have never owned still finds the pre-evolutions you are holding.
+ * Stats are the creature's *current* ones — level growth, the ±10% roll, stat
+ * boosters and any held item included — because that is the number shown on its
+ * sheet, and a filter that disagreed with the sheet would be worse than useless.
+ */
+function termHit(term, c) {
+  const s = sp(c);
+  if (!s) return false;
+  switch (term.kind) {
+    case 'name':
+      return nameHit(c, term.text);
+    case 'type': {
+      const hit = term.values.includes(s.type);
+      return term.negate ? !hit : hit;
+    }
+    case 'level':
+      return compareWithOp(Number(c.level) || 1, term.op, term.value);
+    case 'rarity':
+      return compareWithOp(s.rarity || familyRarity(s.id) || 1, term.op, term.value);
+    case 'stage':
+      return compareWithOp(Number(s.stage) || 1, term.op, term.value);
+    case 'stat':
+      return compareWithOp(creatureStats(c)[term.stat] ?? 0, term.op, term.value);
+    case 'buff': {
+      const hit = term.stats.includes(c.statMod?.up);
+      return term.negate ? !hit : hit;
+    }
+    case 'debuff': {
+      const hit = term.stats.includes(c.statMod?.down);
+      return term.negate ? !hit : hit;
+    }
+    default:
+      return true;
+  }
+}
+
+/**
+ * The predicate the grid filters on. Every term has to hold.
+ *
+ * In whole-family mode the *name* part of the search is resolved to family roots
+ * through the species database rather than through storage, so searching for an
+ * evolution you have never owned still finds the pre-evolutions you are holding.
+ * The filters stay per-creature: widening "level > 8" to a whole family would
+ * hand back creatures that plainly do not match it.
  */
 function storageMatcher() {
-  const q = storageQuery().toLowerCase();
-  if (!q) return () => true;
+  const { terms } = storageQueryParts();
+  if (!terms.length) return () => true;
 
-  if (!familyModeOn()) return c => nameHit(c, q);
+  const names = terms.filter(t => t.kind === 'name');
+  const filters = terms.filter(t => t.kind !== 'name');
+  const filtersHit = c => filters.every(t => termHit(t, c));
 
-  const roots = new Set(familyRootsMatching(q));
-  // A nicknamed creature is findable by that nickname, so its line counts too.
-  for (const c of store.s.storage) {
-    if (String(c.nickname || '').toLowerCase().includes(q)) roots.add(familyRoot(c.speciesId));
+  if (!familyModeOn() || !names.length) {
+    return c => names.every(t => termHit(t, c)) && filtersHit(c);
   }
-  return c => roots.has(familyRoot(c.speciesId));
+
+  const roots = new Set();
+  for (const t of names) {
+    for (const root of familyRootsMatching(t.text)) roots.add(root);
+    // A nicknamed creature is findable by that nickname, so its line counts too.
+    for (const c of store.s.storage) {
+      if (String(c.nickname || '').toLowerCase().includes(t.text)) {
+        roots.add(familyRoot(c.speciesId));
+      }
+    }
+  }
+  return c => roots.has(familyRoot(c.speciesId)) && filtersHit(c);
 }
 
 /** Everything the current search covers, whatever page it is on. */
@@ -332,14 +394,39 @@ export function setStorageSearch(text) {
  * creatures is still the hold gesture's job.
  */
 export function setStorageFamilyAll(on) {
-  if (on && !storageQuery()) {
+  if (on && !storageQueryParts().names.length) {
     store.setUI({ storageFamilyAll: false });
-    toast('Type a creature name first', 'bad');
+    toast('Type a creature name first — a filter on its own has no family to widen', 'bad', 3600);
     renderStorage();
     return;
   }
   store.setUI({ storageFamilyAll: !!on, storagePage: 0 });
   renderStorage();
+}
+
+/**
+ * What the Find box understands. Reachable from the ? beside it, because a search
+ * box that quietly accepts a query language nobody is told about is a search box
+ * nobody uses.
+ */
+export function openStorageSearchHelp() {
+  const body = $('#sheet-body');
+  body.innerHTML = '';
+  appendAll(body,
+    el('div', { class: 'det-title' }, el('h3', { text: 'Searching your storage' })),
+    el('p', { class: 'hint', text: 'Type a creature name as before, or a filter. '
+      + 'Join several with & and every one of them has to hold.' }),
+    el('div', { class: 'det-rows' },
+      ...STORAGE_QUERY_HELP.map(h => el('div', { class: 'det-row search-help-row' },
+        el('code', { text: h.example }),
+        el('span', { class: 'muted small', text: h.means })
+      ))
+    ),
+    el('p', { class: 'hint', text: 'Stat filters use the figure on the creature\'s own page — '
+      + 'its level growth, its ±10% roll, any Stat Boosters and whatever it is holding, all included. '
+      + 'Defence can be spelled either way, and a mistyped filter says so rather than quietly matching nothing.' })
+  );
+  openSheet('sheet');
 }
 
 export function renderStorage() {
@@ -361,12 +448,14 @@ export function renderStorage() {
     (!storageFamily || familyRoot(c.speciesId) === storageFamily) && matches(c));
   renderStorageFilterBar(storageFamily, source.length, query, wholeFamily);
 
-  // The box only makes sense once there is a name to build a family from.
+  // The box only makes sense once there is a name to build a family from — a
+  // query that is nothing but filters has no evolution line to widen to.
   const famBox = $('#storage-family-all');
+  const canWiden = storageQueryParts().names.length > 0;
   if (famBox) {
     famBox.checked = wholeFamily;
-    famBox.disabled = !query;
-    $('#storage-family-all-label')?.classList.toggle('disabled', !query);
+    famBox.disabled = !canWiden;
+    $('#storage-family-all-label')?.classList.toggle('disabled', !canWiden);
   }
   const search = $('#storage-search');
   // Never fight the caret while someone is typing.
@@ -382,8 +471,13 @@ export function renderStorage() {
 
   const empty = $('#storage-empty');
   empty.classList.toggle('hidden', sortedStorage.length > 0);
+  const parts = parseStorageQuery(query);
   empty.textContent = query
-    ? `Nothing in your storage matches "${query}"${wholeFamily ? ', family and all' : ''}.`
+    ? (parts.errors.length
+      // A misread term is far more likely to be the reason than an empty box, so
+      // say that instead of "nothing matches".
+      ? `Could not read ${parts.errors.length === 1 ? 'that filter' : 'those filters'} — see the warning above.`
+      : `Nothing in your storage matches ${parts.terms.map(storageTermLabel).filter(Boolean).join(' & ') || `"${query}"`}${wholeFamily ? ', family and all' : ''}.`)
     : storageFamily
       ? `No ${familyName(storageFamily)} in your storage.`
       : 'Nothing here yet. Go catch something!';
@@ -495,13 +589,24 @@ function renderStorageFilterBar(familyRootId, count, query = '', wholeFamily = f
   }
 
   if (query) {
+    const { terms, errors } = parseStorageQuery(query);
+    // Echoes back what the query was understood as, term by term. With filters in
+    // play that is the difference between "no matches" and "you typed it wrong".
+    const label = terms.length
+      ? terms.map(storageTermLabel).filter(Boolean).join(' & ')
+      : query;
     bar.append(el('span', { class: 'filter-chip' },
-      el('span', { text: `🔍 ${query}${wholeFamily ? ' + family' : ''} · ${count}` }),
+      el('span', { text: `🔍 ${label}${wholeFamily ? ' + family' : ''} · ${count}` }),
       el('button', {
         class: 'chip-x', title: 'Clear the search',
         onclick: () => setStorageSearch('')
       }, '✕')
     ));
+    for (const e of errors) {
+      bar.append(el('span', { class: 'filter-chip bad', title: e.why },
+        el('span', { text: `⚠ ${e.text} — ${e.why}` })
+      ));
+    }
   }
 
   bar.append(el('button', {
@@ -701,10 +806,13 @@ export function openBuildingsSheet() {
   for (const row of rows) {
     if (!row.held && !row.placed.length) continue;
     const def = ITEMS[row.id];
-    const isLab = row.id === 'research_lab';
-    const locked = !isLab && !store.breedingUnlocked;
-    // One lab is as good as two, so a second is not offered.
-    const canPlaceMore = row.held > 0 && !locked && !(isLab && row.placed.length > 0);
+    // Only breeding centres are gated on player level, and only they can be
+    // pinned more than once.
+    const isBreeding = row.id === 'breeding_center';
+    const locked = isBreeding && !store.breedingUnlocked;
+    // One lab, or one Frontier, is as good as two, so a second is not offered.
+    const canPlaceMore = row.held > 0 && !locked
+      && !(row.singleton && row.placed.length > 0);
 
     blocks.push(
       el('h4', { class: 'sheet-h4', text: def.name }),
@@ -726,11 +834,11 @@ export function openBuildingsSheet() {
           disabled: !canPlaceMore,
           onclick: () => {
             closeSheet('sheet');
-            if (isLab) onPlaceResearchLab?.(); else onPlaceBreeding?.();
+            onPlaceBuilding?.(row.id);
           }
         }, locked ? `Unlocks at player level ${BREEDING_UNLOCK_LEVEL}`
           : !row.held ? 'None spare to place'
-          : (isLab && row.placed.length) ? 'One lab is enough'
+          : (row.singleton && row.placed.length) ? `One ${def.name} is enough`
           : 'Place at my location')
       ),
       ...row.placed.map((b, i) => buildingRow(row, b, i))
@@ -758,17 +866,21 @@ export function openBuildingsSheet() {
 
 /** One placed building, with the button that brings it home. */
 function buildingRow(row, building, index) {
-  const isLab = row.id === 'research_lab';
-  const pairs = isLab ? 0 : store.breedingOccupancyOf(building.id);
-  const candy = isLab ? 0 : (store.breedingCentre(building.id)?.slots || [])
-    .reduce((n, sl) => n + store.breedingProgress(sl).earned, 0);
+  // Only a breeding centre has anything inside it, so only it has an occupancy
+  // to report or candy to lose.
+  const isBreeding = row.id === 'breeding_center';
+  const pairs = isBreeding ? store.breedingOccupancyOf(building.id) : 0;
+  const candy = isBreeding
+    ? (store.breedingCentre(building.id)?.slots || [])
+      .reduce((n, sl) => n + store.breedingProgress(sl).earned, 0)
+    : 0;
   const placedOn = new Date(building.placedAt || Date.now()).toLocaleDateString();
 
   return el('div', { class: 'det-rows building-row' },
     el('div', { class: 'det-row' },
-      el('span', { text: isLab ? '🔬' : '⚑' }),
+      el('img', { src: itemImage(row.id), alt: '' }),
       el('span', { text: `${row.placed.length > 1 ? `#${index + 1} · ` : ''}placed ${placedOn}` }),
-      el('b', { text: pairs ? `${pairs} pair${pairs === 1 ? '' : 's'} inside` : 'empty' })
+      el('b', { text: pairs ? `${pairs} pair${pairs === 1 ? '' : 's'} inside` : 'on the map' })
     ),
     el('div', { class: 'btn-row' },
       el('button', {
@@ -785,25 +897,24 @@ function buildingRow(row, building, index) {
 }
 
 function fetchBuilding(itemId, buildingId, pairs, candy) {
-  const isLab = itemId === 'research_lab';
-  const warning = isLab
-    ? 'Bring your Research Lab back? It returns to your Items and you can pin it somewhere else. Nothing is lost.'
-    : pairs
-      ? `Bring this breeding centre back?\n\nThe ${pairs} pair${pairs === 1 ? '' : 's'} inside will return to your storage, but ${
-          candy ? `the ${candy} candy they have earned will be lost` : 'any progress towards their next candy will be lost'
-        }.\n\nCollect them at the centre first if you want to keep it.`
-      : 'Bring this breeding centre back? It returns to your Items and you can pin it somewhere else. Nothing is lost.';
+  const name = ITEMS[itemId]?.name || 'building';
+  // Everything except an occupied breeding centre comes home for free. The
+  // Frontier's progress lives in the save rather than the pin, so moving it
+  // costs nothing either.
+  const warning = pairs
+    ? `Bring this breeding centre back?\n\nThe ${pairs} pair${pairs === 1 ? '' : 's'} inside will return to your storage, but ${
+        candy ? `the ${candy} candy they have earned will be lost` : 'any progress towards their next candy will be lost'
+      }.\n\nCollect them at the centre first if you want to keep it.`
+    : `Bring your ${name} back? It returns to your Items and you can pin it somewhere else. Nothing is lost.`;
   if (!confirm(warning)) return;
 
-  const r = isLab ? store.moveResearchLab() : store.moveBreedingCentre(buildingId);
+  const r = store.fetchBuilding(itemId, buildingId);
   if (!r.ok) { toast('Could not bring it back', 'bad'); return; }
 
-  toast(isLab
-    ? 'Research Lab packed up — place it wherever you like'
-    : r.pairs
-      ? `Centre packed up — ${r.pairs} pair${r.pairs === 1 ? '' : 's'} came home`
-        + (r.candyLost ? `, ${r.candyLost} candy lost` : '')
-      : 'Breeding centre packed up — place it wherever you like',
+  toast(r.pairs
+    ? `Centre packed up — ${r.pairs} pair${r.pairs === 1 ? '' : 's'} came home`
+      + (r.candyLost ? `, ${r.candyLost} candy lost` : '')
+    : `${name} packed up — place it wherever you like`,
     r.candyLost ? '' : 'good', 4200);
 
   onEffectsChanged?.();     // re-syncs the map pins
@@ -1168,15 +1279,14 @@ export function openItemSheet(itemId) {
     }, free < 1 ? 'Busy with an egg' : idle < 1 ? 'No egg waiting' : 'Incubate an egg'));
   }
   if (def.use === 'place') {
-    // Breeding centres can be pinned as often as you have them; the lab is one
-    // at a time, since a second would do nothing a first does not.
-    const isLab = itemId === 'research_lab';
-    const placed = isLab && !!store.s.researchLab;
-    const unlocked = isLab || store.breedingUnlocked;
+    // Breeding centres can be pinned as often as you have them; the singletons
+    // are one at a time, since a second would do nothing a first does not.
+    const placed = !!def.singleton && store.placedBuildings(itemId).length > 0;
+    const unlocked = itemId !== 'breeding_center' || store.breedingUnlocked;
     actions.push(el('button', {
       class: 'btn primary',
       disabled: qty < 1 || placed || !unlocked,
-      onclick: () => (isLab ? onPlaceResearchLab?.() : onPlaceBreeding?.())
+      onclick: () => onPlaceBuilding?.(itemId)
     }, placed ? 'Already placed on the map'
        : !unlocked ? `Unlocks at player level ${BREEDING_UNLOCK_LEVEL}`
        : 'Place at my location'));
@@ -1277,12 +1387,10 @@ function useTimedItem(kind, def) {
 }
 
 /** main.js supplies these so views does not need to know about the map. */
-export let onPlaceBreeding = null;
-export let onPlaceResearchLab = null;
+export let onPlaceBuilding = null;
 export let onEffectsChanged = null;
-export function setViewHooks({ placeBreeding, placeResearchLab, effectsChanged }) {
-  onPlaceBreeding = placeBreeding;
-  onPlaceResearchLab = placeResearchLab;
+export function setViewHooks({ placeBuilding, effectsChanged }) {
+  onPlaceBuilding = placeBuilding;
   onEffectsChanged = effectsChanged;
 }
 
@@ -1330,18 +1438,25 @@ const CREATURE_ITEM_PICKERS = {
 
 export function openCreaturePicker(itemId) {
   const conf = CREATURE_ITEM_PICKERS[itemId] || CREATURE_ITEM_PICKERS.potion;
-  const eligible = sortedForPicker(store.s.storage.filter(c => {
-    if (c.breeding != null) return false;
-    return conf.eligible(c);
-  }));
+  // What the item could be used on at all, before the toolbar narrows it.
+  const usable = store.s.storage.filter(c => c.breeding != null ? false : conf.eligible(c));
+  const eligible = pickerFilterSort(usable);
 
   $('#picker-title').textContent = conf.title;
   $('#picker-hint').textContent = conf.hint;
-  $('#picker-empty').textContent = conf.empty;
+  // With a filter on, "none of your creatures are hurt" would be a lie — the
+  // filter is what emptied the list, not your roster.
+  $('#picker-empty').textContent = (usable.length && !eligible.length)
+    ? 'Nothing matches that filter.'
+    : conf.empty;
   $('#picker-empty').classList.toggle('hidden', eligible.length > 0);
 
   // ---- do-everything button: only the two bulk-healing items have one ----
+  // Before the toolbar, because this also resets the sheet's shared chrome.
   renderPickerBulkBar(itemId, eligible.length, () => openCreaturePicker(itemId));
+
+  renderPickerTools(() => openCreaturePicker(itemId),
+    { total: usable.length, shown: eligible.length });
 
   const grid = $('#picker-grid');
   grid.innerHTML = '';
@@ -1533,6 +1648,104 @@ export function sortedForPicker(list) {
   return out;
 }
 
+/* ---------------------------------------------------------------
+   Picker filters
+
+   The creature pickers used to inherit Storage's *sort* but nothing else, which
+   was fine when the list was "your three hurt creatures" and poor once it was
+   "any of your four hundred". They now carry the same Find box and sort controls
+   the Storage tab has, including the whole filter language — `type = mystic &
+   attack > 70` works here too.
+
+   Kept as its own state rather than borrowing Storage's, so hunting for
+   something to boost does not silently rearrange the tab you were last on.
+   --------------------------------------------------------------- */
+
+/** Options offered in the picker's sort menu, mirroring Storage's. */
+const PICKER_SORTS = [
+  ['id', 'Creature ID'], ['name', 'Name'], ['type', 'Type'], ['rarity', 'Rarity'],
+  ['level', 'Level'], ['hp', 'HP'], ['attack', 'Attack'],
+  ['defence', 'Defence'], ['speed', 'Speed'], ['caught', 'Recently caught']
+];
+
+const pickerQuery = () => String(store.s.ui.pickerQuery ?? '').trim();
+
+/** Narrows and orders a picker list the way the toolbar says. */
+function pickerFilterSort(list) {
+  const { terms } = parseStorageQuery(pickerQuery());
+  const filtered = terms.length ? list.filter(c => terms.every(t => termHit(t, c))) : list;
+  const sortKey = store.s.ui.pickerSort || store.s.ui.storageSort || 'id';
+  const dir = store.s.ui.pickerDir ?? store.s.ui.storageDir ?? 1;
+  const out = [...filtered].sort(SORTERS[sortKey] || SORTERS.id);
+  if (dir < 0) out.reverse();
+  return out;
+}
+
+/**
+ * Builds the picker toolbar. `rerender` is called whenever anything changes, so
+ * the caller re-runs its own filtering rather than this knowing about it.
+ */
+function renderPickerTools(rerender, { total = 0, shown = 0 } = {}) {
+  const host = $('#picker-tools');
+  if (!host) return;
+  host.classList.remove('hidden');
+  host.innerHTML = '';
+
+  const q = pickerQuery();
+  const search = el('input', {
+    class: 'search-input', type: 'search', value: q,
+    placeholder: 'Name, or type = mystic & level > 5',
+    'aria-label': 'Filter this list'
+  });
+  // `input` rather than `change`, so it narrows as you type like Storage does.
+  search.addEventListener('input', () => {
+    store.setUI({ pickerQuery: search.value });
+    rerender();
+    // Re-rendering replaced the box, so put the caret back where it was.
+    const fresh = $('#picker-tools .search-input');
+    if (fresh) { fresh.focus(); fresh.setSelectionRange(fresh.value.length, fresh.value.length); }
+  });
+
+  const sortSel = el('select', {},
+    ...PICKER_SORTS.map(([v, label]) => el('option', { value: v, text: label })));
+  sortSel.value = store.s.ui.pickerSort || store.s.ui.storageSort || 'id';
+  sortSel.addEventListener('change', () => {
+    store.setUI({ pickerSort: sortSel.value });
+    rerender();
+  });
+
+  const dir = store.s.ui.pickerDir ?? store.s.ui.storageDir ?? 1;
+
+  appendAll(host,
+    el('label', { class: 'sel' }, el('span', { text: 'Find' }), search),
+    el('label', { class: 'sel' }, el('span', { text: 'Sort' }), sortSel),
+    el('button', {
+      class: 'mini-btn', title: 'Reverse the order',
+      onclick: () => { store.setUI({ pickerDir: dir > 0 ? -1 : 1 }); rerender(); }
+    }, dir > 0 ? '↑' : '↓'),
+    // Only worth the space once a filter is actually hiding something.
+    shown !== total
+      ? el('span', { class: 'muted small', text: `${shown} of ${total}` })
+      : null,
+    q ? el('button', {
+      class: 'mini-btn',
+      onclick: () => { store.setUI({ pickerQuery: '' }); rerender(); }
+    }, 'Clear') : null
+  );
+
+  // A misread filter is reported here too, for the same reason it is in Storage.
+  const { errors } = parseStorageQuery(q);
+  for (const e of errors) {
+    host.append(el('span', { class: 'filter-chip bad', text: `⚠ ${e.text} — ${e.why}` }));
+  }
+}
+
+/** Hides the toolbar again for the pickers that do not want one. */
+function hidePickerTools() {
+  const host = $('#picker-tools');
+  if (host) { host.classList.add('hidden'); host.innerHTML = ''; }
+}
+
 /**
  * "Heal all" / "Revive all" above the picker grid. Shows how many items it
  * would spend so the choice is never a surprise.
@@ -1541,6 +1754,10 @@ function renderPickerBulkBar(itemId, eligibleCount, rerender) {
   const host = $('#picker-bulk');
   if (!host) return;
   host.innerHTML = '';
+  /* The picker sheet is shared, so its chrome has to be reset by whoever is
+     opening it or the last occupant's toolbar is still sitting there. Callers
+     that do want a toolbar render it after this. */
+  hidePickerTools();
   if (!eligibleCount) return;
   // Only potions and revives have a sensible "do the lot" action. A Full Heal is
   // one creature by design, and a Stat Booster needs a stat chosen each time.
@@ -1596,7 +1813,9 @@ function renderCreatureSheet() {
   const cost = levelUpCost(c.level);
   const lvlCheck = store.canLevelUp(c.uid);
   const evoCheck = store.canEvolve(c.uid);
-  const target = s.evolvesToId ? species(s.evolvesToId) : null;
+  // A Temporal Rift line can fork, so this is a list. `targets[0]` is the only
+  // option for every creature that does not.
+  const targets = evolutionTargets(s.id);
 
   // Prev / next navigation via the current sort order
   const idx = sortedStorage.findIndex(x => x.uid === c.uid);
@@ -1713,19 +1932,26 @@ function renderCreatureSheet() {
       : null,
 
     // ---- evolve ----
-    target
+    targets.length
       ? el('div', { class: 'btn-row' },
           el('button', {
             class: 'btn',
             disabled: !evoCheck.ok,
             onclick: () => doEvolve(c.uid)
-          }, `Evolve → ${target.name} · ${CANDY_ICON} ${num(s.evolutionCandy)}`)
+          }, targets.length > 1
+            // No single name to promise, so the button opens the choice instead.
+            ? `Evolve… · ${CANDY_ICON} ${num(s.evolutionCandy)}`
+            : `Evolve → ${targets[0].name} · ${CANDY_ICON} ${num(s.evolutionCandy)}`)
         )
       : el('p', { class: 'hint', text: 'This creature does not evolve any further.' }),
-    target && !evoCheck.ok && evoCheck.reason === 'candy'
+    targets.length > 1
+      ? el('p', { class: 'hint', text: `${targets.length} ways to go: ${targets.map(t => t.name).join(', ')}. `
+          + 'You pick one when you evolve it, and it cannot be changed afterwards.' })
+      : null,
+    targets.length && !evoCheck.ok && evoCheck.reason === 'candy'
       ? el('p', { class: 'hint', text: `Need ${num(evoCheck.short)} more ${familyName(s.id)} candy.` })
       : null,
-    target ? el('p', { class: 'hint', text: 'Level carries over to the evolved form.' }) : null,
+    targets.length ? el('p', { class: 'hint', text: 'Level carries over to the evolved form.' }) : null,
 
     // ---- buddy ----
     el('div', { class: 'btn-row' },
@@ -1756,7 +1982,10 @@ function renderCreatureSheet() {
         : c.favourite
           ? 'Unfavourite to release'
           : `Release · +${CANDY_ICON} 1 ${familyName(s.id)} candy`)
-    )
+    ),
+
+    // ---- where and when it was caught ----
+    caughtLine(c)
   );
 
   // Swiping the sheet walks the same full sorted list as the arrows.
@@ -1767,6 +1996,27 @@ function renderCreatureSheet() {
 }
 
 const nameOf = c => species(c.speciesId).name;
+
+/**
+ * "Caught on 30 August 2026 in Manchester, United Kingdom" — the footnote at the
+ * bottom of a creature's sheet.
+ *
+ * The place is only there for creatures caught since it started being recorded,
+ * and only when the lookup answered, so the date stands on its own otherwise
+ * rather than the line disappearing. A hatched creature says hatched.
+ */
+function caughtLine(c) {
+  if (!c?.capturedAt) return null;
+  const when = new Date(c.capturedAt).toLocaleDateString(undefined, {
+    day: 'numeric', month: 'long', year: 'numeric'
+  });
+  const verb = c.origin === 'egg' ? 'Hatched' : 'Caught';
+  const where = placeLabel(c.caughtPlace);
+  return el('p', { class: 'hint caught-line' },
+    el('span', { text: `${verb} on ${when}` }),
+    where ? el('span', { text: ` in ${where}` }) : null
+  );
+}
 
 /**
  * Moves the sheet to another creature. The storage page follows along, so
@@ -1796,6 +2046,30 @@ export function abilityButton(sp) {
       class: 'btn ghost ability-btn',
       onclick: () => openAbilitySheet(sp.id)
     }, `✦ ${ability.name}`)
+  );
+}
+
+/**
+ * When a creature only turns up under certain conditions, this says what they
+ * are and whether they are met right now — with the reading behind each one, so
+ * "it needs to be over 18°C" is answered by "it is 14°C" rather than left as a
+ * mystery. Returns null for the great majority of creatures, which have none.
+ */
+function restrictionBlock(restriction) {
+  if (!restriction) return null;
+  return el('div', { class: 'det-rows restriction' + (restriction.active ? ' met' : '') },
+    el('div', { class: 'det-row' },
+      el('span', { text: '⏳' }),
+      el('span', { text: 'Only appears when' }),
+      el('b', { text: restriction.active ? 'Right now — go looking' : 'Not right now' })
+    ),
+    ...restriction.clauses.map(c => el('div', { class: 'det-row' },
+      el('span', { text: c.active ? '✓' : '✗' }),
+      el('span', { text: c.text.replace(/^./, ch => ch.toUpperCase()) }),
+      el('b', { class: c.active ? 'good' : 'muted', text: c.reason })
+    )),
+    el('p', { class: 'hint', text: 'Outside these conditions it will not spawn on the map, '
+      + 'lead a raid or hatch from an egg.' })
   );
 }
 
@@ -1954,16 +2228,79 @@ function doLevelUp(uid) {
   renderCreatureSheet();
 }
 
+/**
+ * Which way a branching line should go. Resolves to a species id, or null if the
+ * player backs out.
+ *
+ * The creature sheet is deliberately left open underneath: cancelling here has
+ * to put the player back where they were, not close everything.
+ */
+function pickEvolutionTarget(c, check) {
+  const from = species(c.speciesId);
+  return new Promise(resolve => {
+    let done = false;
+    let observer = null;
+    const finish = value => {
+      if (done) return;
+      done = true;
+      observer?.disconnect();
+      closeSheet('picker');
+      resolve(value);
+    };
+
+    $('#picker-title').textContent = `What should ${nameOf(c)} become?`;
+    $('#picker-hint').textContent =
+      `${from.name} can go ${check.targets.length} different ways. `
+      + `It costs ${check.cost} ${familyName(from.id)} candy either way, and the choice cannot be undone.`;
+    $('#picker-empty').classList.add('hidden');
+    $('#picker-bulk').innerHTML = '';
+    hidePickerTools();
+
+    const grid = $('#picker-grid');
+    grid.innerHTML = '';
+    for (const t of check.targets) {
+      const total = STAT_KEYS.reduce((sum, k) => sum + t.baseStats[k], 0);
+      grid.append(el('button', {
+        class: 'cell',
+        onclick: () => finish(t.id)
+      },
+        el('img', { src: t.spritePath(c.shiny), alt: t.name, loading: 'lazy' }),
+        el('span', { class: 'nm', text: t.name }),
+        el('span', { class: `sub t-${t.type}`, text: t.type }),
+        el('span', { class: 'sub', text: `${total} total · ${t.stageLabel}` })
+      ));
+    }
+
+    // Backing out of the sheet by any route — the ✕, the backdrop, Escape —
+    // counts as a cancel, so the promise can never be left hanging.
+    const sheet = $('#picker');
+    openSheet('picker');
+    observer = new MutationObserver(() => {
+      if (sheet.classList.contains('hidden')) finish(null);
+    });
+    observer.observe(sheet, { attributes: true, attributeFilter: ['class'] });
+  });
+}
+
 async function doEvolve(uid) {
   const check = store.canEvolve(uid);
   if (!check.ok) {
     toast(check.reason === 'candy' ? `Need ${check.short} more candy` : 'Cannot evolve', 'bad');
     return;
   }
+
+  // A line that forks asks first; everything else takes its only option.
+  let targetId = check.targets[0].id;
+  if (check.choice) {
+    const chosen = await pickEvolutionTarget(store.creature(uid), check);
+    if (!chosen) return;
+    targetId = chosen;
+  }
+
   const from = species(store.creature(uid).speciesId);
   closeSheet('sheet');
 
-  const result = store.evolve(uid);
+  const result = store.evolve(uid, targetId);
   if (!result.ok) { toast('Cannot evolve', 'bad'); return; }
 
   await playEvolution({
@@ -2081,6 +2418,22 @@ export function renderCollection() {
           ? `Unlocked so far: <b>${got.map(r => RARITY_NAMES[r]).join(', ')}</b>. `
             + `The rest arrive through the <b>Set</b> missions.`
           : `None unlocked yet. Fill in <b>${SETS[0].title}</b> and the <b>Set</b> missions open these up one rarity at a time.`;
+    } else if (set.id === 'temporal-rift') {
+      const got = unlockedTemporalRarities();
+      const restricted = setSpecies.filter(sp => sp.spawnRestriction).length;
+      // Worth saying up front for this set: not everything here can be found on
+      // any given day, which is otherwise a confusing gap in a full Collection.
+      const extra = restricted
+        ? ` <b>${restricted}</b> of these only appear under certain conditions — `
+          + `a time of day, a kind of weather, a day of the week. Open one to see what it needs.`
+        : '';
+      text = (got.length === 5
+        ? `Every rarity is unlocked — the whole set is in circulation.`
+        : got.length
+          ? `Unlocked so far: <b>${got.map(r => RARITY_NAMES[r]).join(', ')}</b>. `
+            + `The rest arrive through the <b>Set</b> missions.`
+          : `None unlocked yet. Fill in <b>${GALACTIC_SET_NAME}</b> and the <b>Set</b> missions open these up one rarity at a time.`
+      ) + extra;
     } else if (set.id === 'mythical') {
       text = shinyMode
         ? `Mythicals have <b>no shiny form</b> — the eggs they come from never roll one, so there is nothing to complete here.`
@@ -2160,35 +2513,66 @@ function renderSpeciesSheet(speciesId) {
   if (!s) return;
   const known = store.isRegistered(s.id);
   const owned = store.countOfSpecies(s.id);
-  const target = s.evolvesToId ? species(s.evolvesToId) : null;
+  const targets = evolutionTargets(s.id);
   const from = DB.evolvesFrom.get(s.id) ? species(DB.evolvesFrom.get(s.id)) : null;
+  const restriction = spawnRestrictionState(s);
   const rarity = s.rarity;
   const chain = (DB.familyMembers.get(familyRoot(s.id)) || []).map(id => species(id));
   // All four moves for the line, even the ones held back until the final form.
   const lineMoves = fullLearnset(s.id);
 
   const hasShiny = store.hasShinyCaught(s.id);
-  let showingShiny = false;
+  /* Open on the shiny art when the Collection is in shiny mode, so the sheet
+     matches the grid you tapped it from rather than silently reverting. */
+  let showingShiny = !!store.s.ui.collectionShiny && hasShiny;
 
-  // Zoomable, and it opens whichever art is on screen — normal or shiny.
+  /**
+   * Whether the artwork on screen is one you have actually earned the right to
+   * look at. A creature you have never registered stays a silhouette, and a
+   * shiny you have never obtained does too — the grid already shows them that
+   * way, and the sheet used to contradict it by opening the real image.
+   */
+  const artUnlocked = () => (showingShiny ? hasShiny : known);
+  const artSrc = () => (showingShiny ? s.shinyPath : s.imagePath);
+
   const img = el('img', {
-    src: s.imagePath,
+    src: artSrc(),
     alt: s.name,
-    class: 'zoomable' + (known ? '' : ' locked'),
-    title: 'Tap for a closer look',
-    onclick: () => openImageViewer(img.src, known ? s.name : '???')
+    class: 'zoomable' + (artUnlocked() ? '' : ' locked'),
+    title: artUnlocked() ? 'Tap for a closer look' : 'Register it first',
+    onclick: () => {
+      // Refuse rather than zoom. Showing the real artwork here was the one place
+      // an unregistered creature gave itself away.
+      if (!artUnlocked()) {
+        toast(showingShiny
+          ? `Catch a shiny ${s.name} to see its shiny artwork`
+          : `Register ${known ? s.name : 'this creature'} to see its artwork`, 'bad', 3200);
+        return;
+      }
+      openImageViewer(artSrc(), s.name);
+    }
   });
-  const shinyBtn = hasShiny
+
+  /** Keeps the image, its silhouette and the toggle's own label in step. */
+  const paintArt = () => {
+    img.src = artSrc();
+    img.classList.toggle('locked', !artUnlocked());
+    img.title = artUnlocked() ? 'Tap for a closer look' : 'Register it first';
+    if (shinyBtn) {
+      shinyBtn.textContent = showingShiny ? '★ Showing shiny' : '☆ Show shiny';
+      shinyBtn.classList.toggle('fav-active', showingShiny);
+    }
+  };
+
+  // Offered whenever a shiny of this creature has been obtained, or whenever the
+  // Collection is in shiny mode — there it is the way back to the normal art.
+  const shinyBtn = (hasShiny || showingShiny)
     ? el('button', {
         class: 'btn ghost shiny-toggle',
-        onclick: () => {
-          showingShiny = !showingShiny;
-          img.src = showingShiny ? s.shinyPath : s.imagePath;
-          shinyBtn.textContent = showingShiny ? '★ Showing shiny' : '☆ Show shiny';
-          shinyBtn.classList.toggle('fav-active', showingShiny);
-        }
+        onclick: () => { showingShiny = !showingShiny; paintArt(); }
       }, '☆ Show shiny')
     : null;
+  paintArt();
 
   // Prev / next along whatever the Collection is currently showing. Falls back
   // to no navigation if the sheet was opened from somewhere else entirely.
@@ -2243,8 +2627,12 @@ function renderSpeciesSheet(speciesId) {
       ),
       el('div', { class: 'det-row' },
         el('span', { text: '🧬' }),
-        el('span', { text: 'Evolution' }),
-        el('b', { text: target ? `→ ${target.name} · ${num(s.evolutionCandy)} candy` : 'Does not evolve' })
+        el('span', { text: targets.length > 1 ? `Evolution · ${targets.length} ways` : 'Evolution' }),
+        // Every option is named: which one a creature takes is the player's
+        // choice, so hiding the alternatives would hide the actual decision.
+        el('b', { text: targets.length
+          ? `→ ${targets.map(t => t.name).join(' / ')} · ${num(s.evolutionCandy)} candy`
+          : 'Does not evolve' })
       ),
       from ? el('div', { class: 'det-row' },
         el('span', { text: '⬅' }),
@@ -2269,6 +2657,7 @@ function renderSpeciesSheet(speciesId) {
     ),
 
     abilityButton(s),
+    restrictionBlock(restriction),
 
     // ---- base stats at level 1 ----
     el('h4', { class: 'sheet-h4', text: 'Base stats (level 1)' }),
@@ -2422,6 +2811,7 @@ function openBuddyPicker() {
   $('#picker-empty').textContent = 'Nothing available — creatures in the breeding centre cannot be your buddy.';
   $('#picker-empty').classList.toggle('hidden', eligible.length > 0);
   $('#picker-bulk').innerHTML = '';
+  hidePickerTools();
 
   const grid = $('#picker-grid');
   grid.innerHTML = '';
@@ -2627,6 +3017,17 @@ export function renderEffectChips(now = Date.now()) {
       el('span', { text: '🌙' }),
       el('span', { text: `${RELAX_HOUR_LABEL} · ${RULES.RELAX_RANGE_M} m reach` }),
       el('b', { text: timeLeftLabel(relaxHourEndsIn(nowDate)) })
+    ));
+  }
+
+  /* An annual event runs for whole days, so it gets a plain chip with no
+     countdown — "2 days left" is not what anyone needs from the map, and the
+     minutes-and-seconds label the weekly events use would be absurd here. */
+  for (const annual of activeAnnualEvents(nowDate)) {
+    host.append(el('div', { class: 'fx-chip event-annual' },
+      el('span', { text: annual.icon }),
+      el('span', { text: annual.label }),
+      annual.hourlySpawn ? el('b', { text: 'hourly gift' }) : null
     ));
   }
 

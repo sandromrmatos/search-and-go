@@ -10,7 +10,9 @@ import {
   playerProgress, playerLevelFor, statsFor, rollStatModifier, rerollStatModifier, rollMoveUnlock,
   rollShiny, chance, RULES, RAID_CAPTURE_LEVEL, RAID_CAPTURE_BONUS_CANDY,
   MISSIONS, DAILY_MISSIONS, WEEKLY_MISSIONS, SET_MISSIONS,
-  setGalacticUnlocked, setExclusive2Unlocked,
+  setGalacticUnlocked, setExclusive2Unlocked, setTemporalUnlocked,
+  setSpawnConditions, canSpawnNow, evolutionTargets,
+  isAnnualEvent, eventRewardBonus, eggsAreHalved, rollHolidayIncense,
   isMythicalEgg, eggCanBeShiny, MYTHICAL_EGG_TYPE,
   dueSpotlightSpawn, EFFECT_SLOTS, EFFECT_KINDS,
   ESSENCE_WINDOW_HOURS, ESSENCE_MIN_LEVEL, ESSENCE_SEEKER_CHANCE, essenceEligible,
@@ -32,9 +34,14 @@ import {
   ITEM_EXCHANGES, itemExchange, itemExchangeOption,
   HELD_ITEMS, heldItem, isHeldItem, heldItemFits, heldStatBonus, heldItemsInOrder,
   heldItemRaidChance, rollHeldItem,
+  FRONTIER_CHALLENGES, FRONTIER_LEVELS, FRONTIER_MODES, FRONTIER_TEAM_SIZE,
+  frontierChallenge, frontierMode, frontierModeAllows, frontierLevelRewards,
+  frontierTeam, frontierLevelsLoaded, frontierBoss, frontierGrandRaid,
   SHOP_ITEMS, shopItem, COINS_PER_AD
 } from './data.js';
 import { ITEMS, item as itemDef } from './items.js';
+import { elevationNow } from './weather.js';
+import { Battery } from './battery.js';
 
 export const SAVE_VERSION = 3;
 
@@ -85,6 +92,14 @@ export const spotlightSlotKey = (d = new Date(), slot = 0) => `${dayKey(d)}#${sl
 export const essenceWindowIndex = (d = new Date()) => Math.floor(d.getHours() / ESSENCE_WINDOW_HOURS);
 export const essenceWindowKey = (d = new Date()) => `${dayKey(d)}#${essenceWindowIndex(d)}`;
 
+/**
+ * One annual-event creature per clock hour. Keyed on the event as well as the
+ * hour so two events in the same day — which cannot happen today, but is one
+ * table entry away — could never eat each other's slot.
+ */
+export const eventSpawnKey = (eventId, d = new Date()) =>
+  `${eventId}#${dayKey(d)}#${d.getHours()}`;
+
 const blankWeekly = () => ({
   week: weekKey(), capturesWeek: 0, metresWeek: 0, days: {}, claimed: {},
   /** 1 once the game has been opened this week. */
@@ -103,7 +118,16 @@ const blankDaily = () => ({
   /** shopItemId -> how many bought today. Enforces the per-day shop caps. */
   shop: {},
   /** Essence harvests that paid candy today. */
-  essenceToday: 0
+  essenceToday: 0,
+  /**
+   * Counters read by spawn restrictions and by abilities that reward a busy day.
+   * They reset with everything else at midnight, so a creature or an ability
+   * gated behind one is a reason to keep playing today rather than a permanent
+   * unlock.
+   */
+  gruntsToday: 0,
+  raidsToday: 0,
+  shiniesToday: 0
 });
 
 function blankState() {
@@ -136,8 +160,23 @@ function blankState() {
      */
     breedings: [],
     researchLab: null,  // { lat, lng, placedAt }
+    /** The Battle Frontier, if pinned. Same shape as the lab: a pin, no contents. */
+    battleFrontier: null,   // { lat, lng, placedAt }
+    /**
+     * Battle Frontier levels already beaten, keyed "challenge|level|mode" — one
+     * clear per level *per mode*, which is what makes fifteen modes worth
+     * playing. Never resets.
+     */
+    frontierClears: {},
+    /**
+     * Grand Raid Challenges already won, keyed "challenge|mode". Losing does not
+     * write here, so a failed attempt can be retried.
+     */
+    frontierGrand: {},
     /** Galactic Adventures rarities opened by the Set missions. Never resets. */
     galacticUnlocked: [],
+    /** Temporal Rift rarities opened by the Set missions. Never resets. */
+    temporalUnlocked: [],
     /** True once the second wave of Exclusives has been unlocked. Never resets. */
     exclusive2Unlocked: false,
     /** The local day the save was last copied to the cloud, or null. */
@@ -162,6 +201,9 @@ function blankState() {
     /** Day + 2-hour block of the last Essence Harvesting spawn. */
     essenceWindow: null,
 
+    /** Event + day + hour of the last annual-event creature handed out. */
+    eventSpawn: null,
+
     /** Newest news entry the player has seen, as a timestamp. */
     newsSeenAt: 0,
 
@@ -173,6 +215,8 @@ function blankState() {
       raidsByRarity: {},  // rarity -> raid bosses beaten, for the per-rarity missions
       exclusiveRaidsWon: 0,
       exclusiveRaidsByRarity: {},
+      /** Battle Frontier trainer battles won. Re-clears in a new mode all count. */
+      frontierWins: 0,
       adsWatched: 0, shopBuys: 0,
       /** Harvests that paid at least one candy — what the missions count. */
       essenceHarvests: 0
@@ -195,8 +239,16 @@ function blankState() {
       storageFamily: '',
       /** Held items tab: 'free' for the spare ones, 'worn' for the ones in use. */
       heldView: 'free',
-      /** The storage search box: a name fragment, or '' for everything. */
+      /** The storage search box: a name fragment or a filter, '' for everything. */
       storageQuery: '',
+      /**
+       * The creature pickers' own Find box and sort. Separate from Storage's so
+       * hunting for something to boost does not rearrange the tab you were on.
+       * `pickerSort`/`pickerDir` fall back to the Storage ones until touched.
+       */
+      pickerQuery: '',
+      pickerSort: '',
+      pickerDir: 0,
       /** Whether that search widens to the whole evolution line. */
       storageFamilyAll: false
     }
@@ -254,12 +306,15 @@ export function migrate(raw) {
       ...base.stats, ...(raw.stats || {}),
       raidsByRarity: { ...(raw.stats?.raidsByRarity || {}) },
       exclusiveRaidsWon: Number(raw.stats?.exclusiveRaidsWon) || 0,
-      exclusiveRaidsByRarity: { ...(raw.stats?.exclusiveRaidsByRarity || {}) }
+      exclusiveRaidsByRarity: { ...(raw.stats?.exclusiveRaidsByRarity || {}) },
+      frontierWins: Number(raw.stats?.frontierWins) || 0
     },
     debug: { ...base.debug, ...(raw.debug || {}) },
     ui: { ...base.ui, ...(raw.ui || {}) },
     effects: { ...base.effects, ...(raw.effects || {}) },
     missions: { ...(raw.missions || {}) },
+    frontierClears: { ...(raw.frontierClears || {}) },
+    frontierGrand: { ...(raw.frontierGrand || {}) },
     daily: { ...base.daily, ...(raw.daily || {}) },
     weekly: { ...base.weekly, ...(raw.weekly || {}) },
     storage: Array.isArray(raw.storage) ? raw.storage : [],
@@ -288,6 +343,14 @@ export function migrate(raw) {
         capturedAt: Number(c.capturedAt) || Date.now(),
         dustSpent: Number(c.dustSpent) || 0,
         evolvedAt: c.evolvedAt || null,
+        // Creatures caught before this was recorded simply have no place, which
+        // the sheet renders as the date on its own.
+        caughtPlace: (c.caughtPlace && (c.caughtPlace.city || c.caughtPlace.country))
+          ? {
+            city: c.caughtPlace.city ? String(c.caughtPlace.city).slice(0, 60) : null,
+            country: c.caughtPlace.country ? String(c.caughtPlace.country).slice(0, 60) : null
+          }
+          : null,
         origin: c.origin || null,
         shiny: !!c.shiny,
         // Creatures caught before these systems existed get them assigned once.
@@ -358,7 +421,10 @@ export function migrate(raw) {
       type: e.type,
       collectedAt: Number(e.collectedAt) || Date.now(),
       metres: Math.max(0, Number(e.metres) || 0),
-      incubator: INCUBATOR_ITEMS.includes(e.incubator) ? e.incubator : null
+      incubator: INCUBATOR_ITEMS.includes(e.incubator) ? e.incubator : null,
+      // Only meaningful once incubated, so an uncubated egg carrying it from a
+      // tampered save is corrected rather than trusted.
+      halved: !!e.halved && INCUBATOR_ITEMS.includes(e.incubator)
     }));
   s.nextEggId = Math.max(1, Number(s.nextEggId) || 1);
 
@@ -380,17 +446,48 @@ export function migrate(raw) {
   // ---- exclusive wave 2: a plain flag, so anything truthy means unlocked ----
   s.exclusive2Unlocked = !!raw.exclusive2Unlocked;
 
-  // ---- galactic unlocks: whole numbers 1-5, no duplicates ----
-  s.galacticUnlocked = [...new Set(
-    (Array.isArray(raw.galacticUnlocked) ? raw.galacticUnlocked : [])
+  // ---- set unlocks: whole numbers 1-5, no duplicates ----
+  const rarityList = raw => [...new Set(
+    (Array.isArray(raw) ? raw : [])
       .map(Number)
       .filter(r => Number.isInteger(r) && r >= 1 && r <= 5)
   )].sort((a, b) => a - b);
+  s.galacticUnlocked = rarityList(raw.galacticUnlocked);
+  s.temporalUnlocked = rarityList(raw.temporalUnlocked);
 
   // ---- research lab: a pin with no slots, so coordinates are all it needs ----
   if (s.researchLab && (!isFinite(s.researchLab.lat) || !isFinite(s.researchLab.lng))) {
     s.researchLab = null;
   }
+  // ---- battle frontier: the same, and the same one-line guard ----
+  if (s.battleFrontier && (!isFinite(s.battleFrontier.lat) || !isFinite(s.battleFrontier.lng))) {
+    s.battleFrontier = null;
+  }
+
+  /* ---- Battle Frontier progress ----
+     Keys name a challenge, a level and a mode, all three of which can be
+     renamed or removed by a later release. Anything that no longer resolves is
+     dropped rather than left in the save inflating the "modes complete" count
+     against challenges that no longer exist. */
+  const cleanClears = (recs, parts) => {
+    const out = {};
+    for (const [key, val] of Object.entries(recs || {})) {
+      const bits = String(key).split('|');
+      if (bits.length !== parts) continue;
+      const [challengeId, a, b] = bits;
+      if (!frontierChallenge(challengeId)) continue;
+      if (parts === 3) {
+        const lvl = Number(a);
+        if (!Number.isInteger(lvl) || lvl < 1 || lvl > FRONTIER_LEVELS) continue;
+        if (!frontierMode(b)) continue;
+      } else if (!frontierMode(a)) continue;
+      const at = Number(val?.at ?? val) || Date.now();
+      out[key] = { at };
+    }
+    return out;
+  };
+  s.frontierClears = cleanClears(s.frontierClears, 3);
+  s.frontierGrand = cleanClears(s.frontierGrand, 2);
 
   /* ---- breeding centres ----
      Saves from before centres went plural carry a single `breeding` object, so
@@ -442,6 +539,9 @@ export function migrate(raw) {
   s.daily.capturesToday = Math.max(0, Math.floor(Number(s.daily.capturesToday) || 0));
   s.daily.metresToday = Math.max(0, Number(s.daily.metresToday) || 0);
   s.daily.essenceToday = Math.max(0, Math.floor(Number(s.daily.essenceToday) || 0));
+  s.daily.gruntsToday = Math.max(0, Math.floor(Number(s.daily.gruntsToday) || 0));
+  s.daily.raidsToday = Math.max(0, Math.floor(Number(s.daily.raidsToday) || 0));
+  s.daily.shiniesToday = Math.max(0, Math.floor(Number(s.daily.shiniesToday) || 0));
   // Shop tallies are clamped to that row's own cap, so a tampered save cannot
   // hand out more than a day's worth and cannot go negative either.
   const rawShop = (s.daily.shop && typeof s.daily.shop === 'object') ? s.daily.shop : {};
@@ -468,6 +568,7 @@ export function migrate(raw) {
   s.gruntWindow = typeof s.gruntWindow === 'string' ? s.gruntWindow : null;
   s.spotlightSpawn = typeof s.spotlightSpawn === 'string' ? s.spotlightSpawn : null;
   s.essenceWindow = typeof s.essenceWindow === 'string' ? s.essenceWindow : null;
+  s.eventSpawn = typeof s.eventSpawn === 'string' ? s.eventSpawn : null;
 
   // ---- uid counter ----
   let maxUid = 0;
@@ -477,9 +578,24 @@ export function migrate(raw) {
   }
   s.nextUid = Math.max(Number(s.nextUid) || 1, maxUid + 1);
 
-  // ---- backfill shinyCaught from existing storage (for old saves) ----
+  /* ---- backfill shinyCaught ----
+     From storage first, for saves written before the registry existed. Then up
+     each recorded shiny's ancestry: a Stage 2 or Stage 3 creature can only ever
+     be reached by evolving, and evolving keeps shiny status, so holding a shiny
+     Stage 3 proves you once held the shiny Stage 1 and Stage 2 as well. Without
+     this a line you evolved all the way through would show only its last form in
+     the shiny Collection, with the earlier ones looking unfound. */
   for (const c of s.storage) {
     if (c.shiny && c.speciesId) s.shinyCaught[c.speciesId] = true;
+  }
+  for (const id of Object.keys(s.shinyCaught)) {
+    let cur = id, guard = 0;
+    while (guard++ < 12) {
+      const parent = DB.evolvesFrom.get(cur);
+      if (!parent || s.shinyCaught[parent]) break;
+      s.shinyCaught[parent] = true;
+      cur = parent;
+    }
   }
 
   // ---- caughtCount ----
@@ -605,8 +721,7 @@ class Store {
     this.s = migrate(data);
     // The spawn pools depend on saved progress, so they have to be rebuilt
     // before anything can roll a creature.
-    this.syncGalacticUnlocks();
-    this.syncExclusiveUnlocks();
+    this.syncUnlocks();
     this.loadedFrom = source;
     this.loadReadFailed = !!readFailed;
     this.loadRecoverable = recoverable || null;
@@ -616,16 +731,14 @@ class Store {
 
   async replace(raw) {
     this.s = migrate(raw);
-    this.syncGalacticUnlocks();
-    this.syncExclusiveUnlocks();
+    this.syncUnlocks();
     await this.flush({ force: true });
     this.emit('load');
   }
 
   async reset() {
     this.s = blankState();
-    this.syncGalacticUnlocks();
-    this.syncExclusiveUnlocks();
+    this.syncUnlocks();
     await this.flush({ force: true });
     this.emit('load');
   }
@@ -842,16 +955,19 @@ class Store {
 
   /**
    * Metres this egg still needs, and how far along it is. The requirement
-   * depends on the incubator: a Super Incubator takes 25% off.
+   * depends on the incubator — a Super Incubator takes 25% off — and on whether
+   * the egg was started during Easter, which halves what is left.
    */
   eggProgress(egg) {
-    const need = eggMetresFor(egg.type, egg.incubator);
+    const need = eggMetresFor(egg.type, egg.incubator, !!egg.halved);
     const done = Math.max(0, Math.min(need, Number(egg.metres) || 0));
     return {
       done, need,
       left: Math.max(0, need - done),
       pct: need > 0 ? Math.min(100, (done / need) * 100) : 0,
-      ready: done >= need
+      ready: done >= need,
+      /** True when this egg is carrying the Easter discount. */
+      halved: !!egg.halved
     };
   }
 
@@ -870,7 +986,9 @@ class Store {
       type,
       collectedAt: Date.now(),
       metres: 0,
-      incubator: null
+      incubator: null,
+      /** Set when it goes into an incubator during Easter. See eggMetresFor. */
+      halved: false
     };
     this.s.eggs.push(egg);
     this.touch('egg', { immediate: true });
@@ -920,8 +1038,12 @@ class Store {
     if (itemId !== REUSABLE_INCUBATOR) this.spendItem(itemId);
 
     egg.incubator = itemId;
+    // Stamped now and kept for the egg's whole life. Starting an egg during
+    // Easter is the thing being rewarded, so a 15 km egg begun on Easter Sunday
+    // keeps its half distance for as long as it takes to walk out.
+    if (eggsAreHalved()) egg.halved = true;
     this.touch('egg', { immediate: true });
-    return { ok: true, egg };
+    return { ok: true, egg, halved: !!egg.halved };
   }
 
   /** Walking only counts for eggs that are actually in an incubator. */
@@ -956,6 +1078,10 @@ class Store {
     // over a full-eggs check, and so a failure cannot hatch it twice.
     this.s.eggs = this.s.eggs.filter(e => e.id !== egg.id);
 
+    // Judged on when it hatches rather than when it was collected, which is the
+    // only reading a player can act on: walk it out during the event and it pays.
+    const event = eventRewardBonus('hatch');
+
     const res = this.capture(sp.id, {
       origin: 'egg',
       level: EGG_HATCH_LEVEL,
@@ -965,13 +1091,14 @@ class Store {
       shiny: eggCanBeShiny(egg.type) && rollShiny('raid', new Date(), this.shinyOpts()),
       dust: def.dust,
       xp: def.xp,
-      bonusCandy: def.bonusCandy || 0,
+      bonusCandy: (def.bonusCandy || 0) + event.candy,
+      bonusStardust: event.stardust,
       countsAsCapture: false
     });
 
     this.s.stats.eggsHatched++;
     this.touch('hatch', { immediate: true });
-    return { ok: true, ...res, egg, eggType: egg.type, km: def.km };
+    return { ok: true, ...res, egg, eggType: egg.type, km: def.km, event };
   }
 
   /* ---------------- candy ---------------- */
@@ -1155,11 +1282,42 @@ class Store {
       .sort((a, b) => a.order - b.order)
       .map(def => ({
         id: def.id,
+        def,
         held: this.itemCount(def.id),
-        placed: def.id === 'research_lab'
-          ? (this.s.researchLab ? [{ id: 'lab', ...this.s.researchLab }] : [])
-          : this.s.breedings
+        /** True for the buildings you only ever want one of. */
+        singleton: !!def.singleton,
+        placed: this.placedBuildings(def.id)
       }));
+  }
+
+  /**
+   * Every instance of one building currently pinned to the map, in the shape the
+   * Buildings list wants. Each singleton keeps its own field in the save, so the
+   * mapping is spelled out here rather than being guessed at the call sites —
+   * which is what the old `id === 'research_lab'` ternaries were doing in four
+   * separate places.
+   */
+  placedBuildings(itemId) {
+    switch (itemId) {
+      case 'research_lab':
+        return this.s.researchLab ? [{ id: 'lab', ...this.s.researchLab }] : [];
+      case 'battle_frontier':
+        return this.s.battleFrontier ? [{ id: 'frontier', ...this.s.battleFrontier }] : [];
+      case 'breeding_center':
+        return this.s.breedings;
+      default:
+        return [];
+    }
+  }
+
+  /** Brings one building home, whichever kind it is. */
+  fetchBuilding(itemId, buildingId = null) {
+    switch (itemId) {
+      case 'research_lab': return this.moveResearchLab();
+      case 'battle_frontier': return this.moveBattleFrontier();
+      case 'breeding_center': return this.moveBreedingCentre(buildingId);
+      default: return { ok: false, reason: 'unknown' };
+    }
   }
 
   /** Every item the player actually holds, plus its quantity. */
@@ -1359,11 +1517,17 @@ class Store {
    * Every creature a Mysterious Incense may be pointed at: registered, Stage 1,
    * and not an Exclusive or a Mythical. Sorted by dex order so the picker reads
    * like the Collection.
+   *
+   * A creature with a spawn restriction is only offered while that restriction
+   * is actually met — pointing an incense at something that cannot appear would
+   * burn the item for nothing. Once lit it keeps summoning for its full length,
+   * the same way a disc point keeps an invasion bonus it was created with.
    */
-  mysteriousIncenseCandidates() {
+  mysteriousIncenseCandidates(now = new Date()) {
     return Object.keys(this.s.registered)
       .map(id => species(id))
       .filter(sp => sp && sp.stage === 1 && !sp.exclusive && !sp.mythical)
+      .filter(sp => canSpawnNow(sp, now))
       .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
   }
 
@@ -1445,6 +1609,12 @@ class Store {
       speciesId: sp.id,
       level,
       capturedAt: Date.now(),
+      /**
+       * Where you were standing, as { city, country }, or null when the place was
+       * not known — no location yet, or the lookup did not answer. Stamped once
+       * and never revisited: it is a memory of the catch, not a live reading.
+       */
+      caughtPlace: this._place || null,
       dustSpent: 0,
       evolvedAt: null,
       origin,
@@ -1492,9 +1662,13 @@ class Store {
     // roll is. Applied last, like the Stardust Sunday multiplier.
     const sweet = isSweetToothsday();
     const candy = Math.round((candyForCapture(rarity) + (opts.bonusCandy || 0)) * candyMultiplier());
-    const dust = opts.dust != null
+    // `bonusStardust` is an annual event's flat top-up. Added before the Stardust
+    // Sunday multiplier for the same reason bonus candy is added before the Sweet
+    // Toothsday one: it is stardust from this reward like any other.
+    const dust = (opts.dust != null
       ? opts.dust + dustBonusFor(this.level)
-      : dustForCapture(rarity, this.level) + (magnet ? RULES.MAGNET_BONUS_MULTIPLIER * this.level : 0);
+      : dustForCapture(rarity, this.level) + (magnet ? RULES.MAGNET_BONUS_MULTIPLIER * this.level : 0))
+      + (opts.bonusStardust || 0);
     const xp = opts.xp != null ? opts.xp : xpForCapture(rarity);
 
     const isNew = this.register(sp.id);
@@ -1505,6 +1679,7 @@ class Store {
     this.s.caughtCount[sp.id] = (this.s.caughtCount[sp.id] || 0) + 1;
     if (creature.shiny) {
       this.s.stats.shinies++;
+      this.bumpDaily('shiniesToday');
       this.s.shinyCaught[sp.id] = true;
     }
     // A hatch is not a catch, so it stays out of the capture missions.
@@ -1532,6 +1707,7 @@ class Store {
     const dust = this.addStardust(dustInRange(raid.dustRange || [30, 40], this.level));
     const levelUp = this.addXP(xp);
     this.s.stats.raidsWon++;
+    this.bumpDaily('raidsToday');
 
     // Track wins per boss rarity so the "defeat a Rarity N raid" missions work.
     const rarity = Number(raid.rarity) || 0;
@@ -1607,13 +1783,16 @@ class Store {
   captureRaidBoss(raid) {
     if (!this.hasItem('ultra_disc')) return { ok: false, reason: 'noItem' };
     this.spendItem('ultra_disc');
+    // An annual event tops this up on top of the raid's own two candy.
+    const event = eventRewardBonus('catch');
     const res = this.capture(raid.speciesId, {
       origin: 'raid',
       level: RAID_CAPTURE_LEVEL,
       shiny: !!raid.shiny,
-      bonusCandy: RAID_CAPTURE_BONUS_CANDY
+      bonusCandy: RAID_CAPTURE_BONUS_CANDY + event.candy,
+      bonusStardust: event.stardust
     });
-    return { ok: true, ...res, bonusCandy: RAID_CAPTURE_BONUS_CANDY };
+    return { ok: true, ...res, bonusCandy: RAID_CAPTURE_BONUS_CANDY, event };
   }
 
   /** Stardust for beating a grunt, plus a small chance of a bonus item. */
@@ -1642,6 +1821,7 @@ class Store {
     for (const [id, n] of Object.entries(items)) this.addItem(id, n);
 
     this.s.stats.gruntsBeaten++;
+    this.bumpDaily('gruntsToday');
     this.touch('grunt-win', { immediate: true });
     return { dust, bonus, items, sunday: isStardustSunday() };
   }
@@ -1697,23 +1877,37 @@ class Store {
     if (!c) return { ok: false, reason: 'missing' };
     if (c.breeding != null) return { ok: false, reason: 'breeding' };
     const sp = species(c.speciesId);
-    if (!sp?.evolvesToId) return { ok: false, reason: 'final' };
+    const targets = evolutionTargets(sp?.id);
+    if (!targets.length) return { ok: false, reason: 'final' };
     const cost = sp.evolutionCandy || 0;
     const have = this.candyFor(sp.id);
-    if (have < cost) return { ok: false, reason: 'candy', cost, have, short: cost - have };
-    return { ok: true, cost, have, target: species(sp.evolvesToId) };
+    if (have < cost) {
+      return { ok: false, reason: 'candy', cost, have, short: cost - have, targets };
+    }
+    // `target` is the first option, kept so callers that never expected a choice
+    // still read sensibly. `targets` is the full list and `choice` says whether
+    // the player has to be asked.
+    return { ok: true, cost, have, target: targets[0], targets, choice: targets.length > 1 };
   }
 
   /**
    * Candy comes from the shared family pool, level and shiny status carry over,
    * and the move-unlock luck stays with the creature.
+   *
+   * `targetId` picks which way a branching line goes. Left out, it takes the
+   * first option, which is the only option for every creature that does not
+   * branch. A target that is not one of this creature's own is refused rather
+   * than followed, so a stale picker cannot evolve something into anything.
    */
-  evolve(uid) {
+  evolve(uid, targetId = null) {
     const check = this.canEvolve(uid);
     if (!check.ok) return check;
     const c = this.creature(uid);
     const from = species(c.speciesId);
-    const to = species(from.evolvesToId);
+    const to = targetId
+      ? check.targets.find(t => t.id === targetId)
+      : check.targets[0];
+    if (!to) return { ok: false, reason: 'badTarget', targets: check.targets };
     const hpBefore = hpOf(c);
     const maxBefore = maxHpOf(c);
 
@@ -1727,6 +1921,10 @@ class Store {
     if (c.hp != null) c.hp = Math.max(0, hpBefore + (maxHpOf(c) - maxBefore));
 
     const isNew = this.register(to.id);
+    // A shiny stays shiny through an evolution, so the form it became counts as a
+    // shiny you have obtained — and keeps counting after you evolve it again. It
+    // is the only way a Stage 2 or Stage 3 shiny can ever exist.
+    if (c.shiny) this.s.shinyCaught[to.id] = true;
     const xp = XP_ON_EVOLVE[from.stage] ?? 30;
     const levelUp = this.addXP(xp);
     this.s.stats.evolutions++;
@@ -1919,6 +2117,23 @@ class Store {
     this.touch('essence', { immediate: true });
   }
 
+  /* ---------------- the annual events' hourly creature ---------------- */
+
+  /**
+   * This hour has not handed out its event creature yet. Keyed on the hour rather
+   * than a timer, so opening the game at twenty past still gets that hour's
+   * creature — and only once, however many times the loop asks.
+   */
+  canSpawnEventCreature(eventId, now = new Date()) {
+    if (!eventId) return false;
+    return this.s.eventSpawn !== eventSpawnKey(eventId, now);
+  }
+
+  markEventSpawned(eventId, now = new Date()) {
+    this.s.eventSpawn = eventSpawnKey(eventId, now);
+    this.touch('event-spawn', { immediate: true });
+  }
+
   /**
    * Banks the result of one harvest: candy for that family, the mission
    * counters, and the Molten Seeker roll. Only a harvest that actually paid
@@ -2107,6 +2322,207 @@ class Store {
     this.addItem('research_lab');
     this.touch('research-lab', { immediate: true });
     return { ok: true };
+  }
+
+  /* ---------------- battle frontier ---------------- */
+
+  /** Pinned exactly like the lab: one of them, anywhere, moveable any time. */
+  placeBattleFrontier(lat, lng) {
+    if (this.s.battleFrontier) return { ok: false, reason: 'placed' };
+    if (!this.hasItem('battle_frontier')) return { ok: false, reason: 'noItem' };
+    this.spendItem('battle_frontier');
+    this.s.battleFrontier = { lat, lng, placedAt: Date.now() };
+    this.touch('battle-frontier', { immediate: true });
+    return { ok: true };
+  }
+
+  /**
+   * Picks it back up. Progress lives in the save rather than in the building, so
+   * moving it never costs a clear.
+   */
+  moveBattleFrontier() {
+    if (!this.s.battleFrontier) return { ok: false, reason: 'noFrontier' };
+    this.s.battleFrontier = null;
+    this.addItem('battle_frontier');
+    this.touch('battle-frontier', { immediate: true });
+    return { ok: true };
+  }
+
+  /* ---------------- battle frontier challenges ----------------
+     Progress is a flat set of keys rather than nested objects: a challenge, a
+     level and a mode identify one clear, and nothing else about it needs
+     storing. That keeps a save with 750 possible clears small and makes the
+     "is this one done" question a single lookup. */
+
+  frontierKey(challengeId, level, modeId) { return `${challengeId}|${level}|${modeId}`; }
+  frontierGrandKey(challengeId, modeId) { return `${challengeId}|${modeId}`; }
+
+  hasFrontierClear(challengeId, level, modeId) {
+    return !!this.s.frontierClears[this.frontierKey(challengeId, level, modeId)];
+  }
+
+  hasFrontierGrandWin(challengeId, modeId) {
+    return !!this.s.frontierGrand[this.frontierGrandKey(challengeId, modeId)];
+  }
+
+  /** The creatures you may take in under one mode: battle-ready and allowed. */
+  frontierEligible(modeId) {
+    const mode = frontierMode(modeId);
+    if (!mode) return [];
+    return this.battleReady().filter(c => frontierModeAllows(mode, c));
+  }
+
+  /**
+   * One challenge as seen through one mode: every level with whether it is
+   * cleared and whether it can be attempted yet, plus the Grand Raid at the top.
+   *
+   * Levels are sequential inside a mode. Nothing in the brief demanded it, but
+   * the rewards climb with the level, so being able to open at level 10 would
+   * make the first nine pointless.
+   */
+  frontierChallengeState(challengeId, modeId) {
+    const ch = frontierChallenge(challengeId);
+    const mode = frontierMode(modeId);
+    if (!ch || !mode) return null;
+
+    const levels = [];
+    let previousCleared = true;
+    for (let level = 1; level <= FRONTIER_LEVELS; level++) {
+      const team = frontierTeam(challengeId, level);
+      const cleared = this.hasFrontierClear(challengeId, level, modeId);
+      levels.push({
+        level,
+        team,
+        cleared,
+        // A level with no row in the sheet cannot be fought, and does not block
+        // the one above it either — otherwise a half-written file would wall the
+        // ladder off completely.
+        missing: !team,
+        available: !!team && previousCleared && !cleared
+      });
+      if (!cleared) previousCleared = false;
+    }
+
+    const playable = levels.filter(l => !l.missing);
+    const clearedCount = levels.filter(l => l.cleared).length;
+    const allCleared = playable.length === FRONTIER_LEVELS
+      && playable.every(l => l.cleared);
+
+    const boss = frontierBoss(challengeId);
+    return {
+      challenge: ch, mode,
+      levels,
+      cleared: clearedCount,
+      total: FRONTIER_LEVELS,
+      loaded: playable.length,
+      allCleared,
+      boss,
+      grandWon: this.hasFrontierGrandWin(challengeId, modeId),
+      // No boss file means no Grand Raid, and the sheet says so rather than
+      // offering a button that cannot work.
+      grandAvailable: allCleared && !!boss && !this.hasFrontierGrandWin(challengeId, modeId),
+      eligible: this.frontierEligible(modeId).length
+    };
+  }
+
+  /** A challenge across every mode, for the building's front page. */
+  frontierChallengeSummary(challengeId) {
+    const ch = frontierChallenge(challengeId);
+    if (!ch) return null;
+    let modesComplete = 0;
+    let grandWins = 0;
+    let clears = 0;
+    for (const mode of FRONTIER_MODES) {
+      let done = 0;
+      for (let level = 1; level <= FRONTIER_LEVELS; level++) {
+        if (this.hasFrontierClear(challengeId, level, mode.id)) done++;
+      }
+      clears += done;
+      if (done >= FRONTIER_LEVELS) modesComplete++;
+      if (this.hasFrontierGrandWin(challengeId, mode.id)) grandWins++;
+    }
+    return {
+      challenge: ch,
+      loaded: frontierLevelsLoaded(challengeId),
+      clears,
+      modesComplete,
+      grandWins,
+      totalModes: FRONTIER_MODES.length,
+      totalClears: FRONTIER_MODES.length * FRONTIER_LEVELS
+    };
+  }
+
+  /** Every challenge summarised, in table order. */
+  frontierSummaries() {
+    return FRONTIER_CHALLENGES.map(ch => this.frontierChallengeSummary(ch.id));
+  }
+
+  /**
+   * Records a level win and pays for it. Refuses a repeat, so the reward cannot
+   * be farmed by re-fighting a level already beaten in this mode.
+   */
+  rewardFrontierWin(challengeId, level, modeId) {
+    const ch = frontierChallenge(challengeId);
+    const mode = frontierMode(modeId);
+    if (!ch || !mode) return { ok: false, reason: 'missing' };
+    const key = this.frontierKey(challengeId, level, modeId);
+    if (this.s.frontierClears[key]) return { ok: false, reason: 'claimed' };
+
+    const { items, heldItem: wantsHeld } = frontierLevelRewards(level);
+    const gained = {};
+    for (const [id, n] of Object.entries(items)) {
+      if (!ITEMS[id] || !(n > 0)) continue;
+      this.addItem(id, n);
+      gained[id] = (gained[id] || 0) + n;
+    }
+
+    // Rolled on the win rather than fixed in the table, the same way a mission's
+    // `heldItem: 'random'` is.
+    let heldReward = null;
+    if (wantsHeld) {
+      const id = rollHeldItem();
+      if (isHeldItem(id)) {
+        this.addHeldItem(id, 1);
+        heldReward = heldItem(id);
+      }
+    }
+
+    this.s.frontierClears[key] = { at: Date.now() };
+    this.s.stats.frontierWins = (this.s.stats.frontierWins || 0) + 1;
+
+    const state = this.frontierChallengeState(challengeId, modeId);
+    this.touch('frontier-win', { immediate: true });
+    return {
+      ok: true, challenge: ch, mode, level,
+      items: gained, heldReward,
+      // True on the win that finishes the ladder, so the result screen can
+      // announce the Grand Raid rather than leaving it to be discovered.
+      unlockedGrand: !!state?.grandAvailable,
+      cleared: state?.cleared || 0,
+      total: FRONTIER_LEVELS
+    };
+  }
+
+  /**
+   * The Grand Raid for one challenge and mode, or null when it is not open. The
+   * shape is an exclusive raid, so the ordinary raid battle, rewards and Ultra
+   * Disc catch all work on it untouched.
+   */
+  frontierGrandFor(challengeId, modeId) {
+    const state = this.frontierChallengeState(challengeId, modeId);
+    if (!state?.grandAvailable) return null;
+    const raid = frontierGrandRaid(challengeId);
+    if (!raid) return null;
+    return { ...raid, mode: modeId };
+  }
+
+  /** Marks a Grand Raid as won. A loss writes nothing, so it can be retried. */
+  recordFrontierGrandWin(challengeId, modeId) {
+    const key = this.frontierGrandKey(challengeId, modeId);
+    if (this.s.frontierGrand[key]) return false;
+    this.s.frontierGrand[key] = { at: Date.now() };
+    this.touch('frontier-grand', { immediate: true });
+    return true;
   }
 
   /** Candy needed for one Stat Booster from this species' family. */
@@ -2530,6 +2946,9 @@ class Store {
   bumpDaily(key, n = 1) {
     if (this.s.daily.date !== dayKey()) this.s.daily = blankDaily();
     this.s.daily[key] = (this.s.daily[key] || 0) + n;
+    // A spawn restriction can read these, so data.js has to hear about it or a
+    // creature gated behind "grunts today" would not appear until the next boot.
+    this.syncSpawnConditions();
   }
 
   /**
@@ -2547,6 +2966,8 @@ class Store {
     const weekBefore = Number(this.s.weekly.metresWeek) || 0;
     this.s.daily.metresToday = dayBefore + metres;
     this.s.weekly.metresWeek = weekBefore + metres;
+    // Same reason as bumpDaily: "walked today" gates a spawn.
+    this.syncSpawnConditions();
 
     // Did this step finish a walk mission? Reported so the caller can light up
     // the Missions badge straight away rather than at the next full refresh.
@@ -2608,6 +3029,9 @@ class Store {
       case 'essenceWeek': return this.weekly.essenceWeek || 0;
       // Opening the game is the whole task, so this is stamped at boot.
       case 'loggedInThisWeek': return this.weekly.loggedIn || 0;
+      // The daily equivalent: reading this at all means the game is open, and the
+      // daily record rolls over at midnight, so today's visit is a given.
+      case 'loggedInToday': return this.s.daily.date === dayKey() ? 1 : 0;
       default: return 0;
     }
   }
@@ -2646,13 +3070,16 @@ class Store {
     };
   }
 
-  allMissions() {
+  allMissions(now = new Date()) {
+    // A mission tagged `onlyDuring` belongs to an annual event and is simply not
+    // in the list outside it, rather than sitting there permanently unavailable.
+    const inSeason = m => !m.onlyDuring || isAnnualEvent(m.onlyDuring, now);
     return [
       ...MISSIONS.map(m => this.missionState(m, 'lifetime')),
       // Set missions never reset, so they claim into the same store as lifetime.
       ...SET_MISSIONS.map(m => this.missionState(m, 'set')),
-      ...WEEKLY_MISSIONS.map(m => this.missionState(m, 'weekly')),
-      ...DAILY_MISSIONS.map(m => this.missionState(m, 'daily'))
+      ...WEEKLY_MISSIONS.filter(inSeason).map(m => this.missionState(m, 'weekly')),
+      ...DAILY_MISSIONS.filter(inSeason).map(m => this.missionState(m, 'daily'))
     ];
   }
 
@@ -2695,6 +3122,18 @@ class Store {
       this.syncGalacticUnlocks();
     }
 
+    // The Temporal Rift ladder, climbed off the back of Galactic Adventures
+    // registrations rather than the first set's.
+    let unlockedTemporalRarity = null;
+    if (m.def.unlockTemporalRarity) {
+      unlockedTemporalRarity = m.def.unlockTemporalRarity;
+      if (!this.s.temporalUnlocked.includes(unlockedTemporalRarity)) {
+        this.s.temporalUnlocked.push(unlockedTemporalRarity);
+        this.s.temporalUnlocked.sort((a, b) => a - b);
+      }
+      this.syncTemporalUnlocks();
+    }
+
     // The exclusive ladder works the same way: claiming is what puts the second
     // wave into the Collection and into the exclusive raid and egg pools.
     let unlockedExclusiveSet = false;
@@ -2712,6 +3151,18 @@ class Store {
       if (isHeldItem(id)) {
         this.addHeldItem(id, 1);
         heldReward = heldItem(id);
+      }
+    }
+
+    // And one of the four incenses, on its own odds. Folded into `bonusItems` so
+    // every reader that lists what a claim paid picks it up without changing.
+    let incenseReward = null;
+    if (m.def.randomIncense) {
+      const id = rollHolidayIncense();
+      if (ITEMS[id]) {
+        this.addItem(id, 1);
+        bonusItems[id] = (bonusItems[id] || 0) + 1;
+        incenseReward = id;
       }
     }
 
@@ -2737,7 +3188,8 @@ class Store {
     return {
       ok: true, xp: m.def.xp, dust, levelUp, label: m.def.label,
       discs: bonusDiscs, items: bonusItems,
-      unlockedRarity, unlockedExclusiveSet, egg, heldReward
+      unlockedRarity, unlockedTemporalRarity, unlockedExclusiveSet, egg,
+      heldReward, incenseReward
     };
   }
 
@@ -2746,9 +3198,16 @@ class Store {
   get galacticUnlocked() { return [...this.s.galacticUnlocked]; }
   isGalacticUnlocked(rarity) { return this.s.galacticUnlocked.includes(Number(rarity)); }
 
+  get temporalUnlocked() { return [...this.s.temporalUnlocked]; }
+  isTemporalUnlocked(rarity) { return this.s.temporalUnlocked.includes(Number(rarity)); }
+
   /** Pushes the unlocked rarities into data.js, which rebuilds the spawn pools. */
   syncGalacticUnlocks() {
     setGalacticUnlocked(this.s.galacticUnlocked);
+  }
+
+  syncTemporalUnlocks() {
+    setTemporalUnlocked(this.s.temporalUnlocked);
   }
 
   get exclusive2Unlocked() { return !!this.s.exclusive2Unlocked; }
@@ -2756,6 +3215,107 @@ class Store {
   /** Pushes the exclusive unlock into data.js, which rebuilds those pools. */
   syncExclusiveUnlocks() {
     setExclusive2Unlocked(this.s.exclusive2Unlocked);
+  }
+
+  /**
+   * Everything data.js needs to know about saved progress, in one call so a new
+   * ladder cannot be forgotten at one of the three places a save is swapped in.
+   */
+  syncUnlocks() {
+    this.syncGalacticUnlocks();
+    this.syncTemporalUnlocks();
+    this.syncExclusiveUnlocks();
+    this.syncSpawnConditions();
+  }
+
+  /* ---------------- the world, as conditions can see it ---------------- */
+
+  /**
+   * Today's counters, or zeroes once the day has rolled over.
+   *
+   * Read straight off the save rather than kept as a separate tally, so they can
+   * never disagree with what the daily missions show.
+   */
+  get dailyCounters() {
+    const fresh = this.s.daily.date === dayKey();
+    const n = key => (fresh ? Number(this.s.daily[key]) || 0 : 0);
+    return {
+      metresToday: n('metresToday'),
+      capturesToday: n('capturesToday'),
+      gruntsToday: n('gruntsToday'),
+      raidsToday: n('raidsToday'),
+      shiniesToday: n('shiniesToday')
+    };
+  }
+
+  /**
+   * Readings about the device and the place rather than the save. Each is null
+   * when unavailable, which is what switches the condition that wants it off.
+   *
+   * `pointsScanned` is how many real places the last scan found in range, which
+   * is the game's only measure of how built-up somewhere is. It is deliberately
+   * not saved: a figure from wherever you were yesterday would be worse than
+   * none at all.
+   */
+  get worldReadings() {
+    return {
+      elevation: elevationNow(),
+      battery: Battery.percent,
+      pointsScanned: this._pointsScanned ?? null
+    };
+  }
+
+  /** Called by spawns.js at the end of every scan. */
+  setPointsScanned(n) {
+    const v = Number(n);
+    this._pointsScanned = Number.isFinite(v) && v >= 0 ? Math.round(v) : null;
+    this.syncSpawnConditions();
+  }
+
+  /**
+   * Everything a condition can be judged against, in one place.
+   *
+   * Spawn restrictions and battle abilities share this deliberately: they use the
+   * same condition vocabulary, so assembling the world twice is how the two would
+   * quietly come to disagree about what the temperature is.
+   */
+  ambientContext(now = new Date()) {
+    return {
+      now,
+      weather: this._spawnWeather || null,
+      daily: this.dailyCounters,
+      world: this.worldReadings
+    };
+  }
+
+  /**
+   * Pushes the conditions down to data.js, where spawn restrictions are judged.
+   * The weather half arrives from main.js, which owns the reading; passing null
+   * here would wipe it, so it is read back rather than re-derived.
+   */
+  syncSpawnConditions() {
+    const ctx = this.ambientContext();
+    setSpawnConditions({ weather: ctx.weather, daily: ctx.daily, world: ctx.world });
+  }
+
+  /** Called by main.js whenever a weather reading lands. */
+  setSpawnWeather(weather) {
+    this._spawnWeather = weather || null;
+    this.syncSpawnConditions();
+  }
+
+  /**
+   * Called by main.js when the name of the place you are in becomes known.
+   *
+   * Held here rather than looked up at capture time so nothing on the capture
+   * path ever waits on the network. Not saved: it is only ever copied onto a
+   * creature as it is caught, and a stale one from yesterday would be worse than
+   * none at all.
+   */
+  setCurrentPlace(place) {
+    this._place = place && (place.city || place.country)
+      ? { city: place.city || null, country: place.country || null }
+      : null;
   }
 
   /* ---------------- debug / ui ---------------- */

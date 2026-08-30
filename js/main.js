@@ -6,9 +6,12 @@ import {
   loadDatabase, DB, RULES, SETS, RARITY_NAMES, species, familyName, familyRarity,
   BREEDING_UNLOCK_LEVEL, isRelaxHour, RAID_INVASION_LABEL,
   isCreatureSpotlight, spotlightSpecies, SPOTLIGHT_LABEL, SPOTLIGHT_BONUS_CANDY,
-  SPOTLIGHT_SPAWN_MS, scanIntervalLabel
+  SPOTLIGHT_SPAWN_MS, scanIntervalLabel,
+  annualEvent, EVENT_SPAWN_MS, eventRewardBonus
 } from './data.js';
-import { Weather } from './weather.js';
+import { Weather, weatherContext } from './weather.js';
+import { Battery } from './battery.js';
+import { Place } from './place.js';
 import { Persist, progressOf } from './persist.js';
 import { store } from './state.js';
 import { Geo, distance, parseCoords, formatDistance, offsetMeters } from './geo.js';
@@ -16,7 +19,8 @@ import { fetchPOIs, clearPOICache, lastPOIsWereStale } from './osm.js';
 import { describeDrop, itemImage, itemName } from './items.js';
 import {
   runScan, debugPointAt, tickIncense, spawnWindowGrunt, spawnSpotlightCreature,
-  spawnEssence, debugEssenceAt, msUntilNextScan, formatCountdown, isScanning
+  spawnEssence, debugEssenceAt, msUntilNextScan, formatCountdown, isScanning,
+  spawnEventCreature
 } from './spawns.js';
 import { initEssence, openEssence, abandonEssence } from './essence.js';
 import { GameMap } from './map.js';
@@ -26,10 +30,11 @@ import {
   renderHUD, renderStorage, renderCollection, renderProfile, renderSaveStatus,
   initCollectionFilters, refreshAll, renderView, renderStorageTabs,
   renderEffectChips, openNicknamePrompt, setViewHooks, enterMultiSelect,
-  renderWeatherChip, setStorageSearch, setStorageFamilyAll
+  renderWeatherChip, setStorageSearch, setStorageFamilyAll, openStorageSearchHelp
 } from './views.js';
 import {
-  initExtras, renderMissions, renderMissionBadge, openBreeding, openResearchLab
+  initExtras, renderMissions, renderMissionBadge, openBreeding, openResearchLab,
+  openBattleFrontier
 } from './extras.js';
 import { setMissionsRenderer, setShopRenderer } from './views.js';
 import { initShop, renderShop } from './shop.js';
@@ -52,6 +57,15 @@ const debugAllowed = () => store.nickname === DEBUG_TRAINER;
 /** Shows or hides the 🛠 button to match the current trainer name. */
 function syncDebugButton() {
   $('#btn-debug')?.classList.toggle('hidden', !debugAllowed());
+}
+
+/**
+ * Hands the current reading to the save, which passes it and today's counters
+ * down to the spawn pools. Some Temporal Rift creatures only appear in certain
+ * weather, so a reading landing is what puts them in or out of circulation.
+ */
+function pushSpawnWeather() {
+  store.setSpawnWeather(weatherContext());
 }
 
 let capturing = false;
@@ -238,8 +252,20 @@ async function boot() {
     }
 
     // Repaint the chip the moment a reading lands, rather than waiting for the
-    // next save change to trigger a HUD repaint.
-    Weather.onChange(renderWeatherChip);
+    // next save change to trigger a HUD repaint. The same moment is when the
+    // spawn pools have to be told, since some creatures only appear in certain
+    // weather and the pools are filtered on the reading.
+    Weather.onChange(() => {
+      renderWeatherChip();
+      pushSpawnWeather();
+    });
+    pushSpawnWeather();
+
+    /* Charge level, for the two abilities that care about it. Fire and forget:
+       on iOS and Firefox the API does not exist, `start` does nothing, and those
+       abilities simply never trigger there — the same rule the weather follows. */
+    Battery.start();
+    Battery.onChange(() => store.syncSpawnConditions());
 
     Geo.onChange(onLocation);
     Geo.start();
@@ -372,6 +398,11 @@ function onLocation(pos) {
   // A fresh fix is the moment to check the temperature. Cheap: the module
   // ignores the call unless the reading is stale or the player has moved on.
   Weather.refresh(pos);
+  /* And to find out what this place is called, so a creature caught in a moment
+     can be stamped with it without the capture waiting on a lookup. Cached
+     against a position rounded to about a kilometre, so walking around a town is
+     one request. Failures are silent — the creature just gets a date. */
+  Place.at(pos).then(place => { if (place) store.setCurrentPlace(place); });
 }
 
 async function scanWhenReady() {
@@ -494,6 +525,35 @@ function placeResearchLab() {
   refreshAll();
 }
 
+/** And the third pin. Same flow again: one of them, wherever you are standing. */
+function placeBattleFrontier() {
+  const pos = Geo.current;
+  if (!pos) { toast('Waiting for your location…', 'bad'); return; }
+  if (store.s.battleFrontier) { toast('Your Battle Frontier is already on the map', 'bad'); return; }
+  if (!confirm('Pin your Battle Frontier here? You can pick it up and move it later from the '
+    + 'building itself, and your challenge progress comes with you.')) return;
+
+  const r = store.placeBattleFrontier(pos.lat, pos.lng);
+  if (!r.ok) {
+    toast(r.reason === 'noItem' ? 'You have no Battle Frontier' : 'Could not place it', 'bad');
+    return;
+  }
+  closeSheet('sheet');
+  syncMap();
+  GameMap.recenter();
+  dlog('Battle Frontier placed');
+  toast('Battle Frontier placed', 'good', 3200);
+  refreshAll();
+}
+
+/** Routes the Buildings list's one "place this" button to the right flow. */
+function placeBuilding(itemId) {
+  if (itemId === 'research_lab') return placeResearchLab();
+  if (itemId === 'battle_frontier') return placeBattleFrontier();
+  if (itemId === 'breeding_center') return placeBreedingCentre();
+  toast('That is not something you can place', 'bad');
+}
+
 function placeBreedingCentre() {
   const pos = Geo.current;
   if (!pos) { toast('Waiting for your location…', 'bad'); return; }
@@ -567,11 +627,21 @@ function checkInteractable(point, { requireRange = true } = {}) {
   return live;
 }
 
+/**
+ * Points you can reach from anywhere, whatever the range says.
+ *
+ * Essence Harvesting was always one: distance decides how many attempts you get
+ * rather than whether you get any. An incense spawn is the other — you paid an
+ * item to summon it to yourself, so having to walk the last few metres to
+ * something you conjured is a poor reward for spending it.
+ */
+const reachableFromAnywhere = point =>
+  point.kind === 'essence' || point.source === 'incense';
+
 /** Routes a tap on the map to whatever that point actually is. */
 async function onPointTap(point) {
   if (capturing) return;
-  // Essence Harvesting is the one thing with no range gate.
-  const live = checkInteractable(point, { requireRange: point.kind !== 'essence' });
+  const live = checkInteractable(point, { requireRange: !reachableFromAnywhere(point) });
   if (!live) return;
 
   if (live.kind === 'essence') {
@@ -668,10 +738,14 @@ async function doCapture(live) {
     // creatures caught in the same hour are unaffected.
     const featured = isCreatureSpotlight() ? spotlightSpecies() : null;
     const spotlightBonus = featured && featured.id === live.speciesId ? SPOTLIGHT_BONUS_CANDY : 0;
+    // An annual event's bonus applies to everything you catch while it runs, so
+    // it stacks with the spotlight's rather than replacing it.
+    const eventBonus = eventRewardBonus('catch');
 
     const res = store.capture(live, {
       origin: live.source === 'incense' ? 'incense' : 'wild',
-      bonusCandy: spotlightBonus
+      bonusCandy: spotlightBonus + eventBonus.candy,
+      bonusStardust: eventBonus.stardust
     });
     const sprite = res.sp.spritePath(res.shiny);
 
@@ -754,6 +828,7 @@ function syncMap() {
   GameMap.syncPoints(shown);
   GameMap.syncBreeding(store.s.breedings);
   GameMap.syncResearchLab(store.s.researchLab);
+  GameMap.syncBattleFrontier(store.s.battleFrontier);
   // Straight away rather than on the next tick, so playing a harvest clears the
   // arrow the moment the sheet closes.
   GameMap.syncEssenceArrow();
@@ -802,6 +877,19 @@ function startLoop() {
         dlog(`${SPOTLIGHT_LABEL}: ${sp?.name} appeared (${Math.round(SPOTLIGHT_SPAWN_MS / 60_000)} min)`);
         syncMap();
         toast(`${SPOTLIGHT_LABEL} — ${sp?.name} has come to you!`, 'good', 4200);
+      }
+    }
+
+    // During an annual event a creature comes to you on the hour. Checked on the
+    // loop so an hour that turns over while the game is open still pays out.
+    if (Geo.current) {
+      const gift = spawnEventCreature(Geo.current, now);
+      if (gift) {
+        const sp = species(gift.speciesId);
+        const event = annualEvent(gift.eventId);
+        dlog(`${event?.label}: ${sp?.name} appeared (${Math.round(EVENT_SPAWN_MS / 60_000)} min)`);
+        syncMap();
+        toast(`${event?.icon || '🎉'} ${event?.label} — ${sp?.name} has come to you!`, 'good', 4600);
       }
     }
 
@@ -946,6 +1034,16 @@ function initUI() {
     }
   };
 
+  GameMap.onBattleFrontierClick = frontier => {
+    const pos = Geo.current;
+    const range = interactRange();
+    const near = !isFinite(range) || (pos && distance(pos, frontier) <= range);
+    openBattleFrontier({ inRange: !!near });
+    if (!near) {
+      toast(`Get within ${range} m of your Battle Frontier to use it`, 'bad', 3400);
+    }
+  };
+
   GameMap.onBreedingClick = centre => {
     const pos = Geo.current;
     const range = interactRange();
@@ -958,8 +1056,7 @@ function initUI() {
 
   // views needs a couple of map-aware actions
   setViewHooks({
-    placeBreeding: placeBreedingCentre,
-    placeResearchLab,
+    placeBuilding,
     effectsChanged: () => { syncMap(); renderEffectChips(); }
   });
 
@@ -984,6 +1081,7 @@ function initUI() {
   $('#storage-search').addEventListener('input', e => setStorageSearch(e.target.value));
   $('#storage-search').addEventListener('search', e => setStorageSearch(e.target.value));
   $('#storage-family-all').addEventListener('change', e => setStorageFamilyAll(e.target.checked));
+  $('#storage-search-help')?.addEventListener('click', openStorageSearchHelp);
 
   $('#storage-dir').addEventListener('click', () => {
     store.setUI({ storageDir: store.s.ui.storageDir > 0 ? -1 : 1, storagePage: 0 });

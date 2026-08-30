@@ -6,6 +6,7 @@ import {
   species, familyName, familyRarity, RARITY_NAMES, RULES,
   BREEDING_UNLOCK_LEVEL, BREEDING_CANDY_CAP, BREEDING_SLOTS_BY_LEVEL,
   SET_NAME, GALACTIC_SET_NAME, MYTHICAL_RARITY, MYTHICAL_EGG_TYPE, SET_MISSIONS,
+  TEMPORAL_SET_NAME, CHROMARION_EGG_TYPE, restrictedSpecies,
   scanIntervalLabel,
   SHOP_ITEMS, COIN_ICON, shopFullSweepCoins,
   SPOTLIGHT_LABEL, SPOTLIGHT_DAY, SPOTLIGHT_START, SPOTLIGHT_END,
@@ -41,14 +42,18 @@ import {
   RAID_TIERS, GRUNT_REWARD, RAID_CAPTURE_LEVEL,
   RAID_BONUS_RARITIES, raidRareIncenseChance, LEVEL_UP_REWARDS,
   levelUpRewardFromLevel, DUST_BONUS_PER_PLAYER_LEVEL, MAX_PLAYER_LEVEL,
-  SUPER_EFFECTIVE_MULTIPLIER, NOT_VERY_EFFECTIVE_MULTIPLIER, TYPE_RESISTANCE
+  SUPER_EFFECTIVE_MULTIPLIER, NOT_VERY_EFFECTIVE_MULTIPLIER, TYPE_RESISTANCE,
+  FRONTIER_LEVELS, FRONTIER_MODES, FRONTIER_TEAM_SIZE, FRONTIER_GRAND_LABEL,
+  FRONTIER_GRAND_LEVEL, FRONTIER_RAID_LEVEL, FRONTIER_CHALLENGES,
+  frontierTrainerImage, frontierLevelRewards
 } from './data.js';
 import { store, maxHpOf, hpOf, isFainted } from './state.js';
 import { itemImage, itemName, ITEMS, itemsInOrder } from './items.js';
 import { sortedForPicker } from './views.js';
+import { openFrontierBattle, openFrontierGrand } from './battleui.js';
 const DEBUG_TRAINER_NAME = 'Test123';
 import {
-  $, $$, el, toast, openSheet, closeSheet, num,
+  $, $$, el, appendAll, toast, openSheet, closeSheet, num,
   PAGE_SIZE, clampPage, pageSlice, pagerBar, wireSwipe, bumpEl
 } from './ui.js';
 
@@ -186,12 +191,17 @@ export function renderMissions() {
     // Not a countdown: this tab explains what the ladder is for and how far up
     // it the player is, which is the only context these missions need.
     timer.classList.remove('hidden');
-    const got = store.galacticUnlocked;
-    timer.innerHTML = got.length
-      ? `<b>${GALACTIC_SET_NAME}</b> unlocked: ${
-        got.map(r => `${RARITY_NAMES[r]}`).join(', ')}${
+    // Two ladders now, so the banner reports whichever one is actually in
+    // progress rather than always leading with the first.
+    const line = (label, got, from) => got.length
+      ? `<b>${label}</b> unlocked: ${got.map(r => RARITY_NAMES[r]).join(', ')}${
         got.length < 5 ? ' — keep going for the rest.' : '. The whole set is in play.'}`
-      : `Fill in <b>${SET_NAME}</b> to unlock <b>${GALACTIC_SET_NAME}</b>, one rarity at a time.`;
+      : `Fill in <b>${from}</b> to unlock <b>${label}</b>, one rarity at a time.`;
+    const galactic = store.galacticUnlocked;
+    const temporal = store.temporalUnlocked;
+    timer.innerHTML = galactic.length === 5 || temporal.length
+      ? line(TEMPORAL_SET_NAME, temporal, GALACTIC_SET_NAME)
+      : line(GALACTIC_SET_NAME, galactic, SET_NAME);
   } else {
     timer.classList.add('hidden');
   }
@@ -260,6 +270,12 @@ function missionRow(m) {
               text: `🌌 Unlocks ${GALACTIC_SET_NAME} rarity ${m.def.unlockGalacticRarity} (${RARITY_NAMES[m.def.unlockGalacticRarity]})`
             })
           : null,
+        m.def.unlockTemporalRarity
+          ? el('span', {
+              class: 'r reward-unlock',
+              text: `⏳ Unlocks ${TEMPORAL_SET_NAME} rarity ${m.def.unlockTemporalRarity} (${RARITY_NAMES[m.def.unlockTemporalRarity]})`
+            })
+          : null,
         m.def.unlockExclusiveSet
           ? el('span', {
               class: 'r reward-unlock',
@@ -305,6 +321,10 @@ function claim(id) {
   // The unlock deserves its own shout: it changes what the whole map can spawn.
   if (r.unlockedRarity) {
     toast(`${RARITY_NAMES[r.unlockedRarity]} ${GALACTIC_SET_NAME} creatures can now appear!`,
+      'good', 5000);
+  }
+  if (r.unlockedTemporalRarity) {
+    toast(`${RARITY_NAMES[r.unlockedTemporalRarity]} ${TEMPORAL_SET_NAME} creatures can now appear!`,
       'good', 5000);
   }
   if (r.egg) toast(`A ${eggLabel(r.egg.type)} was added to your Eggs`, 'good', 4200);
@@ -408,6 +428,285 @@ function renderResearchLab(inRange) {
     ),
     el('p', { class: 'hint', text: 'Moving puts the lab back in your Items so you can pin it somewhere else. It holds nothing, so there is never anything to collect first.' })
   );
+}
+
+/* ===============================================================
+   BATTLE FRONTIER
+
+   Two screens. The building lists the challenges and how far each one has got
+   across every mode; a challenge shows one mode at a time, because the ladder
+   only means anything relative to the restriction you took it on.
+
+   The mode lives in module state rather than the save: it is a choice about the
+   run you are about to do, not progress, and defaulting back to "No restriction"
+   next time you walk in is the friendlier behaviour.
+   =============================================================== */
+
+let frontierChallengeId = null;
+let frontierModeId = 'open';
+
+/** Opened by tapping the Battle Frontier on the map. */
+export function openBattleFrontier({ inRange = true } = {}) {
+  renderBattleFrontier(inRange);
+  openSheet('battle-frontier');
+}
+
+function renderBattleFrontier(inRange) {
+  const hint = $('#frontier-hint');
+  const body = $('#frontier-body');
+  body.innerHTML = '';
+
+  if (!store.s.battleFrontier) {
+    hint.textContent = 'You have not placed a Battle Frontier yet.';
+    return;
+  }
+  hint.textContent = inRange
+    ? 'Pick a challenge, then pick the mode you want to take it on. Every level can be beaten '
+      + 'once per mode.'
+    : `You need to be within ${RULES.CAPTURE_RANGE_M} m of the building to use it.`;
+
+  const summaries = store.frontierSummaries();
+  const anyLoaded = summaries.some(s => s.loaded > 0);
+
+  if (!anyLoaded) {
+    body.append(el('p', { class: 'hint', style: { color: '#ffd9a8' } },
+      'No challenges are loaded. "Battle Frontier.csv" is missing or unreadable, so there is '
+      + 'nothing to fight here yet.'));
+  }
+
+  for (const s of summaries) {
+    const ch = s.challenge;
+    const playable = s.loaded > 0;
+    body.append(el('button', {
+      class: 'cell item-cell tappable frontier-card',
+      disabled: !inRange || !playable,
+      onclick: () => openFrontierChallenge(ch.id)
+    },
+      s.grandWins
+        ? el('span', { class: 'qty', text: `★${s.grandWins}` })
+        : null,
+      el('img', { src: frontierTrainerImage(ch.id), alt: ch.trainerName }),
+      el('span', { class: 'nm', text: `${ch.name} challenge` }),
+      el('span', { class: `sub t-${ch.type}`, text: ch.trainerName }),
+      el('span', {
+        class: 'use-hint',
+        text: !playable ? 'Not in the sheet yet'
+          : `${s.modesComplete} of ${s.totalModes} modes complete · ${s.clears}/${s.totalClears} levels`
+      })
+    ));
+  }
+
+  if (anyLoaded) {
+    body.append(
+      el('p', { class: 'hint', html:
+        `Each challenge is <b>${FRONTIER_LEVELS}</b> levels, and every creature the trainer brings `
+        + 'is that challenge\'s type. A <b>mode</b> restricts what you may bring, and a level '
+        + `counts as beaten once <i>per mode</i> — so there are ${FRONTIER_MODES.length} ways `
+        + 'through each ladder. Clear all ten on one mode and that challenge\'s '
+        + `<b>${FRONTIER_GRAND_LABEL}</b> opens: an exclusive boss you cannot meet anywhere else.` })
+    );
+  }
+
+  body.append(
+    el('div', { class: 'btn-row' },
+      el('button', { class: 'btn ghost', disabled: !inRange, onclick: moveFrontier },
+        '⚔ Move Battle Frontier')
+    ),
+    el('p', { class: 'hint', text: 'Moving puts it back in your Items so you can pin it somewhere '
+      + 'else. Your challenge progress is kept, so nothing is lost by moving it.' })
+  );
+}
+
+function moveFrontier() {
+  if (!store.s.battleFrontier) return;
+  if (!confirm('Pick your Battle Frontier up? It goes back to your Items and you can pin it '
+    + 'somewhere else. Every level you have beaten stays beaten.')) return;
+
+  const r = store.moveBattleFrontier();
+  if (!r.ok) { toast('Could not move it', 'bad'); return; }
+  closeSheet('battle-frontier');
+  toast('Battle Frontier packed up — place it wherever you like', 'good', 3600);
+  mapChanged?.();
+  refresh?.();
+}
+
+/* ---- one challenge, one mode at a time ---- */
+
+function openFrontierChallenge(challengeId) {
+  frontierChallengeId = challengeId;
+  renderFrontierChallenge();
+  openSheet('frontier-challenge');
+}
+
+/** Re-rendered after every fight, so a fresh clear shows up straight away. */
+function renderFrontierChallenge() {
+  const state = store.frontierChallengeState(frontierChallengeId, frontierModeId);
+  if (!state) { closeSheet('frontier-challenge'); return; }
+
+  const ch = state.challenge;
+  const body = $('#frontier-challenge-body');
+  body.innerHTML = '';
+  $('#frontier-challenge-title').textContent = `${ch.name} challenge`;
+  $('#frontier-challenge-hint').textContent =
+    `${ch.trainerName} — every creature they bring is ${ch.name}.`;
+
+  // ---- the mode picker ----
+  const select = el('select', {
+    id: 'frontier-mode',
+    onchange: e => { frontierModeId = e.target.value; renderFrontierChallenge(); }
+  });
+  for (const mode of FRONTIER_MODES) {
+    const done = FRONTIER_LEVELS === [...Array(FRONTIER_LEVELS)]
+      .filter((_, i) => store.hasFrontierClear(frontierChallengeId, i + 1, mode.id)).length;
+    const won = store.hasFrontierGrandWin(frontierChallengeId, mode.id);
+    select.append(el('option', {
+      value: mode.id,
+      selected: mode.id === frontierModeId,
+      // The tick and the star mean the mode is finished and its boss is caught,
+      // so the dropdown itself says where there is still something to do.
+      text: `${mode.label}${done ? (won ? ' ★' : ' ✓') : ''}`
+    }));
+  }
+
+  appendAll(body,
+    el('div', { class: 'det-head' },
+      el('img', { src: frontierTrainerImage(ch.id), alt: ch.trainerName }),
+      el('div', { class: 'det-title' },
+        el('h3', { text: ch.trainerName }),
+        el('div', { class: 'det-tags' },
+          el('span', { class: `tag t-${ch.type}`, text: ch.type }),
+          el('span', { class: 'tag', text: `${state.cleared}/${FRONTIER_LEVELS} beaten` })
+        )
+      )
+    ),
+    el('label', { class: 'field' },
+      el('span', { text: 'Mode' }),
+      select
+    ),
+    el('p', { class: 'hint' },
+      el('b', { text: `${state.mode.label}. ` }),
+      `${state.mode.blurb} You have `,
+      el('b', { text: String(state.eligible) }),
+      ` creature${state.eligible === 1 ? '' : 's'} that qualif${state.eligible === 1 ? 'ies' : 'y'} right now.`),
+    state.eligible < FRONTIER_TEAM_SIZE
+      ? el('p', { class: 'hint', style: { color: '#ffd9a8' },
+        text: `You need ${FRONTIER_TEAM_SIZE} to battle, so this mode is out of reach for now.` })
+      : null,
+    el('h4', { class: 'sheet-h4', text: 'The ladder' })
+  );
+
+  for (const row of state.levels) body.append(frontierLevelRow(state, row));
+
+  // ---- the Grand Raid at the top ----
+  body.append(el('h4', { class: 'sheet-h4', text: FRONTIER_GRAND_LABEL }));
+  if (!state.boss) {
+    body.append(el('p', { class: 'hint', style: { color: '#ffd9a8' },
+      text: 'No boss is loaded for this challenge. "Exclusives3.csv" is missing, so there is '
+        + 'nothing at the top of the ladder yet.' }));
+  } else if (state.grandWon) {
+    body.append(el('div', { class: 'det-rows' },
+      el('div', { class: 'det-row' },
+        el('img', { src: state.boss.imagePath, alt: state.boss.name }),
+        el('span', { text: state.boss.name }),
+        el('b', { text: '★ Won' }))),
+      el('p', { class: 'hint', text: `Beaten on ${state.mode.label}. Clear all ${FRONTIER_LEVELS} `
+        + 'levels on a different mode to face it again.' }));
+  } else {
+    body.append(el('button', {
+      class: 'cell item-cell tappable frontier-grand',
+      disabled: !state.grandAvailable,
+      onclick: () => startFrontierGrand()
+    },
+      el('img', { src: state.boss.imagePath, alt: state.boss.name }),
+      el('span', { class: 'nm', text: state.boss.name }),
+      el('span', { class: `sub t-${state.boss.type}`, text: `${state.boss.type} · Level ${FRONTIER_RAID_LEVEL}` }),
+      el('span', {
+        class: 'use-hint',
+        text: state.grandAvailable
+          ? 'Open — take it on'
+          : `Beat all ${FRONTIER_LEVELS} levels on this mode first (${state.cleared}/${FRONTIER_LEVELS})`
+      })
+    ),
+    el('p', { class: 'hint', text: `A level ${FRONTIER_RAID_LEVEL} boss with Exclusive Raid `
+      + 'strength, and the same restriction on your team. Win and you can throw an Ultra Capture '
+      + 'Disc at it, on the usual raid shiny odds. It joins your Exclusive collection, and no '
+      + 'raid or egg anywhere else in the game can produce one.' }));
+  }
+}
+
+/** One rung of the ladder: what it costs you, and whether you may attempt it. */
+function frontierLevelRow(state, row) {
+  const { level, cleared, available, missing, team } = row;
+  const { items, heldItem: paysHeld } = frontierLevelRewards(level);
+  const reward = [
+    ...Object.entries(items).map(([id, n]) => `${n} ${itemName(id, n)}`),
+    paysHeld ? 'a random held item' : null
+  ].filter(Boolean).join(', ');
+
+  const levels = team ? team.map(t => t.level).join('/') : '—';
+  return el('button', {
+    class: 'cell item-cell tappable frontier-level'
+      + (cleared ? ' done' : '') + (available ? ' open' : ''),
+    disabled: !available,
+    onclick: () => startFrontierLevel(level)
+  },
+    el('span', { class: 'qty', text: cleared ? '✓' : String(level) }),
+    el('span', { class: 'nm', text: `Level ${level}` }),
+    el('span', {
+      class: 'sub',
+      text: missing ? 'Not in the sheet'
+        : `Their creatures: Lv ${levels}`
+    }),
+    el('span', {
+      class: 'use-hint',
+      text: missing ? '—'
+        : cleared ? 'Beaten on this mode'
+        : available ? reward
+        : `Beat level ${level - 1} first`
+    })
+  );
+}
+
+function startFrontierLevel(level) {
+  const challengeId = frontierChallengeId;
+  const modeId = frontierModeId;
+  if (store.frontierEligible(modeId).length < FRONTIER_TEAM_SIZE) {
+    toast(`You need ${FRONTIER_TEAM_SIZE} creatures that fit this mode`, 'bad', 4200);
+    return;
+  }
+  // Both sheets go away so the battle is not sitting on top of them, and both
+  // come back when it ends.
+  closeSheet('frontier-challenge');
+  closeSheet('battle-frontier');
+  openFrontierBattle({
+    challengeId, level, modeId,
+    onClose: () => reopenFrontier(challengeId)
+  });
+}
+
+function startFrontierGrand() {
+  const challengeId = frontierChallengeId;
+  const modeId = frontierModeId;
+  if (store.frontierEligible(modeId).length < FRONTIER_TEAM_SIZE) {
+    toast(`You need ${FRONTIER_TEAM_SIZE} creatures that fit this mode`, 'bad', 4200);
+    return;
+  }
+  closeSheet('frontier-challenge');
+  closeSheet('battle-frontier');
+  openFrontierGrand({
+    challengeId, modeId,
+    onClose: () => reopenFrontier(challengeId)
+  });
+}
+
+/** Back into the building where the player left it, with progress up to date. */
+function reopenFrontier(challengeId) {
+  if (!store.s.battleFrontier) return;
+  renderBattleFrontier(true);
+  openSheet('battle-frontier');
+  frontierChallengeId = challengeId;
+  renderFrontierChallenge();
+  openSheet('frontier-challenge');
 }
 
 function moveLab() {
@@ -1144,6 +1443,7 @@ function renderInfo(tab = 'basics') {
       el('ul', {},
         el('li', { html: `<b>${SET_NAME}</b> — the ${DB.species.filter(s => s.set === SET_NAME).length} creatures you start the game with. These are what spawn on the map from the very first scan.` }),
         el('li', { html: `<b>${GALACTIC_SET_NAME}</b> — ${DB.galactic.length} more creatures, <b>locked to begin with</b>. You open them one rarity at a time through the <b>Set</b> missions, and each rarity you open joins the ordinary pools for good: wild spawns, incense, eggs, raids and grunt teams alike. See Set missions below.` }),
+        el('li', { html: `<b>${TEMPORAL_SET_NAME}</b> — ${DB.temporal.length} more again, opened the same way but off the back of <b>${GALACTIC_SET_NAME}</b> rather than the first set. Two things are new here: some of these creatures have <b>more than one possible evolution</b> and you choose which one you want, and <b>${restrictedSpecies().length}</b> of them only appear under <b>certain conditions</b>. See below.` }),
         el('li', { html: `<b>${EXCLUSIVE_SET_NAME}</b> — <b>${DB.exclusiveInPlay.length} creatures</b> that never appear in the wild, from an incense, or from a normal egg. <b>Exclusive Raids</b> and the <b>15 km eggs</b> they drop are the only way to get them, and they only come in rarities <b>3, 4 and 5</b>.${
           store.exclusive2Unlocked || !DB.exclusive2.length ? ''
             : ` A <b>second wave</b> is waiting behind a <b>Set</b> mission — register all ${DB.exclusiveInPlay.length} of these and it opens.`
@@ -1151,25 +1451,47 @@ function renderInfo(tab = 'basics') {
         el('li', { html: `<b>${RARITY_NAMES[MYTHICAL_RARITY]}</b> — ${DB.mythical.length === 1 ? 'one creature' : `${DB.mythical.length} creatures`} so far, rarity ${MYTHICAL_RARITY}, each with its own single way of being found. See Mythicals below.` })
       ),
       el('h4', { text: 'Set missions' }),
-      el('p', { html: `The <b>Set</b> tab in Missions is a ladder that opens <b>${GALACTIC_SET_NAME}</b>. Each rung asks you to <b>register</b> a number of <b>${SET_NAME}</b> creatures — registering means having caught, hatched or evolved it at least once, so releasing it later does not undo it — and to have earned an amount of <b>total XP</b>. They never reset.` }),
+      el('p', { html: `The <b>Set</b> tab in Missions is a <b>ladder of ladders</b>: filling in <b>${SET_NAME}</b> opens <b>${GALACTIC_SET_NAME}</b> one rarity at a time, and filling in <b>${GALACTIC_SET_NAME}</b> opens <b>${TEMPORAL_SET_NAME}</b> the same way. Each rung asks you to <b>register</b> a number of creatures from the set before it — registering means having caught, hatched or evolved it at least once, so releasing it later does not undo it — and to have earned an amount of <b>total XP</b>. They never reset.` }),
       el('ul', {},
         ...SET_MISSIONS.map(m => el('li', {
           html: `<b>${m.label}</b>${m.requireXp ? ` (${num(m.requireXp)} total XP)` : ''} — ${
             m.unlockGalacticRarity
               ? `opens <b>rarity ${m.unlockGalacticRarity}</b> ${GALACTIC_SET_NAME} creatures`
-              : m.unlockExclusiveSet
-                ? `opens <b>${DB.exclusive2.length} more ${EXCLUSIVE_SET_NAME}</b> creatures`
-                : 'pays XP and stardust'
-          }${m.id === 'ga5' ? ', plus a <b>Breeding Centre</b> and a <b>50 km egg</b>' : ''}.`
+              : m.unlockTemporalRarity
+                ? `opens <b>rarity ${m.unlockTemporalRarity}</b> ${TEMPORAL_SET_NAME} creatures`
+                : m.unlockExclusiveSet
+                  ? `opens <b>${DB.exclusive2.length} more ${EXCLUSIVE_SET_NAME}</b> creatures`
+                  : 'pays XP and stardust'
+          }${m.id === 'ga5' ? ', plus a <b>Breeding Centre</b> and a <b>50 km egg</b>' : ''}${
+            m.id === 'tr5' ? ', plus a <b>Mysterious Incense</b> and a <b>Chromarion 50 km egg</b>' : ''}.`
         })),
         el('li', { html: 'The bar fills as you register creatures, but the <b>Claim</b> button waits for the XP as well — the row tells you how much you still need.' }),
         el('li', { html: 'Nothing appears until you actually <b>claim</b> the mission. Completing it is not enough.' }),
-        el('li', { html: `Opening a rarity does not change the <b>odds</b> of anything. A wild spawn is still ${pct(RARITY_WEIGHTS[1] / 100)} likely to be a rarity 1 creature — there are simply more rarity 1 creatures it can pick from, ${SET_NAME} and ${GALACTIC_SET_NAME} together.` }),
-        el('li', { html: 'Grunts build their teams from the same pool, so once you are a few rungs in you will meet <b>mixed teams</b> from both sets.' })
+        el('li', { html: `Opening a rarity does not change the <b>odds</b> of anything. A wild spawn is still ${pct(RARITY_WEIGHTS[1] / 100)} likely to be a rarity 1 creature — there are simply more rarity 1 creatures it can pick from, across every set you have opened.` }),
+        el('li', { html: 'Grunts build their teams from the same pool, so once you are a few rungs in you will meet <b>mixed teams</b> from several sets.' })
+      ),
+      el('h4', { text: 'Creatures that only appear sometimes' }),
+      el('p', { html: `Most creatures can turn up whenever. <b>${restrictedSpecies().length}</b> in <b>${TEMPORAL_SET_NAME}</b> cannot: each one waits for a <b>condition</b> before it will spawn on the map, lead a raid or hatch from an egg. Some want a time of day, some a kind of weather, some a particular day of the week, and a couple want something of <i>you</i> — a few kilometres walked, or a few grunts beaten.` }),
+      el('ul', {},
+        el('li', { html: 'Open one in your <b>Collection</b> and it lists exactly what it is waiting for, with the current reading beside each line, so you can see how close you are.' }),
+        el('li', { html: 'The weather ones need a <b>weather reading</b>. Without one they stay away — the game never guesses the conditions.' }),
+        el('li', { html: 'A condition only decides whether a creature can <b>appear</b>. Once you have caught one it is yours, it battles and evolves whenever you like, and it keeps its place in your Collection.' }),
+        el('li', { html: 'A <b>Mysterious Incense</b> will only offer you one of these while its condition is currently met — but once lit it keeps summoning for the full burn.' })
+      ),
+      el('h4', { text: 'Creatures with more than one evolution' }),
+      el('p', { html: `A few <b>${TEMPORAL_SET_NAME}</b> creatures can grow into <b>several different creatures</b>, and you choose which. Tap <b>Evolve</b> and it asks first, showing each option with its type and stat total.` }),
+      el('ul', {},
+        el('li', { html: 'The <b>cost is the same</b> whichever way you go, and the choice is <b>permanent</b> for that creature — though nothing stops you raising another one and taking a different branch.' }),
+        el('li', { html: 'Every branch shares <b>one candy pool</b> and <b>one family</b>, so candy you saved works for any of them.' }),
+        el('li', { html: 'Because the game cannot know which way you will go, the <b>move list</b> for a creature that branches stops at its own moves rather than promising the ones further along.' })
       ),
       el('h4', { text: 'Mythicals' }),
-      el('p', { html: `<b>${RARITY_NAMES[MYTHICAL_RARITY]}</b> creatures are rarity ${MYTHICAL_RARITY} and sit outside all the usual pools — they never spawn, never appear in a raid, and never hatch from an ordinary egg. Each one has a single specific way of being obtained. <b>Astralyon</b> is the first, and it comes from the <b>50 km egg</b> paid out by the last Set mission.` }),
-      el('p', { html: `Their <b>buff move</b> is what sets them apart: instead of raising one stat it raises <b>several at once</b>, and the battle log names each one. Astralyon's raises <b>Attack, Defence and Speed</b> together.` }),
+      el('p', { html: `<b>${RARITY_NAMES[MYTHICAL_RARITY]}</b> creatures are rarity ${MYTHICAL_RARITY} and sit outside all the usual pools — they never spawn, never appear in a raid, and never hatch from an ordinary egg. Each one has a single specific way of being obtained, and its <b>own egg</b>, so a new one can never dilute the odds of an old one.` }),
+      el('ul', {},
+        el('li', { html: `<b>Astralyon</b> comes from the <b>50 km egg</b> paid out by the last <b>${GALACTIC_SET_NAME}</b> Set mission.` }),
+        el('li', { html: `<b>Chromarion</b> comes from the <b>Chromarion 50 km egg</b> paid out by the last <b>${TEMPORAL_SET_NAME}</b> Set mission.` })
+      ),
+      el('p', { html: `Their <b>multi-stat move</b> is what sets them apart: instead of touching one stat it moves <b>several at once</b>, and the battle log names each one. Astralyon's raises its own <b>Attack, Defence and Speed</b>; Chromarion's does the opposite to its opponent, dropping all three.` }),
       el('h4', { text: 'The map' }),
       el('p', { html: `Real places around you become points on the map: <b>shops</b>, <b>cafes and other amenities</b>, <b>tourist spots</b>, <b>bus stops</b>, <b>industrial and service buildings</b>, <b>leisure spots</b> like pitches, playgrounds and sports centres, and even <b>street furniture</b> — <b>trees</b>, <b>poles</b> and <b>pedestrian crossings</b>. Everything within <b>${RULES.SCAN_RADIUS_M} m</b> is checked, and the whole map re-rolls every <b>${scanIntervalLabel()}</b>. <b>Green space</b> is the exception — <b>parks</b>, <b>gardens</b> and <b>grass</b> produce battle grunts instead of loot.` }),
       el('p', { html: `Out on a quiet street the smaller sources matter: a lamp post or a crossing is a point like any other, so a rural lane is no longer an empty map. They cannot crowd each other out either, because nothing appears within <b>${RULES.MIN_SPAWN_SEPARATION_M} m</b> of another point — a road lined with poles produces only what fits.` }),
@@ -1239,6 +1561,21 @@ function renderInfo(tab = 'basics') {
         el('li', { html: 'Backing out part-way still banks whatever you have won, but the essence is spent either way — it cannot be reopened for a better run.' }),
         el('li', { html: 'There are <b>lifetime, daily and weekly missions</b> for it. Only a harvest that actually paid candy counts, so a run of pure misses does not tick them along.' })
       ),
+      el('h4', { text: 'Annual events' }),
+      el('p', { html: `Nine events come round once a year, each lasting <b>three days</b> — except the Holiday Season, which runs from <b>20 December to 1 January</b>. The <b>📅 Calendar</b> in the News tab lists whichever are coming up, and a green chip sits on the map while one is running.` }),
+      el('p', { html: 'Most of them hand you a creature <b>every hour, on your own position</b>, which waits <b>30 minutes</b>. Those spawns use much flatter rarity odds than the wild does — <b>15% Common, 20% Uncommon, 30% Rare, 20% Epic, 15% Legendary</b> — so a Legendary is 15 times more likely from an event creature than from an ordinary spawn. One per clock hour, and opening the game late in an hour still gets that hour\'s creature.' }),
+      el('ul', {},
+        el('li', { html: '<b>🐣 Easter Egg Hunt</b> — <b>Good Friday to Easter Sunday</b>, so it moves every year. Any egg you put into an incubator during these three days needs <b>half the distance</b>, on top of whatever the incubator already takes off: a 5 km egg in an ordinary incubator hatches at <b>2.5 km</b>, and a 15 km egg in a Super Incubator at <b>5.625 km</b>. The discount belongs to the egg, not the day, so a long egg you start on Easter Sunday keeps it until it hatches. Every hatch during the event also pays <b>+3 candy and +20 stardust</b>. No hourly creature — the eggs are the event.' }),
+        el('li', { html: '<b>🔧 Labour Day</b> — <b>1 to 3 May</b>. The hourly creature is always <b>Mechanic</b>.' }),
+        el('li', { html: '<b>🌱 World Environment Day</b> — <b>5 to 7 June</b>. The hourly creature is always <b>Celestial</b>.' }),
+        el('li', { html: '<b>🐦 World Seabird Day</b> — <b>3 to 5 July</b>. The hourly creature is always <b>Wind</b>.' }),
+        el('li', { html: '<b>🕊 World Humanitarian Day</b> — <b>19 to 21 August</b>. The hourly creature is always <b>Mystic</b>.' }),
+        el('li', { html: '<b>☮ International Day of Peace</b> — <b>21 to 23 September</b>. The hourly creature is always <b>Neutral</b>.' }),
+        el('li', { html: '<b>🎃 Halloween</b> — <b>29 to 31 October</b>. Every <b>catch</b>, <b>raid catch</b> and <b>hatch</b> pays <b>+3 candy</b>, and the hourly creature is drawn from a <b>hand-picked cast</b> rather than a type.' }),
+        el('li', { html: '<b>🦃 Thanksgiving</b> — the <b>Tuesday, Wednesday and Thursday</b> of the week of the fourth Thursday in November, so it moves every year. The hourly creature comes from its own <b>hand-picked cast</b>.' }),
+        el('li', { html: '<b>🎁 Holiday Season</b> — <b>20 December to 1 January</b>, the longest event of the year. Every <b>catch</b>, <b>raid catch</b> and <b>hatch</b> pays <b>+1 candy and +15 stardust</b>; the hourly creature can be <b>anything you could normally catch</b>; and a daily mission, <b>Log in today</b>, pays a <b>random held item</b> and <b>one incense</b> — 45% an ordinary Incense, 30% Rare, 15% Shiny, 10% Mysterious.' })
+      ),
+      el('p', { html: 'The event bonuses <b>stack with the weekly ones</b> rather than replacing them, and they are added before the multipliers — so +3 Halloween candy on a <b>Sweet Toothsday</b> is worth 6, and +15 Holiday stardust on a <b>Stardust Sunday</b> is worth 30.' }),
       el('h4', { text: 'Daily events' }),
       el('ul', {},
         el('li', { html: `<b>${STARDUST_SUNDAY_LABEL}</b> — all day every Sunday. Every bit of stardust you earn is <b>×${STARDUST_SUNDAY_MULTIPLIER}</b>: captures, raids, grunts, missions and range rewards alike. The doubling is applied <b>last</b>, after the player-level bonus and any Stardust Magnet, so it doubles the final figure.` }),
@@ -1392,12 +1729,18 @@ function renderInfo(tab = 'basics') {
       el('h4', { text: 'Abilities' }),
       el('p', { html: `Some creatures carry an <b>ability</b>: a permanent trait that makes them hit harder, or hold up better, whenever a particular condition is true — and does nothing at all when it is not. <b>${DB.abilities.size}</b> creatures have one so far. Filter your <b>Collection</b> by <b>Ability</b> to see which, and tap the <b>✦</b> button on a creature to read it.` }),
       el('ul', {},
-        el('li', { html: 'A condition can be about your <b>opponent</b> — its type, stage, rarity or set — or about the <b>world</b>: temperature, cloud cover, humidity, wind, the time of day, the day of the week, the month, or whether it is <b>day or night</b> where you are.' }),
-        el('li', { html: 'One ability can hold <b>several conditions</b>, sometimes opposite ones: dealing more damage in the cold and less in the heat, for instance.' }),
-        el('li', { html: 'Choosing a team, each tile shows a <b>✦</b> when that creature\'s ability <b>will</b> apply in this battle and a <b>✧</b> when it has one that <b>will not</b>. Nothing means no ability. Sorting by <b>Ability in this battle</b> brings the useful ones to the front — the picker already knows the opposing side, the weather and the clock.' }),
+        el('li', { html: 'A condition can be about your <b>opponent</b> — its type, stage, rarity, set or <b>level</b>, whether it is on <b>full HP</b>, whether it is <b>carrying a held item</b>, or whether it has <b>raised one of its own stats</b>.' }),
+        el('li', { html: 'Or about the <b>world</b>: temperature, cloud cover, humidity, wind, rain, the time of day, the day of the week, the day of the <b>month</b>, the month itself, whether it is <b>day or night</b>, and the <b>phase of the moon</b>.' }),
+        el('li', { html: 'Or about <b>where you are and what you are holding it on</b>: how high above sea level you are, how <b>built up</b> the area is — the number of real places the last scan found in range — and how much <b>battery</b> your device has left.' }),
+        el('li', { html: 'Or about <b>your own day</b>: how far you have <b>walked</b>, how many <b>creatures you have caught</b>, <b>shinies</b> you have found, <b>raids</b> you have won or <b>grunts</b> you have beaten today. These reset at midnight with your daily missions.' }),
+        el('li', { html: 'Or about the <b>battle itself</b>: how hurt the creature is, whether it is the <b>last one standing</b>, and <b>which creatures you brought with it</b> — a few abilities only work as part of a particular trio.' }),
+        el('li', { html: 'One ability can hold <b>several conditions</b>, sometimes opposite ones: dealing more damage in the cold and less in the heat, or holding up better while it has team mates and worse once it is alone.' }),
+        el('li', { html: 'A couple do something different again: they <b>hit back as they are knocked out</b>, taking a share of whatever the creature that beat them had left. That can take the opponent down with it.' }),
+        el('li', { html: 'Choosing a team, each tile shows a <b>✦</b> when that creature\'s ability <b>will</b> apply in this battle, a <b>✧?</b> when it <b>depends on how the fight goes</b> — how hurt something gets, who is left standing, being knocked out — and a <b>✧</b> when it has one that <b>will not</b>. Nothing means no ability. Sorting by <b>Ability in this battle</b> brings the useful ones to the front.' }),
         el('li', { html: 'Abilities are read out as a creature <b>takes the field</b> and again whenever a <b>new opponent</b> steps up, so an opponent-based one can switch on part-way through a grunt battle. The log says whether it triggered, and why.' }),
         el('li', { html: `Several conditions firing at once <b>multiply</b>, and the total is capped between <b>${ABILITY_MULTIPLIER_MIN}×</b> and <b>${ABILITY_MULTIPLIER_MAX}×</b>.` }),
-        el('li', { html: 'The weather-based ones need a <b>weather reading</b>. Without one they do not fire — the game never guesses the conditions.' })
+        el('li', { html: 'Anything that needs a <b>reading</b> — the weather, the elevation, the battery, how built up it is — does not fire until there is one. The game never guesses the conditions, so a clause simply stays off rather than being assumed true.' }),
+        el('li', { html: 'The <b>battery</b> ones are the exception worth knowing about: <b>iPhones and Firefox do not let a website read the battery at all</b>, so those two abilities can never trigger there. Everything else works the same everywhere.' })
       ),
       el('h4', { text: 'After the battle' }),
       el('ul', {},
@@ -1422,6 +1765,22 @@ function renderInfo(tab = 'basics') {
         el('li', { html: 'Catching works exactly the same — you still need an <b>Ultra Capture Disc</b>.' }),
         el('li', { html: `XP and stardust match the equivalent normal raid tier, and every normal raid drop still applies. On top of that there is a <b>${pct(EXCLUSIVE_RAID_REWARD.shinyIncenseChance)}</b> chance of a <b>Shiny Incense</b> and a separate <b>${pct(EXCLUSIVE_RAID_REWARD.eggChance)}</b> chance of a <b>15 km egg</b>. The two rolls are independent, so one win can pay both.` }),
         el('li', { html: 'An exclusive win counts towards the ordinary raid missions <i>and</i> its own set of Exclusive Raid missions, so they progress together.' })
+      ),
+
+      el('h4', { text: 'The Battle Frontier' }),
+      el('p', { html: `A building rather than a map point. Pin it like a Breeding Centre — you earn it from the lifetime mission <b>Reach level 9 and register 100 creatures</b> — and inside there is a trainer waiting at every level of every challenge. Nothing here is on a timer, so it is the one place you can battle whenever you like.` }),
+      el('ul', {},
+        el('li', { html: `There are <b>${FRONTIER_CHALLENGES.length} challenges</b>, one per type: ${
+          FRONTIER_CHALLENGES.map(c => `<b>${c.name}</b>`).join(', ')}. Every creature the trainer brings is that type, so you know the matchup before you walk in.` }),
+        el('li', { html: `Each challenge is <b>${FRONTIER_LEVELS} levels</b>, fought in order. Level 1 is three level 3 creatures with modest stats; by level ${FRONTIER_LEVELS} it is three level 9 creatures with over 320 total base stats, all <b>${MAX_STAT_BOOSTS} boost points</b> spent and all holding an item — as strong as a team you could field yourself.` }),
+        el('li', { html: `A <b>mode</b> is a restriction on what <i>you</i> may bring, and there are <b>${FRONTIER_MODES.length}</b> of them: one per type, one per rarity, one per set, <b>Only Exclusives</b>, and <b>No restriction</b>. The team picker shows only the creatures that qualify and says how many that is.` }),
+        el('li', { html: 'A level counts as beaten <b>once per mode</b>. Beat level 1 on <b>No restriction</b> and you can beat it again on <b>Only Rarity 3</b> for the reward a second time — but never twice on the same mode.' }),
+        el('li', { html: `Every level pays <b>${
+          Object.entries(frontierLevelRewards(1).items).map(([id, n]) => `${n} ${itemName(id, n)}`).join(', ')
+        }</b>. From <b>level 4</b> add a <b>random held item</b>, from <b>level 6</b> a <b>Stat Booster</b>, and from <b>level 8</b> a <b>Strength Re-roll Stone</b> and a <b>Mysterious Incense</b>.` }),
+        el('li', { html: `Clear all ${FRONTIER_LEVELS} levels on one mode and that challenge's <b>${FRONTIER_GRAND_LABEL}</b> opens — effectively a level ${FRONTIER_GRAND_LEVEL}. It is a <b>level ${FRONTIER_RAID_LEVEL}</b> boss with full <b>Exclusive Raid</b> strength, fought under the <b>same restriction</b>, and you catch it with an <b>Ultra Capture Disc</b> on the usual raid shiny odds.` }),
+        el('li', { html: `The Grand Raid boss joins your <b>${EXCLUSIVE_SET_NAME}</b> collection and exists <b>nowhere else in the game</b> — no raid, no egg, no incense can produce one. Each challenge has its own, and it is the <b>same boss on every mode</b>, so clearing the same ladder under a different restriction is a chance to catch it again.` }),
+        el('li', { html: 'Progress lives in your save rather than in the building, so <b>Move Battle Frontier</b> re-pins it anywhere without costing you a single clear.' })
       )
     );
   }
@@ -1499,7 +1858,7 @@ function renderInfo(tab = 'basics') {
     out.push(
       el('p', { html: 'A lot of exciting new features are coming soon to the game!' }),
       el('h4', { text: 'More mythicals' }),
-      el('p', { html: `<b>Astralyon</b> is the first <b>Mythical</b>, rarity ${MYTHICAL_RARITY}, and more will follow. Each will have its own way of being found, and like Astralyon their buff moves raise several stats at once.` }),
+      el('p', { html: `<b>Astralyon</b> and <b>Chromarion</b> are the <b>Mythicals</b> so far, rarity ${MYTHICAL_RARITY}, and more will follow. Each arrives with its own way of being found and a move that moves <b>several stats at once</b>.` }),
       el('h4', { text: 'More exclusive creatures' }),
       el('p', { html: `The <b>${EXCLUSIVE_SET_NAME}</b> roster is growing. New creatures are on the way that can only be met through <b>Exclusive Raids</b> and the <b>15 km eggs</b> they drop, so the blue flame stays worth chasing.` }),
       el('h4', { text: 'Fossils' }),
@@ -1508,10 +1867,9 @@ function renderInfo(tab = 'basics') {
       el('p', { html: 'A new building called the <b>Battle Frontier</b> will open up new ways to battle, beyond the raids and grunts you meet on the map. More on how it works closer to the time.' }),
       el('h4', { text: 'More abilities' }),
       el('p', { html: 'Abilities are only getting started. More are coming to <b>creatures that do not have one yet</b>, and to <b>creatures that already do</b> — so it is worth checking the Ability filter in your Collection after an update.' }),
-      el('h4', { text: 'The next set' }),
-      el('p', { html: `With <b>${SET_NAME}</b> and <b>${GALACTIC_SET_NAME}</b> both in play, work has started on what comes after. Filling in a set is what opens the next one, so a full Collection is never wasted effort.` }),
-      el('p', { html: 'Their <b>moves will do more than raw damage or a buff to their own stats</b>. Expect moves that <b>heal the creature using them</b>, and moves that <b>weaken the opponent</b> rather than strengthening yourself.' }),
-      el('p', { html: 'Some of them will not simply turn up on the map either: a few will only be found under <b>specific conditions</b> — on <b>certain days of the week</b>, or in <b>certain weather</b>. The 🌡 chip in the top bar is going to start earning its keep.' })
+      el('h4', { text: 'A fourth set' }),
+      el('p', { html: `With <b>${SET_NAME}</b>, <b>${GALACTIC_SET_NAME}</b> and <b>${TEMPORAL_SET_NAME}</b> all released, work has started on the <b>fourth set</b>. Filling in a set is what opens the next one, so a full Collection is never wasted effort.` }),
+      el('p', { html: 'It brings <b>biomes</b> into the game. Until now the ground under you has only decided <i>how much</i> turns up; with biomes it will decide <i>what</i>. Creatures will belong to <b>particular parts of the world</b> — some only in <b>cities</b>, some only <b>next to water</b>, others out in the <b>open countryside</b> — so where you choose to walk becomes as much a part of collecting as when.' })
     );
   }
 
