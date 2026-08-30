@@ -1,78 +1,75 @@
-id_output,move1 name,move1_x,move1_level_x,move1 buff,move1 buff p,move2 name,move2_x,move2_level_x,move2 buff,move2 buff p,move3 name,move3_x,move3_level_x,move3 buff,move3 buff p,move4 name,move4_x,move4_level_x,move4 buff,move4 buff p,Name,Stage,Type,image,Rarity,Evolves to,Evolution candy,HP,Attack,Defence,Speed,Total,Move1 Name,Move1 Power,Move1 Level,Move1 Stat Buff,Move1 Stat Buff Percentage,Move2 Name,Move2 Power,Move2 Level,Move2 Stat Buff,Move2 Stat Buff Percentage,Move3 Name,Move3 Power,Move3 Level,Move3 Stat Buff,Move3 Stat Buff Percentage,Move4 Name,Move4 Power,Move4 Level,Move4 Stat Buff,Move4 Stat Buff Percentage,move1_level_y,move2_level_y,move3_level_y,move4_level_y,buff_move,move1_y,move2_y,move3_y,move4_y
-Galactic Adventures_01.png,,38,1.0,,,,49,3.0,,,,Buff,6.0,,,,60,10.0,,,Psybella,Stage 1,Mystic,Psybella.png,3.0,Fuschioria,30.0,76.0,56.0,66.0,57.0,255.0,,,,,,,,,,,,,,,,,,,,,1.0,3.0,6.0,10.0,move3,38,49,Buff,60
-Galactic Adventures_02.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_03.png,,30,1.0,,,,51,4.0,,,,Buff,6.0,,,,67,10.0,,,Zenethra,Stage 1,Mystic,Zenethra.png,3.0,,,70.0,60.0,70.0,78.0,278.0,,,,,,,,,,,,,,,,,,,,,1.0,4.0,6.0,10.0,move3,30,51,Buff,67
-Galactic Adventures_04.png,,28,1.0,,,,47,3.0,,,,Buff,6.0,,,,68,8.0,,,Astralin,Stage 1,Mystic,Astralin.png,1.0,Aetherin,20.0,45.0,54.0,45.0,54.0,198.0,,,,,,,,,,,,,,,,,,,,,1.0,3.0,6.0,8.0,move3,28,47,Buff,68
-Galactic Adventures_05.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_06.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_07.png,,30,1.0,,,,49,3.0,,,,Buff,6.0,,,,67,9.0,,,Psychea,Stage 1,Mystic,Psychea.png,2.0,Olympis,25.0,50.0,34.0,65.0,77.0,226.0,,,,,,,,,,,,,,,,,,,,,1.0,3.0,6.0,9.0,move3,30,49,Buff,67
-Galactic Adventures_08.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_09.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_10.png,,40,1.0,,,,54,3.0,,,,Buff,5.0,,,,78,9.0,,,Mummira,Stage 1,Mystic,Mummira.png,4.0,,,89.0,120.0,30.0,67.0,306.0,,,,,,,,,,,,,,,,,,,,,1.0,3.0,5.0,9.0,move3,40,54,Buff,78
-Galactic Adventures_11.png,,25,1.0,,,,51,3.0,,,,Buff,6.0,,,,77,9.0,,,Mangost,Stage 1,Mystic,Mangost.png,1.0,Ectomango,25.0,54.0,54.0,54.0,54.0,216.0,,,,,,,,,,,,,,,,,,,,,1.0,3.0,6.0,9.0,move3,25,51,Buff,77
-Galactic Adventures_12.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_13.png,,37,1.0,,,,50,2.0,,,,Buff,6.0,,,,63,8.0,,,Pantheraura,Stage 1,Mystic,Pantheraura.png,5.0,,,70.0,98.0,89.0,101.0,358.0,,,,,,,,,,,,,,,,,,,,,1.0,2.0,6.0,8.0,move3,37,50,Buff,63
-Galactic Adventures_14.png,,38,1.0,,,,46,2.0,,,,Buff,6.0,,,,78,10.0,,,Frostant,Stage 1,Mystic,Frostant.png,4.0,,,70.0,80.0,76.0,76.0,302.0,,,,,,,,,,,,,,,,,,,,,1.0,2.0,6.0,10.0,move3,38,46,Buff,78
-Galactic Adventures_15.png,,35,1.0,,,,50,2.0,,,,Buff,6.0,,,,63,9.0,,,Airsting,Stage 1,Wind,Airsting.png,1.0,Breezebuzz,25.0,50.0,50.0,50.0,69.0,219.0,,,,,,,,,,,,,,,,,,,,,1.0,2.0,6.0,9.0,move3,35,50,Buff,63
-Galactic Adventures_16.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_17.png,,37,1.0,,,,52,3.0,,,,Buff,6.0,,,,65,8.0,,,Skybee,Stage 1,Wind,Skybee.png,1.0,Zephyrbuzz,25.0,50.0,50.0,50.0,69.0,219.0,,,,,,,,,,,,,,,,,,,,,1.0,3.0,6.0,8.0,move3,37,52,Buff,65
-Galactic Adventures_18.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_19.png,,44,1.0,,,,65,3.0,,,,Buff,7.0,,,,78,9.0,,,Hoatzion,Stage 1,Wind,Hoatzion.png,4.0,,,89.0,80.0,80.0,80.0,329.0,,,,,,,,,,,,,,,,,,,,,1.0,3.0,7.0,9.0,move3,44,65,Buff,78
-Galactic Adventures_20.png,,43,1.0,,,,47,4.0,,,,Buff,5.0,,,,87,8.0,,,Electrogriff,Stage 1,Wind,Electrogriff.png,5.0,,,100.0,102.0,80.0,78.0,360.0,,,,,,,,,,,,,,,,,,,,,1.0,4.0,5.0,8.0,move3,43,47,Buff,87
-Galactic Adventures_21.png,,25,1.0,,,,45,4.0,,,,Buff,5.0,,,,80,8.0,,,Cockeriel,Stage 1,Wind,Cockeriel.png,2.0,Cockatrike,25.0,30.0,25.0,30.0,70.0,155.0,,,,,,,,,,,,,,,,,,,,,1.0,4.0,5.0,8.0,move3,25,45,Buff,80
-Galactic Adventures_22.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_23.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_24.png,,41,1.0,,,,54,3.0,,,,Buff,7.0,,,,73,9.0,,,Tielzor,Stage 1,Wind,Tielzor.png,4.0,,,100.0,100.0,50.0,98.0,348.0,,,,,,,,,,,,,,,,,,,,,1.0,3.0,7.0,9.0,move3,41,54,Buff,73
-Galactic Adventures_25.png,,37,1.0,,,,47,2.0,,,,Buff,7.0,,,,76,8.0,,,Eclipso,Stage 1,Wind,Eclipso.png,3.0,Astraea,30.0,60.0,67.0,60.0,88.0,275.0,,,,,,,,,,,,,,,,,,,,,1.0,2.0,7.0,8.0,move3,37,47,Buff,76
-Galactic Adventures_26.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_27.png,,30,1.0,,,,52,3.0,,,,Buff,6.0,,,,75,10.0,,,Quirkquack,Stage 1,Wind,Quirkquack.png,3.0,,,87.0,67.0,70.0,56.0,280.0,,,,,,,,,,,,,,,,,,,,,1.0,3.0,6.0,10.0,move3,30,52,Buff,75
-Galactic Adventures_28.png,,27,1.0,,,,55,4.0,,,,Buff,7.0,,,,82,9.0,,,Anter,Stage 1,Neutral,Anter.png,2.0,Antoro,20.0,50.0,62.0,44.0,76.0,232.0,,,,,,,,,,,,,,,,,,,,,1.0,4.0,7.0,9.0,move3,27,55,Buff,82
-Galactic Adventures_29.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_30.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_31.png,,38,1.0,,,,45,3.0,,,,Buff,6.0,,,,78,9.0,,,Meerkool Order,Stage 1,Neutral,Meerkool Order.png,1.0,,,70.0,45.0,70.0,45.0,230.0,,,,,,,,,,,,,,,,,,,,,1.0,3.0,6.0,9.0,move3,38,45,Buff,78
-Galactic Adventures_32.png,,29,1.0,,,,52,2.0,,,,Buff,6.0,,,,72,10.0,,,Meerkool Chaos,Stage 1,Neutral,Meerkool Chaos.png,1.0,,,45.0,70.0,45.0,70.0,230.0,,,,,,,,,,,,,,,,,,,,,1.0,2.0,6.0,10.0,move3,29,52,Buff,72
-Galactic Adventures_33.png,,32,1.0,,,,49,4.0,,,,Buff,6.0,,,,70,10.0,,,Pangolilly,Stage 1,Neutral,Pangolilly.png,3.0,Pangomancer,25.0,56.0,44.0,77.0,50.0,227.0,,,,,,,,,,,,,,,,,,,,,1.0,4.0,6.0,10.0,move3,32,49,Buff,70
-Galactic Adventures_34.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_35.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_36.png,,35,1.0,,,,48,4.0,,,,Buff,5.0,,,,79,9.0,,,Mousuck,Stage 1,Neutral,Mousuck.png,2.0,Mousuckler,25.0,25.0,50.0,25.0,60.0,160.0,,,,,,,,,,,,,,,,,,,,,1.0,4.0,5.0,9.0,move3,35,48,Buff,79
-Galactic Adventures_37.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_38.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_39.png,,25,1.0,,,,50,2.0,,,,Buff,5.0,,,,61,9.0,,,Platypog,Stage 1,Neutral,Platypog.png,3.0,Fluffbill,30.0,50.0,50.0,50.0,50.0,200.0,,,,,,,,,,,,,,,,,,,,,1.0,2.0,5.0,9.0,move3,25,50,Buff,61
-Galactic Adventures_40.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_41.png,,32,1.0,,,,55,3.0,,,,Buff,5.0,,,,63,10.0,,,Goggly,Stage 1,Neutral,Goggly.png,1.0,,,30.0,30.0,30.0,150.0,240.0,,,,,,,,,,,,,,,,,,,,,1.0,3.0,5.0,10.0,move3,32,55,Buff,63
-Galactic Adventures_42.png,,26,1.0,,,,46,3.0,,,,Buff,6.0,,,,77,10.0,,,Cloudlet,Stage 1,Neutral,Cloudlet.png,2.0,Cloudboss,25.0,50.0,65.0,45.0,45.0,205.0,,,,,,,,,,,,,,,,,,,,,1.0,3.0,6.0,10.0,move3,26,46,Buff,77
-Galactic Adventures_43.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_44.png,,31,1.0,,,,51,3.0,,,,Buff,6.0,,,,79,8.0,,,Sadotter,Stage 1,Neutral,Sadotter.png,3.0,Weeweep,25.0,60.0,45.0,50.0,40.0,195.0,,,,,,,,,,,,,,,,,,,,,1.0,3.0,6.0,8.0,move3,31,51,Buff,79
-Galactic Adventures_45.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_46.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_47.png,,34,1.0,,,,62,4.0,,,,Buff,6.0,,,,64,10.0,,,Starraffe,Stage 1,Celestial,Starraffe.png,5.0,,,78.0,100.0,75.0,100.0,353.0,,,,,,,,,,,,,,,,,,,,,1.0,4.0,6.0,10.0,move3,34,62,Buff,64
-Galactic Adventures_48.png,,27,1.0,,,,55,3.0,,,,Buff,6.0,,,,82,9.0,,,Trunket,Stage 1,Celestial,Trunket.png,2.0,Elefeir,25.0,80.0,50.0,50.0,25.0,205.0,,,,,,,,,,,,,,,,,,,,,1.0,3.0,6.0,9.0,move3,27,55,Buff,82
-Galactic Adventures_49.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_50.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_51.png,,35,1.0,,,,54,4.0,,,,Buff,6.0,,,,66,8.0,,,Lumifloris,Stage 1,Celestial,Lumifloris.png,1.0,Photosynthra,25.0,33.0,70.0,45.0,54.0,202.0,,,,,,,,,,,,,,,,,,,,,1.0,4.0,6.0,8.0,move3,35,54,Buff,66
-Galactic Adventures_52.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_53.png,,35,1.0,,,,52,3.0,,,,Buff,5.0,,,,74,9.0,,,Nebuleap,Stage 1,Celestial,Nebuleap.png,1.0,Comiscroaker,25.0,40.0,43.0,45.0,50.0,178.0,,,,,,,,,,,,,,,,,,,,,1.0,3.0,5.0,9.0,move3,35,52,Buff,74
-Galactic Adventures_54.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_55.png,,35,1.0,,,,45,3.0,,,,Buff,6.0,,,,63,8.0,,,Crocasprout,Stage 1,Celestial,Crocasprout.png,3.0,Crocablade,20.0,60.0,65.0,70.0,45.0,240.0,,,,,,,,,,,,,,,,,,,,,1.0,3.0,6.0,8.0,move3,35,45,Buff,63
-Galactic Adventures_56.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_57.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_58.png,,37,1.0,,,,47,4.0,,,,Buff,7.0,,,,71,8.0,,,Beanling,Stage 1,Celestial,Beanling.png,3.0,Beanleaf,25.0,10.0,80.0,23.0,55.0,168.0,,,,,,,,,,,,,,,,,,,,,1.0,4.0,7.0,8.0,move3,37,47,Buff,71
-Galactic Adventures_59.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_60.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_61.png,,32,1.0,,,,65,4.0,,,,Buff,6.0,,,,90,9.0,,,Astrollus,Stage 1,Celestial,Astrollus.png,4.0,,,83.0,82.0,89.0,90.0,344.0,,,,,,,,,,,,,,,,,,,,,1.0,4.0,6.0,9.0,move3,32,65,Buff,90
-Galactic Adventures_62.png,,29,1.0,,,,51,2.0,,,,Buff,6.0,,,,69,8.0,,,Laugherry,Stage 1,Celestial,Laugherry.png,2.0,Gigglewood,25.0,25.0,20.0,50.0,55.0,150.0,,,,,,,,,,,,,,,,,,,,,1.0,2.0,6.0,8.0,move3,29,51,Buff,69
-Galactic Adventures_63.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_64.png,,28,1.0,,,,51,2.0,,,,Buff,6.0,,,,65,8.0,,,Steellamb,Stage 1,Mechanic,Steellamb.png,2.0,Pigmoat,25.0,45.0,65.0,55.0,25.0,190.0,,,,,,,,,,,,,,,,,,,,,1.0,2.0,6.0,8.0,move3,28,51,Buff,65
-Galactic Adventures_65.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_66.png,,26,1.0,,,,54,4.0,,,,Buff,7.0,,,,70,8.0,,,Lithogarde,Stage 1,Mechanic,Lithogarde.png,2.0,Gallicore,25.0,66.0,54.0,88.0,25.0,233.0,,,,,,,,,,,,,,,,,,,,,1.0,4.0,7.0,8.0,move3,26,54,Buff,70
-Galactic Adventures_67.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_68.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_69.png,,30,1.0,,,,52,4.0,,,,Buff,6.0,,,,68,10.0,,,Gearpup,Stage 1,Mechanic,Gearpup.png,1.0,Gearstrike,25.0,50.0,50.0,80.0,40.0,220.0,,,,,,,,,,,,,,,,,,,,,1.0,4.0,6.0,10.0,move3,30,52,Buff,68
-Galactic Adventures_70.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_71.png,,34,1.0,,,,47,2.0,,,,Buff,6.0,,,,61,8.0,,,Steelspirit,Stage 1,Mechanic,Steelspirit.png,4.0,,,60.0,70.0,111.0,78.0,319.0,,,,,,,,,,,,,,,,,,,,,1.0,2.0,6.0,8.0,move3,34,47,Buff,61
-Galactic Adventures_72.png,,26,1.0,,,,55,3.0,,,,Buff,5.0,,,,75,8.0,,,Auregear,Stage 1,Mechanic,Auregear.png,3.0,Mechalumin,25.0,45.0,76.0,75.0,36.0,232.0,,,,,,,,,,,,,,,,,,,,,1.0,3.0,5.0,8.0,move3,26,55,Buff,75
-Galactic Adventures_73.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_74.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Galactic Adventures_75.png,,42,1.0,,,,46,2.0,,,,Buff,5.0,,,,75,8.0,,,Metalmagma,Stage 1,Mechanic,Metalmagma.png,5.0,,,100.0,92.0,100.0,60.0,352.0,,,,,,,,,,,,,,,,,,,,,1.0,2.0,5.0,8.0,move3,42,46,Buff,75
-Galactic Adventures_76.png,,26,1.0,,,,55,2.0,,,,Buff,6.0,,,,68,8.0,,,Gadgetrix,Stage 1,Mechanic,Gadgetrix.png,3.0,Teklash,35.0,64.0,60.0,68.0,60.0,252.0,,,,,,,,,,,,,,,,,,,,,1.0,2.0,6.0,8.0,move3,26,55,Buff,68
-Galactic Adventures_77.png,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+id_output,move1 name,move1_x,move1_level_x,move1 buff,move1 buff p,move2 name,move2_x,move2_level_x,move2 buff,move2 buff p,move3 name,move3_x,move3_level_x,move3 buff,move3 buff p,move4 name,move4_x,move4_level_x,move4 buff,move4 buff p,Name,Stage,Type,image,Rarity,Spawn Restriction,Evolves to,Evolution candy,HP,Attack,Defence,Speed,Total,Move1 Name,Move1 Power,Move1 Level,Move1 Effect,Move1 Effect number,Move2 Name,Move2 Power,Move2 Level,Move2 Effect,Move2 Effect number,Move3 Name,Move3 Power,Move3 Level,Move3 Effect,Move3 Effect number,Move4 Name,Move4 Power,Move4 Level,Move4 Effect,Move4 Effect number,Unnamed: 34,Unnamed: 35,Unnamed: 36,Unnamed: 37,move1_level_y,move2_level_y,move3_level_y,move4_level_y,buff_move,move1_y,move2_y,move3_y,move4_y
+Temporal Rift_01,,32,1.0,,,,Buff,4.0,,,,56,5.0,,,,65,8.0,,,Toxikin,Stage 1,Mystic,Toxikin.png,2.0,,Toxighoul,25.0,45.0,45.0,45.0,72.0,207.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,4.0,5.0,8.0,move2,32,Buff,56,65
+Temporal Rift_02,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_03,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_04,,22,1.0,,,,51,2.0,,,,Buff,5.0,,,,72,8.0,,,Mythloon,Stage 1,Mystic,Mythloon.png,1.0,Daylight = Night,Wraithrift,25.0,43.0,89.0,38.0,77.0,247.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,2.0,5.0,8.0,move3,22,51,Buff,72
+Temporal Rift_05,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_06,,30,1.0,,,,42,3.0,,,,Buff,5.0,,,,66,8.0,,,Echolet,Stage 1,Mystic,Echolet.png,2.0,,Serenewt,30.0,67.0,45.0,77.0,39.0,228.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,3.0,5.0,8.0,move3,30,42,Buff,66
+Temporal Rift_07,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_08,,20,1.0,,,,41,3.0,,,,Buff,6.0,,,,72,8.0,,,Orkidia,Stage 1,Mystic,Orkidia.png,3.0,,Wispetal,30.0,55.0,65.0,43.0,68.0,231.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,3.0,6.0,8.0,move3,20,41,Buff,72
+Temporal Rift_09,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_10,,27,1.0,,,,40,4.0,,,,Buff,5.0,,,,61,8.0,,,Umbropplet,Stage 1,Mystic,Umbropplet.png,2.0,Precipitation > 0,Parasole,30.0,50.0,50.0,50.0,50.0,200.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,4.0,5.0,8.0,move3,27,40,Buff,61
+Temporal Rift_11,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_12,,26,1.0,,,,Buff,3.0,,,,61,5.0,,,,72,9.0,,,Lumimba,Stage 1,Mystic,Lumimba.png,2.0,,Solmane,25.0,45.0,50.0,43.0,64.0,202.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,3.0,5.0,9.0,move2,26,Buff,61,72
+Temporal Rift_13,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_14,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_15,,40,1.0,,,,47,3.0,,,,73,7.0,,,,Buff,8.0,,,Nyamura,Stage 1,Mystic,Nyamura.png,5.0,,,,99.0,81.0,99.0,81.0,360.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,3.0,7.0,8.0,move4,40,47,73,Buff
+Temporal Rift_16,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_17,,31,1.0,,,,48,3.0,,,,Buff,5.0,,,,85,8.0,,,Faygoal Mystic,Stage 1,Mystic,Faygoal Mystic.png,4.0,,,,65.0,77.0,65.0,88.0,295.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,3.0,5.0,8.0,move3,31,48,Buff,85
+Temporal Rift_18,,26,1.0,,,,Buff,3.0,,,,58,6.0,,,,77,9.0,,,Pebblift,Stage 1,Wind,Pebblift.png,3.0,,Aerolithon,30.0,55.0,71.0,56.0,67.0,249.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,3.0,6.0,9.0,move2,26,Buff,58,77
+Temporal Rift_19,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_20,,23,1.0,,,,44,3.0,,,,61,7.0,,,,Buff,8.0,,,Loonaqua,Stage 1,Wind,Loonaqua.png,1.0,,Aqualoon,20.0,20.0,40.0,20.0,80.0,160.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,3.0,7.0,8.0,move4,23,44,61,Buff
+Temporal Rift_21,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_22,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_23,,21,1.0,,,,Buff,3.0,,,,58,6.0,,,,77,8.0,,,Nimbearis,Stage 1,Wind,Nimbearis.png,3.0,cloud cover > 80,,,108.0,71.0,60.0,78.0,317.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,3.0,6.0,8.0,move2,21,Buff,58,77
+Temporal Rift_24,,28,1.0,,,,57,2.0,,,,61,5.0,,,,Buff,8.0,,,Cycloblaze,Stage 1,Wind,Cycloblaze.png,4.0,Temperature > 18,,,72.0,92.0,70.0,89.0,323.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,2.0,5.0,8.0,move4,28,57,61,Buff
+Temporal Rift_25,,31,1.0,,,,48,4.0,,,,Buff,6.0,,,,68,9.0,,,Eskiddo,Stage 1,Wind,Eskiddo.png,1.0,,Cryobbit,30.0,66.0,60.0,67.0,77.0,270.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,4.0,6.0,9.0,move3,31,48,Buff,68
+Temporal Rift_26,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_27,,32,1.0,,,,40,2.0,,,,Buff,6.0,,,,67,8.0,,,Cacklair,Stage 1,Wind,Cacklair.png,2.0,,Snickurl,30.0,70.0,50.0,70.0,56.0,246.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,2.0,6.0,8.0,move3,32,40,Buff,67
+Temporal Rift_28,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_29,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_30,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_31,,37,1.0,,,,Buff,3.0,,,,60,6.0,,,,68,9.0,,,Faygoal Wind,Stage 1,Wind,Faygoal Wind.png,4.0,,,,65.0,77.0,65.0,88.0,295.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,3.0,6.0,9.0,move2,37,Buff,60,68
+Temporal Rift_32,,30,1.0,,,,54,2.0,,,,63,7.0,,,,Buff,8.0,,,Flakette,Stage 1,Neutral,Flakette.png,1.0,,,,53.0,46.0,51.0,50.0,200.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,2.0,7.0,8.0,move4,30,54,63,Buff
+Temporal Rift_33,,33,1.0,,,,51,3.0,,,,Buff,5.0,,,,61,10.0,,,Canelette,Stage 1,Neutral,Canelette.png,1.0,,,,50.0,53.0,46.0,51.0,200.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,3.0,5.0,10.0,move3,33,51,Buff,61
+Temporal Rift_34,,22,1.0,,,,48,3.0,,,,Buff,5.0,,,,66,8.0,,,Rollinette,Stage 1,Neutral,Rollinette.png,1.0,,,,46.0,51.0,50.0,53.0,200.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,3.0,5.0,8.0,move3,22,48,Buff,66
+Temporal Rift_35,,25,1.0,,,,53,3.0,,,,Buff,6.0,,,,72,8.0,,,Anukibi,Stage 1,Neutral,Anukibi.png,2.0,walked today > 2,Anukara,25.0,63.0,57.0,59.0,60.0,239.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,3.0,6.0,8.0,move3,25,53,Buff,72
+Temporal Rift_36,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_37,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_38,,30,1.0,,,,43,3.0,,,,58,5.0,,,,Buff,10.0,,,Harpuddle,Stage 1,Neutral,Harpuddle.png,4.0,Temperature < 10,,,98.0,79.0,102.0,40.0,319.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,3.0,5.0,10.0,move4,30,43,58,Buff
+Temporal Rift_39,,31,1.0,,,,Buff,2.0,,,,58,7.0,,,,69,10.0,,,Terruffian,Stage 1,Neutral,Terruffian.png,2.0,,Yawnshire,25.0,62.0,53.0,43.0,65.0,223.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,2.0,7.0,10.0,move2,31,Buff,58,69
+Temporal Rift_40,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_41,,25,1.0,,,,Buff,2.0,,,,61,6.0,,,,74,8.0,,,Snoozoth,Stage 1,Neutral,Snoozoth.png,3.0,Day = Monday,,,120.0,34.0,132.0,10.0,296.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,2.0,6.0,8.0,move2,25,Buff,61,74
+Temporal Rift_42,,29,1.0,,,,Buff,3.0,,,,61,6.0,,,,75,9.0,,,Nibblink,Stage 1,Neutral,Nibblink.png,3.0,,Earloam,25.0,50.0,40.0,60.0,50.0,200.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,3.0,6.0,9.0,move2,29,Buff,61,75
+Temporal Rift_43,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_44,,30,1.0,,,,61,3.0,,,,62,7.0,,,,Buff,8.0,,,Gazorilla,Stage 1,Neutral,Gazorilla.png,5.0,,,,119.0,96.0,102.0,43.0,360.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,3.0,7.0,8.0,move4,30,61,62,Buff
+Temporal Rift_45,,27,1.0,,,,Buff,3.0,,,,67,6.0,,,,76,8.0,,,Vulpetta,Stage 1,Neutral,Vulpetta.png,1.0,,"Noctivane, Zephyraun, Florvulpa, Rustarok",30.0,50.0,60.0,50.0,60.0,220.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,3.0,6.0,8.0,move2,27,Buff,67,76
+Temporal Rift_46,,35,1.0,,,,43,2.0,,,,Buff,6.0,,,,62,9.0,,,Solyssa,Stage 1,Celestial,Solyssa.png,5.0,,,,81.0,111.0,87.0,81.0,360.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,2.0,6.0,9.0,move3,35,43,Buff,62
+Temporal Rift_47,,24,1.0,,,,Buff,3.0,,,,60,6.0,,,,60,8.0,,,Petitelo,Stage 1,Celestial,Petitelo.png,1.0,,Pomelune,25.0,67.0,62.0,49.0,78.0,256.0,,,1.0,,,,,,,,,0.0,7.0,Heal self,70.0,,,,,,0.0,7.0,Heal self,70.0,1.0,3.0,6.0,8.0,move2,24,Buff,60,60
+Temporal Rift_48,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_49,,23,1.0,,,,45,3.0,,,,Buff,7.0,,,,61,10.0,,,Florinelle,Stage 1,Celestial,Florinelle.png,2.0,,Lavandread,25.0,53.0,41.0,43.0,53.0,190.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,3.0,7.0,10.0,move3,23,45,Buff,61
+Temporal Rift_50,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_51,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_52,,24,1.0,,,,48,4.0,,,,60,6.0,,,,Buff,10.0,,,Solflare,Stage 1,Celestial,Solflare.png,3.0,Daylight = Daytime,,,84.0,97.0,57.0,92.0,330.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,4.0,6.0,10.0,move4,24,48,60,Buff
+Temporal Rift_53,,31,1.0,,,,52,4.0,,,,Buff,5.0,,,,61,9.0,,,Noonette,Stage 1,Celestial,Noonette.png,1.0,,Anomortis,25.0,60.0,51.0,52.0,56.0,219.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,4.0,5.0,9.0,move3,31,52,Buff,61
+Temporal Rift_54,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_55,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_56,,31,1.0,,,,53,4.0,,,,Buff,6.0,,,,60,9.0,,,Craggit,Stage 1,Celestial,Craggit.png,3.0,Humidity > 75,,,85.0,45.0,140.0,30.0,300.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,4.0,6.0,9.0,move3,31,53,Buff,60
+Temporal Rift_57,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_58,,22,1.0,,,,44,2.0,,,,Buff,6.0,,,,63,9.0,,,Funglet,Stage 1,Celestial,Funglet.png,2.0,,"Myceloroot, Glidroot",30.0,44.0,44.0,65.0,30.0,183.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,2.0,6.0,9.0,move3,22,44,Buff,63
+Temporal Rift_59,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_60,,29,1.0,,,,Buff,4.0,,,,55,7.0,,,,63,10.0,,,Cogmite,Stage 1,Mechanic,Cogmite.png,1.0,,Gearachnid,25.0,45.0,66.0,76.0,65.0,252.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,4.0,7.0,10.0,move2,29,Buff,55,63
+Temporal Rift_61,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_62,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_63,,31,1.0,,,,48,3.0,,,,Buff,6.0,,,,70,9.0,,,Tanglett,Stage 1,Mechanic,Tanglett.png,2.0,,Tangrash,25.0,71.0,56.0,70.0,56.0,253.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,3.0,6.0,9.0,move3,31,48,Buff,70
+Temporal Rift_64,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_65,,45,1.0,,,,Buff,2.0,,,,68,6.0,,,,86,9.0,,,Ignivault,Stage 1,Mechanic,Ignivault.png,4.0,,,,70.0,59.0,80.0,88.0,297.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,2.0,6.0,9.0,move2,45,Buff,68,86
+Temporal Rift_66,,32,1.0,,,,42,4.0,,,,Buff,7.0,,,,62,8.0,,,Lemirron,Stage 1,Mechanic,Lemirron.png,3.0,,Smeldern,30.0,60.0,66.0,70.0,50.0,246.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,4.0,7.0,8.0,move3,32,42,Buff,62
+Temporal Rift_67,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_68,,24,1.0,,,,47,3.0,,,,67,6.0,,,,Buff,9.0,,,Gridlet,Stage 1,Mechanic,Gridlet.png,2.0,grunts today > 2,Granigrit,25.0,56.0,49.0,66.0,81.0,252.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,3.0,6.0,9.0,move4,24,47,67,Buff
+Temporal Rift_69,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_70,,27,1.0,,,,44,3.0,,,,63,6.0,,,,Buff,8.0,,,Desklerk,Stage 1,Mechanic,Desklerk.png,3.0,"Day = Monday, Tuesday, Wednesday, Thursday, Friday & Hour between 9 and 5",,,84.0,79.0,84.0,68.0,315.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,3.0,6.0,8.0,move4,27,44,63,Buff
+Temporal Rift_71,,42,1.0,,,,43,4.0,,,,69,6.0,,,,Buff,9.0,,,Sanctuarch,Stage 1,Mechanic,Sanctuarch.png,5.0,Day = Sunday,,,115.0,70.0,115.0,60.0,360.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,4.0,6.0,9.0,move4,42,43,69,Buff
+Temporal Rift_72,,29,1.0,,,,42,2.0,,,,Buff,7.0,,,,63,8.0,,,Frymite,Stage 1,Mechanic,Frymite.png,3.0,,Voltfryer,30.0,59.0,59.0,67.0,55.0,240.0,,,1.0,,,,,,,,,,,,,,,,,,,,,,1.0,2.0,7.0,8.0,move3,29,42,Buff,63
+Temporal Rift_73,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Temporal Rift_74,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,

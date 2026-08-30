@@ -1,0 +1,21 @@
+id_output,Name,Ability Name,Ability Description,Effect,Percent,Trigger,Value,Min,Max
+,,Perfect Formation,Deals 100% more damage and takes 50% less damage while the other two creatures in the team are Chippa and Tympanarch. Stays active even after one of them has fainted.,deal more,100,team,"Chippa, Tympanarch",,
+,,Perfect Formation,Deals 100% more damage and takes 50% less damage while the other two creatures in the team are Chippa and Tympanarch. Stays active even after one of them has fainted.,take less,50,team,"Chippa, Tympanarch",,
+,,Parting Shot,"Deals damage equal to 50% of the opponent's remaining HP at the moment this creature faints, rounded to the nearest whole HP and never less than 1, so an opponent on 1 HP is knocked out.",deal on faint,50,always,,,
+,,Thief's Instinct,Deals 20% more damage while the opposing creature is carrying a held item.,deal more,20,opposing held,Any,,
+,,First Strike,Deals 30% more damage while the opposing creature is on full HP.,deal more,30,opposing hp,,100,
+,,Second Wind,Takes 30% less damage while this creature is on 60% of its maximum HP or less.,take less,30,own hp,,,60
+,,Desperate Fury,Deals 25% more damage while this creature is on 30% of its maximum HP or less.,deal more,25,own hp,,,30
+,,Fresh Start,Deals 30% more damage on the first five days of the month.,deal more,30,day of month,,1,5
+,,Fully Charged,Deals 30% more damage while the device has 80% battery or more.,deal more,30,battery,,80,
+,,Long Strider,Deals 30% more damage once the player has walked 5 km or more today.,deal more,30,walked today,,5,
+,,Raid Veteran,Deals 30% more damage once the player has won 5 or more raids today.,deal more,30,raids today,,5,
+,,Street Brawler,Deals 30% more damage once the player has beaten 5 or more grunts today.,deal more,30,grunts today,,5,
+,,Master Collector,Deals 30% more damage once the player has caught 50 or more creatures today.,deal more,30,captures today,,50,
+,,Underdog,Deals 25% more damage while the opposing creature is level 8 or above.,deal more,25,opposing level,,8,
+,,Lucky Star,Deals 25% more damage once the player has caught a shiny creature today.,deal more,25,shinies today,,1,
+,,Last Stand,Deals 25% more damage while it is the only creature left standing in the team.,deal more,25,last standing,Yes,,
+,,Moonlit Frenzy,Deals 25% more damage on the night of a full moon.,deal more,25,moon,Full,,
+,,Mountaineer,Takes 25% less damage while the player is above 250 m of elevation.,take less,25,elevation,,250,
+,,Country Roads,"Deals 25% more damage while the player is somewhere rural, meaning the latest scan found fewer than 8 points.",deal more,25,points scanned,,,7
+,,Armour Breaker,Takes 40% less damage while the opposing creature has buffed its Defence.,take less,40,opposing buffed,Defence,,

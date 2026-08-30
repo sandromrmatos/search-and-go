@@ -14,7 +14,7 @@ Elemental Awakening_12,Spiritfoil,Stage 1,Mystic,1,Nebulicorn,42,34,46,45,Shade 
 Elemental Awakening_13,Nebulicorn,Stage 2,Mystic,,Wraithhorn,59,45,67,67,Shade Tackle,31,1,,,Nebula Howl,36,2,,,Wraith Dash,0,7,Speed,40%,Centric Horizon,60,8,,
 Elemental Awakening_14,Wraithhorn,Stage 3,Mystic,,,91,87,72,80,Shade Tackle,31,1,,,Nebula Howl,36,2,,,Wraith Dash,0,7,Speed,40%,Centric Horizon,66,8,,
 Elemental Awakening_15,Dragomind,Stage 1,Mystic,1,Mindsheer,50,50,50,50,Mind Blaze,19,1,,,Blue Nova,46,3,,,,,,,,,,,,
-Elemental Awakening_16,Mindsheer,Stage 2,Mystic,,Psydrake,65,65,65,65,Mind Blaze,19,1,,,Blue Nova,46,3,,,Brain Freeze,0,6,Attack,40%,Spirit Chant,52,8,,
+Elemental Awakening_16,Mindsheer,Stage 2,Mystic,,Psydrake,65,65,65,65,Mind Blaze,19,1,,,Blue Nova,46,3,,,Brain Freeze,0,6,Attack,40%,Spirit Chant,63,8,,
 Elemental Awakening_17,Psydrake,Stage 3,Mystic,,,82,82,82,82,Mind Blaze,19,1,,,Blue Nova,46,3,,,Brain Freeze,0,6,Attack,40%,Spirit Chant,63,8,,
 Elemental Awakening_18,Zephyrquill,Stage 1,Wind,3,,30,60,30,109,Gale Flow,11,1,,,Light Blow,48,3,,,Whirl Burst,0,6,Attack,40%,Zephyr Strike,78,8,,
 Elemental Awakening_19,Aeruffin,Stage 1,Wind,4,,98,89,61,93,Beak Gust,42,1,,,Gale Flip,42,3,,,Storm Carve,65,7,,,Wind Reaver,0,8,Speed,45%
@@ -65,7 +65,7 @@ Elemental Awakening_63,Orbitmelon,Stage 3,Celestial,,,76,65,87,89,Nebula Kiss,26
 Elemental Awakening_64,Voltveil,Stage 1,Mechanic,3,,80,80,80,50,Iron Spin,22,1,,,Steel Crush,42,4,,,Alloy Strike,64,7,,,Gear Smash,0,9,Defence,40%
 Elemental Awakening_65,Byteblade,Stage 1,Mechanic,4,,100,45,150,40,Shadow Byte,30,1,,,Iron Spike,48,2,,,Wrench Strike,59,5,,,Bolt Cutter,0,9,Attack,40%
 Elemental Awakening_66,Venomgear,Stage 1,Mechanic,2,Toxiforge,50,55,60,30,Toxic Toss,21,1,,,Veno Slash,0,4,Defence,40%,,,,,,,,,,
-Elemental Awakening_67,Toxiforge,Stage 2,Mechanic,,,86,95,88,31,Toxic Toss,21,1,,,Veno Slash,0,4,Defence,40%,Quick Reflexes,53,6,,,Gearburst,57,9,,
+Elemental Awakening_67,Toxiforge,Stage 2,Mechanic,,,86,95,88,31,Toxic Toss,21,1,,,Veno Slash,0,4,Defence,40%,Quick Reflexes,53,6,,,Gearburst,62,9,,
 Elemental Awakening_68,Envoye,Stage 1,Mechanic,5,,73,100,129,50,Forceful Flip,37,1,,,Scrap Strike,46,4,,,Cog Snap,0,6,Defence,45%,Rivet Slam,82,8,,
 Elemental Awakening_69,Struto,Stage 1,Mechanic,2,Strutalon,50,46,80,55,Metallic Wing,18,1,,,Turbo Charge,50,3,,,,,,,,,,,,
 Elemental Awakening_70,Strutalon,Stage 2,Mechanic,,,59,78,86,78,Metallic Wing,18,1,,,Turbo Charge,50,3,,,Hard as Steel,0,6,Speed,40%,Aerodrive,65,8,,
