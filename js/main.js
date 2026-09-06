@@ -45,7 +45,9 @@ import { initShop, renderShop } from './shop.js';
 import { renderNews, renderNewsBadge, loadNews, openCalendar } from './news.js';
 import { initEggs, maybePromptHatch, showEggDropPopup } from './eggs.js';
 import { backupOncePerDay } from './cloud.js';
-import { $, $$, el, toast, wireSheetClosers, openSheet, closeSheet, num } from './ui.js';
+import {
+  $, $$, el, toast, wireSheetClosers, openSheet, closeSheet, num, syncOverlayState
+} from './ui.js';
 
 const CANDY_ICON = '🍬';
 const DUST_ICON = '✨';
@@ -991,6 +993,13 @@ function startLoop() {
     updateResetChip(now);
     renderEffectChips(now);
     maybePromptHatch();
+
+    /* Keep the "something is covering the map" flag honest. openSheet and
+       closeSheet set it the moment they run, which covers every sheet; this
+       catches the overlays that toggle their own class instead — a battle, a
+       capture, a modal, hold-to-peek. A second late is fine: what it saves is
+       the map animating underneath a long interaction, not a brief one. */
+    syncOverlayState();
 
     const until = msUntilNextScan(now);
     if (until <= 0 && !isScanning() && Geo.current && !capturing && now >= scanCooldownUntil) {

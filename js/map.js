@@ -7,6 +7,17 @@ import { itemImage } from './items.js';
 import { distance, formatDistance } from './geo.js';
 import { timeLeftLabel } from './ui.js';
 
+/**
+ * How far past the edge of the view a marker still counts as on screen.
+ *
+ * 0.35 is a third of the view in every direction, which is well beyond what a
+ * flick can reveal before `moveend` fires, so markers never pop into life at the
+ * edge. While the map is rotated Leaflet reports the bounds of the enlarged
+ * square container, which is a superset of what you can see, so rotation only
+ * ever makes this more generous.
+ */
+const MARKER_CULL_PAD = 0.35;
+
 /** How far you must twist before rotation engages, so pinching stays pinching. */
 const ROTATE_DEADZONE_DEG = 8;
 /** Let go within this of north and it snaps flat. */
@@ -164,6 +175,11 @@ export const GameMap = {
 
     // Any manual pan turns off auto-follow so the map stops fighting the user.
     this.map.on('dragstart', () => { this.followMe = false; });
+
+    // Markers that have scrolled out of view are switched off, so a point a
+    // kilometre behind you stops animating. Leaflet does not do this for markers
+    // on its own.
+    this.map.on('moveend zoomend resize', () => this._cullMarkers());
 
     this._patchPointerMaths();
     this._initRotation();
@@ -434,8 +450,68 @@ export const GameMap = {
         marker,
         el: root,
         timerEl: root.querySelector('.spawn-timer'),
-        point
+        point,
+        // Assume on screen until the first cull says otherwise, so a marker is
+        // never invisible for a frame after being created.
+        onScreen: true
       });
+    }
+
+    this._cullMarkers();
+  },
+
+  /**
+   * Switches off every marker outside the view.
+   *
+   * Leaflet keeps all of them in the DOM however far off screen they are, and
+   * every one of ours animates: a wild creature is five twinkling stars and a
+   * pulsing glow, a raid is a flickering flame. Walking for twenty minutes
+   * leaves a trail of hundreds of them animating behind you for nobody.
+   *
+   * `display: none` rather than removing the marker: it stops animations in the
+   * whole subtree outright, and the marker keeps its place on the map, so panning
+   * back shows it again instantly with nothing to rebuild.
+   */
+  _cullMarkers() {
+    if (!this.map || !this.markers.size) return;
+    /* A map on a tab the player is not looking at has no size, and so no
+       meaningful bounds. Leave every marker exactly as it is rather than
+       switching them all off on the strength of bad numbers — `invalidateSize`
+       fires a moveend when the tab comes back, which culls properly. */
+    const size = this.map.getSize();
+    if (!size.x || !size.y) return;
+
+    // Generous, so a marker is never popping into life right at the screen edge.
+    let bounds;
+    try { bounds = this.map.getBounds().pad(MARKER_CULL_PAD); } catch { return; }
+
+    for (const rec of this.markers.values()) {
+      const on = bounds.contains([rec.point.lat, rec.point.lng]);
+      if (rec.onScreen === on) continue;
+      rec.onScreen = on;
+      rec.el.classList.toggle('off-view', !on);
+      // `tick` skips markers that are off screen, so one coming back into view
+      // would otherwise show a stale countdown and a stale in-range ring for up
+      // to a second. Bring it up to date now instead.
+      if (on && this._tickCtx) this._paintMarker(rec, this._tickCtx);
+    }
+  },
+
+  /**
+   * One marker's countdown and in-range styling. Split out of `tick` so a marker
+   * coming back into view can be repainted on the spot.
+   */
+  _paintMarker(rec, { now, playerPos, range, unlimited }) {
+    const left = rec.point.expiresAt - now;
+    rec.timerEl.textContent = timeLeftLabel(left);
+    rec.timerEl.classList.toggle('urgent', left <= 60_000);
+    rec.el.classList.toggle('collected', !!rec.point.collected);
+
+    if (playerPos || unlimited) {
+      const near = unlimited || distance(playerPos, rec.point) <= range;
+      const inRange = near && !rec.point.collected;
+      rec.el.classList.toggle('in-range', inRange);
+      rec.el.classList.toggle('out-range', !inRange);
     }
   },
 
@@ -459,18 +535,15 @@ export const GameMap = {
       }
     }
 
-    for (const rec of this.markers.values()) {
-      const left = rec.point.expiresAt - now;
-      rec.timerEl.textContent = timeLeftLabel(left);
-      rec.timerEl.classList.toggle('urgent', left <= 60_000);
-      rec.el.classList.toggle('collected', !!rec.point.collected);
+    // Kept for _cullMarkers, so a marker coming back into view can be brought up
+    // to date without waiting for the next beat.
+    this._tickCtx = { now, playerPos, range, unlimited };
 
-      if (playerPos || unlimited) {
-        const near = unlimited || distance(playerPos, rec.point) <= range;
-        const inRange = near && !rec.point.collected;
-        rec.el.classList.toggle('in-range', inRange);
-        rec.el.classList.toggle('out-range', !inRange);
-      }
+    for (const rec of this.markers.values()) {
+      // Nothing off screen needs a countdown or a distance check. On a long walk
+      // this is most of them.
+      if (!rec.onScreen) continue;
+      this._paintMarker(rec, this._tickCtx);
     }
     // Every permanent pin lights up when you are close enough to use it.
     for (const marker of [...[...this.breedingMarkers.values()].map(r => r.marker), this.labMarker]) {

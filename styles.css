@@ -351,10 +351,13 @@ a { color: var(--accent); }
 @keyframes blinkTimer { 50% { opacity: .35; } }
 
 .stars { position: absolute; left: 0; right: 0; bottom: 4px; height: 44px; }
+/* No `will-change` here. It promotes every star to its own compositor layer, and
+   there are five per creature marker with no ceiling on how many markers are on
+   screen — sixty of them was three hundred permanent layers. The browser
+   promotes an animating transform on its own when it actually helps. */
 .stars .s {
   position: absolute; color: #fff5c2; text-shadow: 0 0 8px #ffd166, 0 0 16px #ffae3455;
   animation: twinkle 1.5s ease-in-out infinite;
-  will-change: transform, opacity;
 }
 .stars .s1 { left: 50%; bottom: 12px; margin-left: -11px; font-size: 22px; animation-delay: 0s; }
 .stars .s2 { left: 26%; bottom: 24px; font-size: 13px; animation-delay: .35s; }
@@ -687,6 +690,26 @@ a { color: var(--accent); }
 .spawn-marker.collected .icon-wrap > span { animation: none; }
 .spawn-marker.collected .spawn-timer { color: var(--muted); border-color: var(--line); }
 
+/* ---- markers off screen, and markers under an overlay ----
+
+   Two ways a marker can be animating for nobody. Leaflet keeps every marker in
+   the DOM however far outside the view it is, and a sheet or a battle leaves the
+   whole map running underneath it. Both used to cost a phone real frames.
+
+   `.off-view` is set by map.js and uses display:none, which stops animations in
+   the subtree outright — the marker keeps its place, so panning back is instant
+   with nothing to rebuild. The overlay rule pauses rather than removes, so
+   nothing jumps or restarts when the sheet closes. */
+.spawn-marker.off-view { display: none; }
+
+body.overlay-open #map .spawn-marker *,
+body.overlay-open #map .breed-rot *,
+body.overlay-open #map .fossil-rot *,
+body.overlay-open #map .me-dot b,
+body.overlay-open .essence-arrow-glyph {
+  animation-play-state: paused;
+}
+
 /* ---- breeding centre pin ----
    The real item artwork rather than a glyph, so the pin on the map and the card
    in your Items are recognisably the same thing. Deliberately not animated: a
@@ -951,7 +974,8 @@ a { color: var(--accent); }
   position: fixed; inset: 0; z-index: 8500;
   display: grid; place-items: center; padding: 22px;
 }
-.modal-backdrop { position: absolute; inset: 0; background: #05070fd0; backdrop-filter: blur(3px); }
+/* Flat tint rather than a blur, for the same reason as .sheet-backdrop. */
+.modal-backdrop { position: absolute; inset: 0; background: #05070fe0; }
 .modal {
   position: relative; width: 100%; max-width: 340px;
   background: var(--panel-solid); border: 1px solid var(--line);
@@ -1246,7 +1270,12 @@ a { color: var(--accent); }
 
 /* ============================ SHEETS ============================ */
 .sheet-wrap { position: fixed; inset: 0; z-index: 7000; display: flex; align-items: flex-end; }
-.sheet-backdrop { position: absolute; inset: 0; background: #05070f9e; backdrop-filter: blur(2px); }
+/* No backdrop-filter here on purpose. A full-viewport blur has to be recomputed
+   every frame anything behind or above it moves, and behind it is a live map
+   full of animating markers. On a phone that alone cost most of the frame
+   budget during an Essence Harvest. A slightly heavier flat tint reads the
+   same and costs nothing. */
+.sheet-backdrop { position: absolute; inset: 0; background: #05070fc4; }
 .sheet {
   position: relative; width: 100%; max-height: 88vh; overflow-y: auto;
   background: var(--panel-solid); border-top: 1px solid var(--line);
@@ -1498,7 +1527,7 @@ a { color: var(--accent); }
 .move-peek {
   position: fixed; inset: 0; z-index: 9000;
   display: grid; place-items: center; padding: 22px;
-  background: #05070fcc; backdrop-filter: blur(3px);
+  background: #05070fe0;                /* flat, not blurred — see .sheet-backdrop */
   pointer-events: none;                 /* never swallows the release */
   animation: fade .12s ease;
 }
@@ -1716,7 +1745,7 @@ a { color: var(--accent); }
 .ad-sim {
   position: fixed; inset: 0; z-index: 9400;
   display: grid; place-items: center; padding: 22px;
-  background: #05070fe8; backdrop-filter: blur(3px);
+  background: #05070ff2;                /* flat, not blurred — see .sheet-backdrop */
 }
 .ad-sim-inner {
   position: relative; width: 100%; max-width: 330px; text-align: center;

@@ -67,6 +67,11 @@ export function openEssence(point, metres) {
     // Position and heading in board coordinates, filled in on the first frame.
     x: 0, y: 0,
     angle: Math.random() * Math.PI * 2,
+    // The board's size and its two nodes, measured once by measureBoard rather
+    // than read back from the DOM on every frame.
+    w: 0, h: 0,
+    boardEl: null,
+    targetEl: null,
     raf: 0,
     last: 0,
     over: false
@@ -83,15 +88,57 @@ function stopDrift() {
   if (game) game.raf = 0;
 }
 
+/**
+ * Measures the board and caches its two nodes.
+ *
+ * The drift loop used to call `getBoundingClientRect` on every frame, straight
+ * after writing a transform to the target — which forces the browser to settle
+ * the whole layout 60 times a second, on top of a page holding a live map. The
+ * board cannot change size while a game is running unless the window does, so
+ * one measurement and a resize listener do exactly the same job for free.
+ *
+ * @returns {boolean} false while the sheet has not been laid out yet.
+ */
+function measureBoard() {
+  if (!game) return false;
+  const board = game.boardEl || $('#essence-board');
+  if (!board) return false;
+  const rect = board.getBoundingClientRect();
+  if (!rect.width || !rect.height) return false;
+
+  game.boardEl = board;
+  game.targetEl = game.targetEl || $('#essence-target');
+  game.w = rect.width;
+  game.h = rect.height;
+
+  // A board that has just changed size must not leave the creature outside it.
+  const pad = game.diff.rings.outer;
+  game.x = Math.min(Math.max(game.x, pad), Math.max(pad, game.w - pad));
+  game.y = Math.min(Math.max(game.y, pad), Math.max(pad, game.h - pad));
+  return !!game.targetEl;
+}
+
+/* The only things that resize the board mid-game: turning the phone, and a
+   browser chrome bar appearing or going. Both come through `resize`.
+   `place` straight after, so a creature that was clamped back inside a smaller
+   board moves there at once rather than on the next frame. */
+window.addEventListener('resize', () => {
+  if (game && !game.over && measureBoard()) place();
+});
+
 function startDrift() {
-  const board = $('#essence-board');
-  const target = $('#essence-target');
-  if (!board || !target || !game) return;
+  if (!game) return;
+
+  // The sheet may not have been laid out yet, in which case there is nothing to
+  // measure. Try again next frame rather than starting at a zero-sized board.
+  if (!measureBoard()) {
+    game.raf = requestAnimationFrame(() => { if (game && !game.over) startDrift(); });
+    return;
+  }
 
   // Start in the middle, then bounce around the board edges.
-  const rect = board.getBoundingClientRect();
-  game.x = rect.width / 2;
-  game.y = rect.height / 2;
+  game.x = game.w / 2;
+  game.y = game.h / 2;
   game.last = performance.now();
   place();
 
@@ -100,7 +147,6 @@ function startDrift() {
     const dt = Math.min(0.05, (ts - game.last) / 1000);   // clamp a tab-switch
     game.last = ts;
 
-    const r = board.getBoundingClientRect();
     const pad = game.diff.rings.outer;
     game.x += Math.cos(game.angle) * game.diff.speed * dt;
     game.y += Math.sin(game.angle) * game.diff.speed * dt;
@@ -108,9 +154,9 @@ function startDrift() {
     // Bounce off the walls, with a small random kick so the path never settles
     // into a boring diagonal loop.
     if (game.x < pad) { game.x = pad; game.angle = Math.PI - game.angle + jitter(); }
-    if (game.x > r.width - pad) { game.x = r.width - pad; game.angle = Math.PI - game.angle + jitter(); }
+    if (game.x > game.w - pad) { game.x = game.w - pad; game.angle = Math.PI - game.angle + jitter(); }
     if (game.y < pad) { game.y = pad; game.angle = -game.angle + jitter(); }
-    if (game.y > r.height - pad) { game.y = r.height - pad; game.angle = -game.angle + jitter(); }
+    if (game.y > game.h - pad) { game.y = game.h - pad; game.angle = -game.angle + jitter(); }
 
     place();
     game.raf = requestAnimationFrame(step);
@@ -121,8 +167,8 @@ function startDrift() {
 const jitter = () => (Math.random() - 0.5) * 0.6;
 
 function place() {
-  const target = $('#essence-target');
-  if (!target || !game) return;
+  const target = game?.targetEl;
+  if (!target) return;
   target.style.transform = `translate(${game.x}px, ${game.y}px) translate(-50%, -50%)`;
 }
 
@@ -189,9 +235,11 @@ function repaintPins() {
 
 function onTap(e) {
   if (!game || game.over) return;
-  const board = $('#essence-board');
+  const board = game.boardEl || $('#essence-board');
   if (!board) return;
 
+  // Measured per tap rather than cached: this needs where the board is on
+  // screen, which moves if the sheet is scrolled. Once per tap is nothing.
   const r = board.getBoundingClientRect();
   const px = e.clientX - r.left;
   const py = e.clientY - r.top;

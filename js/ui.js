@@ -57,8 +57,43 @@ export function toast(msg, kind = '', ms = 2600) {
 /* ---------------------------------------------------------------
    Bottom sheets
    --------------------------------------------------------------- */
-export function openSheet(id) { $('#' + id)?.classList.remove('hidden'); }
-export function closeSheet(id) { $('#' + id)?.classList.add('hidden'); }
+export function openSheet(id) {
+  $('#' + id)?.classList.remove('hidden');
+  syncOverlayState();
+}
+export function closeSheet(id) {
+  $('#' + id)?.classList.add('hidden');
+  syncOverlayState();
+}
+
+/* ---------------------------------------------------------------
+   Overlays over the map
+
+   Anything full-screen — a sheet, a modal, a battle, a capture — leaves the map
+   sitting underneath it, invisible and still animating. Hundreds of twinkling
+   stars and flickering flames the player cannot even see is most of a phone's
+   frame budget, and it is why an Essence Harvest went to a slideshow.
+
+   The body carries a flag so CSS can pause all of it in one rule. Recomputed
+   from the DOM rather than counted, because these overlays are opened from a
+   dozen places and a counter that drifts out of step would either freeze a live
+   map or never freeze a hidden one.
+   --------------------------------------------------------------- */
+const OVERLAY_SELECTOR = [
+  '.sheet-wrap:not(.hidden)',
+  '.modal-wrap:not(.hidden)',
+  '#battle:not(.hidden)',
+  '#stage:not(.hidden)',
+  '#img-viewer',
+  '.move-peek'
+].join(',');
+
+/** @returns {boolean} whether anything is currently covering the map. */
+export function syncOverlayState() {
+  const open = !!document.querySelector(OVERLAY_SELECTOR);
+  document.body.classList.toggle('overlay-open', open);
+  return open;
+}
 
 /* ---------------------------------------------------------------
    Image viewer
@@ -75,6 +110,7 @@ export function openImageViewer(src, alt = '') {
   const close = () => {
     view.remove();
     window.removeEventListener('keydown', onKey);
+    syncOverlayState();
   };
   const onKey = e => { if (e.key === 'Escape') close(); };
 
@@ -94,6 +130,7 @@ export function openImageViewer(src, alt = '') {
 
   document.body.append(view);
   window.addEventListener('keydown', onKey);
+  syncOverlayState();
   return view;
 }
 
