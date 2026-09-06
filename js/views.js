@@ -12,6 +12,9 @@ import {
   heldItem, heldItemImage, heldItemRequirement, heldStatBonus,
   fullLearnset, finalEvolutionOf, evolutionTargets, spawnRestrictionState,
   parseStorageQuery, storageTermLabel, compareWithOp, STORAGE_QUERY_HELP,
+  moveForCreature, moveBoostFor, movesForCreature,
+  DIAMOND_ITEM, DIAMOND_STARDUST_COST, DIAMOND_POWER_BONUS,
+  DIAMOND_WINS_NEEDED, DIAMOND_METRES_NEEDED,
   breedingSlotsFor, BREEDING_UNLOCK_LEVEL, bonanzaState,
   isRelaxHour, relaxHourEndsIn, RELAX_HOUR_LABEL, RULES, BUDDY_KM_PER_CANDY,
   isStardustSunday, STARDUST_SUNDAY_LABEL, STARDUST_SUNDAY_MULTIPLIER,
@@ -176,7 +179,15 @@ const SORTERS = {
   shiny:  (a, b) => (Number(!!b.shiny) - Number(!!a.shiny)) || order(a) - order(b),
   favourite: (a, b) => (Number(!!b.favourite) - Number(!!a.favourite)) || order(a) - order(b),
   ability: (a, b) => (abilityRank(b) - abilityRank(a)) || order(a) - order(b),
-  recent: (a, b) => a.capturedAt - b.capturedAt
+  recent: (a, b) => a.capturedAt - b.capturedAt,
+  /* The four stats on their own, as they are right now — level growth, the ±10%
+     roll, boosters and a held item all included, so they agree with the figures
+     on the creature's own sheet. The pickers' sort menu offered these before
+     they existed here, which quietly sorted by ID instead. */
+  hp:      (a, b) => (creatureStats(a).hp - creatureStats(b).hp) || order(a) - order(b),
+  attack:  (a, b) => (creatureStats(a).attack - creatureStats(b).attack) || order(a) - order(b),
+  defence: (a, b) => (creatureStats(a).defence - creatureStats(b).defence) || order(a) - order(b),
+  speed:   (a, b) => (creatureStats(a).speed - creatureStats(b).speed) || order(a) - order(b)
 };
 
 /**
@@ -1076,19 +1087,24 @@ export function openHeldItemSheet(itemId) {
 export function openHeldCreaturePicker(itemId) {
   const def = heldItem(itemId);
   if (!def) return;
-  const eligible = sortedForPicker(store.creaturesEligibleFor(itemId));
+  const usable = store.creaturesEligibleFor(itemId);
+  const eligible = pickerFilterSort(usable);
   const req = heldItemRequirement(itemId);
 
   $('#held-pick-title').textContent = `Who gets the ${def.name}?`;
   $('#held-pick-hint').textContent = req
     ? `${req}. Creatures already carrying something are not shown.`
     : 'Creatures already carrying something are not shown.';
+  renderPickerTools(() => openHeldCreaturePicker(itemId),
+    { total: usable.length, shown: eligible.length, host: '#held-pick-tools' });
 
   const body = $('#held-pick-body');
   body.innerHTML = '';
 
   if (!eligible.length) {
-    body.append(el('p', { class: 'empty', text: 'No creature in your storage can hold this one.' }));
+    body.append(el('p', { class: 'empty', text: usable.length
+      ? 'Nothing matches that filter.'
+      : 'No creature in your storage can hold this one.' }));
     openSheet('held-pick');
     return;
   }
@@ -1136,6 +1152,8 @@ export function openHeldItemPickerFor(uid) {
   $('#held-pick-hint').textContent = options.some(o => !o.ok)
     ? 'Greyed out items do not suit this creature. It can carry one at a time.'
     : 'It can carry one at a time.';
+  // This direction is choosing an item, not a creature, so no creature filter.
+  hidePickerTools('#held-pick-tools');
 
   const body = $('#held-pick-body');
   body.innerHTML = '';
@@ -1205,24 +1223,37 @@ function heldItemRow(c) {
     );
   }
 
+  const engaged = store.heldItemEngaged(c);
   return el('div', { class: 'held-slot' },
     el('img', { class: 'held-ico-img', src: heldItemImage(def.id), alt: def.name }),
     el('div', { class: 'held-lines' },
       el('b', { text: def.name }),
       el('span', { class: 'muted small', text: def.blurb })
     ),
-    def.consumable
-      ? el('span', { class: 'tag tag-consumable', text: 'Consumable' })
+    /* A consumable can now come back too, as long as it has not started being
+       used. Once it has, the button is replaced by the reason it is stuck. */
+    engaged.engaged
+      ? el('span', { class: 'tag tag-consumable', title: `In use — ${engaged.why}`, text: 'In use' })
       : el('button', {
         class: 'btn ghost',
         onclick: () => {
           const r = store.takeHeldItem(c.uid);
-          if (!r.ok) { toast('That one cannot come back off', 'bad'); return; }
+          if (!r.ok) {
+            toast(r.reason === 'inUse'
+              ? `${def.name} is already in use — ${r.why}`
+              : 'That one cannot come back off', 'bad', 4200);
+            return;
+          }
           toast(`${def.name} back in your held items`, 'good');
           renderCreatureSheet();
           refreshAll();
         }
-      }, 'Take back')
+      }, 'Take back'),
+    // Says why a consumable is still retrievable, since it used to not be.
+    def.consumable && !engaged.engaged
+      ? el('span', { class: 'muted small',
+        text: 'Not used yet, so it can come back.' })
+      : null
   );
 }
 
@@ -1240,7 +1271,8 @@ export function openItemSheet(itemId) {
       full_heal: 'Fully heal a creature',
       revive: 'Revive a creature',
       stat_booster: 'Boost a creature',
-      strength_reroll: 'Re-roll a creature'
+      strength_reroll: 'Re-roll a creature',
+      precious_diamond: 'Strengthen a move'
     }[itemId] || 'Use on a creature';
     actions.push(el('button', {
       class: 'btn primary',
@@ -1323,14 +1355,22 @@ export function openItemSheet(itemId) {
  */
 export function openIncenseSpeciesPicker(itemId) {
   const def = ITEMS[itemId];
-  const list = store.mysteriousIncenseCandidates();
+  const all = store.mysteriousIncenseCandidates();
+  // Species mode: name, type, rarity and stage are the terms that mean anything
+  // when nothing has been caught yet.
+  const list = pickerFilterSort(all, { species: true });
 
   $('#picker-title').textContent = 'Which creature should it summon?';
   $('#picker-hint').textContent = 'Every spawn will be this creature, one every 2 minutes. '
     + 'The rarer it is, the shorter the incense burns.';
-  $('#picker-empty').textContent = 'Register a creature first — you can only summon one you have already met.';
+  $('#picker-empty').textContent = (all.length && !list.length)
+    ? 'Nothing matches that filter.'
+    : 'Register a creature first — you can only summon one you have already met.';
   $('#picker-empty').classList.toggle('hidden', list.length > 0);
+  // Before the toolbar: the bulk bar resets the sheet's shared chrome.
   renderPickerBulkBar(itemId, 0, () => {});
+  renderPickerTools(() => openIncenseSpeciesPicker(itemId),
+    { total: all.length, shown: list.length, species: true });
 
   const grid = $('#picker-grid');
   grid.innerHTML = '';
@@ -1427,6 +1467,17 @@ const CREATURE_ITEM_PICKERS = {
     // Fainted creatures are fine to boost; only the cap and breeding block it.
     eligible: c => store.boostsLeftOn(c) > 0
   },
+  precious_diamond: {
+    title: 'Strengthen whose move?',
+    hint: `Adds +${DIAMOND_POWER_BONUS} power to one attacking move, permanently. It costs `
+      + `${DIAMOND_STARDUST_COST.toLocaleString()} stardust on top of the diamond, and the move only `
+      + `improves once that creature has won ${DIAMOND_WINS_NEEDED} battles and you have walked `
+      + `${DIAMOND_METRES_NEEDED / 1000} km.`,
+    empty: 'Every creature that could take one has already had one.',
+    // One per creature for life: not already running one, and not already done.
+    eligible: c => !c.diamond && !store.hasUsedDiamond(c)
+      && store.diamondMoveOptions(c.uid).length > 0
+  },
   strength_reroll: {
     title: 'Re-roll which creature?',
     hint: 'Draws the stat modifier again. The stat going up and the stat going down are both guaranteed to change — but you do not get to choose what they become.',
@@ -1486,7 +1537,8 @@ export function openCreaturePicker(itemId) {
         ? null
         : el('span', { class: 'hp-wrap' },
           el('span', { class: `hp-bar${pct <= 25 ? ' critical' : pct <= 60 ? ' low' : ''}` },
-            el('i', { style: { width: pct + '%' } })))
+            el('i', { style: { width: pct + '%' } }))),
+      heldBadge(c)
     ));
   }
   openSheet('picker');
@@ -1497,6 +1549,11 @@ function useItemOnCreature(itemId, c, s) {
   if (itemId === 'stat_booster') {
     // Which stat is a separate decision, so it gets its own screen.
     openStatBoostPicker(c.uid);
+    return;
+  }
+  if (itemId === 'precious_diamond') {
+    // Which move is a separate decision too, and a much bigger one.
+    openDiamondMovePicker(c.uid);
     return;
   }
   if (itemId === 'strength_reroll') {
@@ -1514,6 +1571,102 @@ function useItemOnCreature(itemId, c, s) {
     : `${s.name} healed ${r.gained} HP (${r.after}/${r.max})`, 'good');
   closeSheet('picker');
   refreshAll();
+}
+
+/**
+ * Step two of a Precious Diamond: which move gets the +5.
+ *
+ * Renders into the shared #sheet on top of the picker, like the Stat Booster's
+ * stat picker does, and states the whole bargain — the stardust and the two
+ * requirements — before anything is spent.
+ */
+function openDiamondMovePicker(uid) {
+  const c = store.creature(uid);
+  if (!c) return;
+  const s = species(c.speciesId);
+  const options = store.diamondMoveOptions(uid);
+  const check = store.canUseDiamond(uid);
+
+  const body = $('#sheet-body');
+  body.innerHTML = '';
+  appendAll(body,
+    el('div', { class: 'det-head' },
+      el('img', { src: s.spritePath(c.shiny), alt: s.name }),
+      el('div', { class: 'det-title' },
+        el('h3', { text: `Which of ${nameOf(c)}'s moves?` }),
+        el('div', { class: 'det-tags' },
+          el('span', { class: 'tag', text: `Lv ${c.level}` }),
+          el('span', { class: `tag t-${s.type}`, text: s.type })
+        )
+      )
+    ),
+    el('p', { class: 'hint' },
+      el('b', { text: `+${DIAMOND_POWER_BONUS} power, permanently. ` }),
+      `Spending the diamond also costs `,
+      el('b', { text: `${num(DIAMOND_STARDUST_COST)} stardust` }),
+      `, and the move does not change straight away: ${nameOf(c)} has to win `,
+      el('b', { text: `${DIAMOND_WINS_NEEDED} battles` }),
+      ' and you have to walk ',
+      el('b', { text: `${DIAMOND_METRES_NEEDED / 1000} km` }),
+      '. Both are tracked on this creature\'s page.'),
+    !check.ok
+      ? el('p', { class: 'hint', style: { color: '#ffd9a8' }, text: ({
+          noItem: 'You have no Precious Diamonds.',
+          dust: `You need ${num(DIAMOND_STARDUST_COST)} stardust and have ${num(store.s.stardust)}.`,
+          busy: 'This creature is already working one off.',
+          used: 'This creature has already had a Precious Diamond. It is one per creature.',
+          breeding: 'This creature is in the breeding centre.',
+          noMoves: 'This creature has no attacking move to strengthen.'
+        })[check.reason] || 'This cannot be used right now.' })
+      : null,
+    el('div', { class: 'move-list' }, ...options.map(m => el('button', {
+      class: 'cell diamond-move' + (m.boost ? ' boosted' : ''),
+      disabled: !check.ok,
+      onclick: () => confirmDiamond(uid, m)
+    },
+      el('span', { class: 'nm', text: m.name }),
+      el('span', { class: 'sub', text: `Power ${m.power} → ${m.power + DIAMOND_POWER_BONUS}` }),
+      m.boost
+        ? el('span', { class: 'sub', text: `◆ already +${m.boost} from a diamond` })
+        : null
+    ))),
+    // A status move has no power to raise, so it is not offered at all.
+    el('p', { class: 'hint', text: 'Only attacking moves can be strengthened — a move with no '
+      + 'power does its work through its effect instead.' })
+  );
+  closeSheet('picker');
+  openSheet('sheet');
+}
+
+/** Confirms the spend, because it is 10,000 stardust and cannot be undone. */
+function confirmDiamond(uid, move) {
+  const c = store.creature(uid);
+  if (!c) return;
+  const name = nameOf(c);
+  if (!confirm(`Spend a Precious Diamond and ${num(DIAMOND_STARDUST_COST)} stardust on `
+    + `${name}'s ${move.name}?\n\n`
+    + `Power ${move.power} → ${move.power + DIAMOND_POWER_BONUS}, but only after ${name} wins `
+    + `${DIAMOND_WINS_NEEDED} battles and you walk ${DIAMOND_METRES_NEEDED / 1000} km.\n\n`
+    + 'The diamond and the stardust are spent now. This cannot be undone.')) return;
+
+  const r = store.useDiamond(uid, move.name);
+  if (!r.ok) {
+    toast(({
+      noItem: 'No Precious Diamonds left',
+      dust: 'Not enough stardust',
+      busy: 'That creature already has a diamond running',
+      used: 'That creature has already had one — it is one per creature',
+      breeding: 'That creature is in the breeding centre',
+      badMove: 'That move cannot be strengthened'
+    })[r.reason] || 'Could not use the diamond', 'bad');
+    return;
+  }
+
+  toast(`${nameOf(c)}'s ${r.move} will reach ${r.to} power — ${DIAMOND_WINS_NEEDED} wins and `
+    + `${DIAMOND_METRES_NEEDED / 1000} km to go`, 'good', 5200);
+  closeSheet('sheet');
+  refreshAll();
+  openCreatureSheet(uid);
 }
 
 /**
@@ -1661,32 +1814,108 @@ export function sortedForPicker(list) {
    something to boost does not silently rearrange the tab you were last on.
    --------------------------------------------------------------- */
 
-/** Options offered in the picker's sort menu, mirroring Storage's. */
+/**
+ * Options offered in a picker's sort menu. Every key here has to exist in
+ * SORTERS — a missing one falls back to ID order and looks like a broken menu,
+ * which is exactly what "Recently caught" used to do.
+ */
 const PICKER_SORTS = [
   ['id', 'Creature ID'], ['name', 'Name'], ['type', 'Type'], ['rarity', 'Rarity'],
-  ['level', 'Level'], ['hp', 'HP'], ['attack', 'Attack'],
-  ['defence', 'Defence'], ['speed', 'Speed'], ['caught', 'Recently caught']
+  ['level', 'Level'], ['total', 'Total stats'],
+  ['hp', 'HP'], ['attack', 'Attack'], ['defence', 'Defence'], ['speed', 'Speed'],
+  ['shiny', 'Shiny'], ['favourite', 'Favourite'], ['recent', 'Most recent']
 ];
+
+/**
+ * A couple of pickers choose a *species* rather than one of your creatures — the
+ * Mysterious Incense picks what to summon. Level, stats and the ±10% roll all
+ * belong to an individual creature, so those sorts and those filter terms have
+ * no meaning there and are left out rather than quietly matching nothing.
+ */
+const SPECIES_PICKER_SORTS = [
+  ['id', 'Creature ID'], ['name', 'Name'], ['type', 'Type'], ['rarity', 'Rarity'],
+  ['stage', 'Stage']
+];
+
+const SPECIES_SORTERS = {
+  id: (a, b) => (a.order ?? 0) - (b.order ?? 0),
+  name: (a, b) => a.name.localeCompare(b.name),
+  type: (a, b) => String(a.type).localeCompare(String(b.type)) || (a.order ?? 0) - (b.order ?? 0),
+  rarity: (a, b) => (a.rarity || familyRarity(a.id) || 0) - (b.rarity || familyRarity(b.id) || 0)
+    || (a.order ?? 0) - (b.order ?? 0),
+  stage: (a, b) => (a.stage || 1) - (b.stage || 1) || (a.order ?? 0) - (b.order ?? 0)
+};
+
+/** The filter terms that mean anything without an individual creature. */
+const SPECIES_TERM_KINDS = ['name', 'type', 'rarity', 'stage'];
+
+/** Does one parsed term hold for a species? The species-only subset of termHit. */
+function speciesTermHit(term, s) {
+  switch (term.kind) {
+    case 'name':
+      return String(s.name).toLowerCase().includes(term.text);
+    case 'type': {
+      const hit = term.values.includes(s.type);
+      return term.negate ? !hit : hit;
+    }
+    case 'rarity':
+      return compareWithOp(s.rarity || familyRarity(s.id) || 1, term.op, term.value);
+    case 'stage':
+      return compareWithOp(Number(s.stage) || 1, term.op, term.value);
+    default:
+      return true;
+  }
+}
 
 const pickerQuery = () => String(store.s.ui.pickerQuery ?? '').trim();
 
-/** Narrows and orders a picker list the way the toolbar says. */
-function pickerFilterSort(list) {
+/** The sort options one picker offers: the standard set plus anything it adds. */
+const pickerSortTable = ({ species = false, extraSorts = [] } = {}) =>
+  [...(species ? SPECIES_PICKER_SORTS : PICKER_SORTS), ...extraSorts];
+
+const pickerSortKey = (opts = {}) => {
+  const saved = store.s.ui.pickerSort || store.s.ui.storageSort || 'id';
+  // A sort chosen in one picker may not exist in another — "Ability in this
+  // battle" only means anything mid-battle — so fall back rather than silently
+  // ordering by nothing.
+  return pickerSortTable(opts).some(([v]) => v === saved) ? saved : 'id';
+};
+
+const pickerDir = () => store.s.ui.pickerDir ?? store.s.ui.storageDir ?? 1;
+
+/**
+ * Narrows and orders a picker list the way the toolbar says.
+ * `species: true` switches to the species subset of the filter language, and
+ * `extraSorts` adds options only that picker has.
+ */
+export function pickerFilterSort(list, opts = {}) {
+  const { species = false } = opts;
   const { terms } = parseStorageQuery(pickerQuery());
-  const filtered = terms.length ? list.filter(c => terms.every(t => termHit(t, c))) : list;
-  const sortKey = store.s.ui.pickerSort || store.s.ui.storageSort || 'id';
-  const dir = store.s.ui.pickerDir ?? store.s.ui.storageDir ?? 1;
-  const out = [...filtered].sort(SORTERS[sortKey] || SORTERS.id);
-  if (dir < 0) out.reverse();
+  const usable = species ? terms.filter(t => SPECIES_TERM_KINDS.includes(t.kind)) : terms;
+  const hit = species ? speciesTermHit : termHit;
+  const filtered = usable.length ? list.filter(x => usable.every(t => hit(t, x))) : list;
+  const sorters = species ? SPECIES_SORTERS : SORTERS;
+  const out = [...filtered].sort(sorters[pickerSortKey(opts)] || sorters.id);
+  if (pickerDir() < 0) out.reverse();
   return out;
 }
 
 /**
- * Builds the picker toolbar. `rerender` is called whenever anything changes, so
+ * Builds a picker toolbar. `rerender` is called whenever anything changes, so
  * the caller re-runs its own filtering rather than this knowing about it.
+ *
+ * `host` is a selector, because the toolbar now serves five different sheets:
+ * the shared #picker, the held-item picker, the battle team picker and the
+ * breeding pair picker each have their own slot for it. The state behind it is
+ * shared deliberately — a filter you set choosing a battle team is still there
+ * when you go to pick a breeding pair, which is what you want when you are
+ * working through one part of your storage.
  */
-function renderPickerTools(rerender, { total = 0, shown = 0 } = {}) {
-  const host = $('#picker-tools');
+export function renderPickerTools(rerender, {
+  total = 0, shown = 0, host: hostSel = '#picker-tools', species = false,
+  extraSorts = [], extra = null
+} = {}) {
+  const host = $(hostSel);
   if (!host) return;
   host.classList.remove('hidden');
   host.innerHTML = '';
@@ -1694,7 +1923,7 @@ function renderPickerTools(rerender, { total = 0, shown = 0 } = {}) {
   const q = pickerQuery();
   const search = el('input', {
     class: 'search-input', type: 'search', value: q,
-    placeholder: 'Name, or type = mystic & level > 5',
+    placeholder: species ? 'Name, or type = mystic & rarity > 3' : 'Name, or type = mystic & level > 5',
     'aria-label': 'Filter this list'
   });
   // `input` rather than `change`, so it narrows as you type like Storage does.
@@ -1702,19 +1931,20 @@ function renderPickerTools(rerender, { total = 0, shown = 0 } = {}) {
     store.setUI({ pickerQuery: search.value });
     rerender();
     // Re-rendering replaced the box, so put the caret back where it was.
-    const fresh = $('#picker-tools .search-input');
+    const fresh = $(`${hostSel} .search-input`);
     if (fresh) { fresh.focus(); fresh.setSelectionRange(fresh.value.length, fresh.value.length); }
   });
 
   const sortSel = el('select', {},
-    ...PICKER_SORTS.map(([v, label]) => el('option', { value: v, text: label })));
-  sortSel.value = store.s.ui.pickerSort || store.s.ui.storageSort || 'id';
+    ...pickerSortTable({ species, extraSorts })
+      .map(([v, label]) => el('option', { value: v, text: label })));
+  sortSel.value = pickerSortKey({ species, extraSorts });
   sortSel.addEventListener('change', () => {
     store.setUI({ pickerSort: sortSel.value });
     rerender();
   });
 
-  const dir = store.s.ui.pickerDir ?? store.s.ui.storageDir ?? 1;
+  const dir = pickerDir();
 
   appendAll(host,
     el('label', { class: 'sel' }, el('span', { text: 'Find' }), search),
@@ -1730,20 +1960,51 @@ function renderPickerTools(rerender, { total = 0, shown = 0 } = {}) {
     q ? el('button', {
       class: 'mini-btn',
       onclick: () => { store.setUI({ pickerQuery: '' }); rerender(); }
-    }, 'Clear') : null
+    }, 'Clear') : null,
+    // Whatever else this particular picker keeps in its toolbar — the battle
+    // team's "0 of 3 chosen", the breeding pair's "0 of 2 selected".
+    extra
   );
 
   // A misread filter is reported here too, for the same reason it is in Storage.
-  const { errors } = parseStorageQuery(q);
+  const { errors, terms } = parseStorageQuery(q);
   for (const e of errors) {
     host.append(el('span', { class: 'filter-chip bad', text: `⚠ ${e.text} — ${e.why}` }));
   }
+  // And a term that only means something for a creature you own, used somewhere
+  // that is choosing a species. Ignored rather than obeyed, and said out loud.
+  if (species) {
+    const ignored = terms.filter(t => !SPECIES_TERM_KINDS.includes(t.kind));
+    for (const t of ignored) {
+      host.append(el('span', { class: 'filter-chip bad',
+        text: `⚠ ${storageTermLabel(t)} — not available when choosing a creature to summon` }));
+    }
+  }
 }
 
-/** Hides the toolbar again for the pickers that do not want one. */
-function hidePickerTools() {
-  const host = $('#picker-tools');
+/** Hides a toolbar again for the pickers that do not want one. */
+export function hidePickerTools(hostSel = '#picker-tools') {
+  const host = $(hostSel);
   if (host) { host.classList.add('hidden'); host.innerHTML = ''; }
+}
+
+/**
+ * What a creature is carrying, as a small corner badge, or null when it is
+ * carrying nothing.
+ *
+ * On every picker tile because it changes decisions everywhere: a Breeding
+ * Amulet only doubles a pair's candy when *both* halves have one, so pairing
+ * blind used to mean opening two creature sheets to check. It also stops you
+ * accidentally taking your Miracle Coin holder out of a fight, or picking a
+ * buddy whose Candy Pouch you were saving.
+ */
+export function heldBadge(c) {
+  const def = c?.held ? heldItem(c.held) : null;
+  if (!def) return null;
+  return el('span', {
+    class: 'held-badge' + (def.consumable ? ' consumable' : ''),
+    title: def.name
+  }, el('img', { src: heldItemImage(def.id), alt: def.name, loading: 'lazy' }));
 }
 
 /**
@@ -2154,7 +2415,13 @@ function movesBlock(c, s) {
   const learnset = fullLearnset(s.id);
   const finalSp = finalEvolutionOf(s.id);
 
-  for (const m of learnset) {
+  const pending = store.diamondProgress(c.uid);
+
+  for (const raw of learnset) {
+    // Any Precious Diamond bonus folded in, so the power on screen is the power
+    // the move actually hits for.
+    const m = moveForCreature(raw, c);
+    const boost = moveBoostFor(c, m.name);
     const at = moveLevelFor(m, c.moveUnlock);
     const early = at < m.level;
     // Does the form it is in right now actually have this move slot?
@@ -2164,10 +2431,12 @@ function movesBlock(c, s) {
     const notes = [];
     if (early) notes.push(`unlocked Lv ${at} instead of Lv ${m.level}`);
     if (!hasSlot) notes.push(`needs ${m.fromName}`);
+    if (boost) notes.push(`+${boost} from a Precious Diamond`);
 
-    host.append(el('div', { class: 'move' + (known ? '' : ' locked') },
+    host.append(el('div', { class: 'move' + (known ? '' : ' locked') + (boost ? ' boosted' : '') },
       el('div', { class: 'move-top' },
         el('b', { text: m.name }),
+        boost ? el('span', { class: 'move-diamond', title: `+${boost} power`, text: '◆' }) : null,
         el('span', { class: 'lv' + (early ? ' early' : ''), text: known ? 'Known' : `Lv ${at}` })
       ),
       el('div', { class: 'move-meta' },
@@ -2175,7 +2444,9 @@ function movesBlock(c, s) {
           ? el('span', { class: 'bf', text: moveEffectText(m) })
           : el('span', { class: 'pw', text: moveSummaryText(m) }),
         notes.length ? el('span', { text: ' · ' + notes.join(' · ') }) : null
-      )
+      ),
+      // The project running on this move, if there is one.
+      pending?.move === m.name ? diamondProgressRow(pending) : null
     ));
   }
 
@@ -2187,6 +2458,27 @@ function movesBlock(c, s) {
     host.append(el('p', { class: 'hint', text: `Full move list for the line, up to ${finalSp.name}.` }));
   }
   return host;
+}
+
+/**
+ * The two bars a pending Precious Diamond is waiting on. Shown under the move it
+ * was spent on, because that is where anyone would look for it.
+ */
+function diamondProgressRow(p) {
+  const bar = (done, need, label) => el('div', { class: 'diamond-bar' },
+    el('span', { class: 'diamond-bar-label', text: label }),
+    el('span', { class: 'hp-wrap' },
+      el('span', { class: 'hp-bar' + (done >= need ? ' done' : '') },
+        el('i', { style: { width: Math.min(100, (done / need) * 100) + '%' } }))));
+
+  return el('div', { class: 'diamond-pending' },
+    el('p', { class: 'hint' },
+      el('b', { text: '◆ Precious Diamond in progress. ' }),
+      `+${p.bonus} power once both of these are done.`),
+    bar(p.wins, p.winsNeeded, `Battles won ${p.wins} / ${p.winsNeeded}`),
+    bar(p.metres, p.metresNeeded,
+      `Walked ${(p.metres / 1000).toFixed(2)} / ${(p.metresNeeded / 1000).toFixed(0)} km`)
+  );
 }
 
 function nextMoveLabel(next, c) {
@@ -2803,15 +3095,17 @@ export function renderBuddy() {
 
 /** Tap-to-choose list of everything eligible to be a buddy. */
 function openBuddyPicker() {
-  const eligible = sortedForPicker(
-    store.s.storage.filter(c => c.breeding == null && !store.isBuddy(c.uid)));
+  const usable = store.s.storage.filter(c => c.breeding == null && !store.isBuddy(c.uid));
+  const eligible = pickerFilterSort(usable);
 
   $('#picker-title').textContent = 'Walk with which creature?';
-  $('#picker-hint').textContent = 'Your buddy earns candy for its family as you walk. It can still battle, level up and evolve, but it cannot be released. Sorted the same way as your Storage.';
-  $('#picker-empty').textContent = 'Nothing available — creatures in the breeding centre cannot be your buddy.';
+  $('#picker-hint').textContent = 'Your buddy earns candy for its family as you walk. It can still battle, level up and evolve, but it cannot be released.';
+  $('#picker-empty').textContent = (usable.length && !eligible.length)
+    ? 'Nothing matches that filter.'
+    : 'Nothing available — creatures in the breeding centre cannot be your buddy.';
   $('#picker-empty').classList.toggle('hidden', eligible.length > 0);
   $('#picker-bulk').innerHTML = '';
-  hidePickerTools();
+  renderPickerTools(openBuddyPicker, { total: usable.length, shown: eligible.length });
 
   const grid = $('#picker-grid');
   grid.innerHTML = '';
@@ -2840,6 +3134,7 @@ function openBuddyPicker() {
         el('span', { class: `hp-bar${pct <= 25 ? ' critical' : pct <= 60 ? ' low' : ''}` },
           el('i', { style: { width: pct + '%' } }))),
       el('span', { class: 'sub', text: `${BUDDY_KM_PER_CANDY[rarity]} km per candy` }),
+      heldBadge(c),
       isFainted(c) ? el('span', { class: 'fainted-badge', text: 'FAINTED' }) : null
     ));
   }
@@ -3035,20 +3330,22 @@ export function renderEffectChips(now = Date.now()) {
   // it says so — the next reset is up to 3 minutes away.
   const event = poiEventState(nowDate);
   if (event) {
+    // A takeover carries its own icon, so a third one needs no change here.
+    const isTakeover = !!event.icon;
     const blurb = event.id === 'raidInvasion'
       ? 'raids everywhere · discs pay an Ultra'
       : event.id === 'creatureSpotlight'
         // Names the creature: that is the whole point of the event.
         ? `${event.species?.name || 'a creature'} everywhere · +${SPOTLIGHT_BONUS_CANDY} candy`
-        // The takeover's name is long enough on its own — on a phone the chip
-        // has room for the label and the countdown, nothing more.
-        : event.id === 'galacticTakeover'
+        // A takeover's name is long enough on its own — on a phone the chip has
+        // room for the label and the countdown, nothing more.
+        : isTakeover
           ? ''
           : 'grunts everywhere · no limit';
-    const icon = event.id === 'raidInvasion' ? '🔥'
-      : event.id === 'creatureSpotlight' ? '🌟'
-      : event.id === 'galacticTakeover' ? '🛸'
-      : '🥋';
+    const icon = event.icon
+      || (event.id === 'raidInvasion' ? '🔥'
+        : event.id === 'creatureSpotlight' ? '🌟'
+        : '🥋');
     host.append(el('div', { class: `fx-chip event-${event.id}` },
       el('span', { text: icon }),
       el('span', { text: blurb ? `${event.label} · ${blurb}` : event.label }),

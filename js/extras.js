@@ -16,7 +16,7 @@ import {
   ESSENCE_RING_CANDY, ESSENCE_PIN_BANDS, ESSENCE_SEEKER_CHANCE,
   ESSENCE_MAX_RARITY, essenceDifficulty,
   ABILITY_MULTIPLIER_MIN, ABILITY_MULTIPLIER_MAX,
-  heldItemName, heldItemsInOrder, heldItemRequirement, heldItemRaidChance,
+  heldItemName, heldItemsInOrder, heldItemRequirement, heldItemRaidChance, heldItem,
   HELD_ITEM_RAID_CHANCE, HELD_ITEM_CONSUMABLE_CHANCE, consumableHeldItems,
   STAT_BOOSTER_ITEM, MAX_STAT_BOOSTS, statBoosterCost, STAT_BOOSTER_CANDY_COST,
   ITEM_EXCHANGES,
@@ -27,6 +27,7 @@ import {
   RAID_INVASION_DISC_BONUS, RAID_INVASION_DOUBLE_CHANCE,
   TRAINING_DOJO_LABEL, TRAINING_DOJO_DAY, TRAINING_DOJO_START, TRAINING_DOJO_END,
   GALACTIC_TAKEOVER_LABEL, GALACTIC_TAKEOVER_DAY, GALACTIC_TAKEOVER_START, GALACTIC_TAKEOVER_END,
+  TEMPORAL_TAKEOVER_LABEL, TEMPORAL_TAKEOVER_DAY, TEMPORAL_TAKEOVER_START, TEMPORAL_TAKEOVER_END,
   SWEET_TOOTHSDAY_LABEL, SWEET_TOOTHSDAY_MULTIPLIER, SWEET_TOOTHSDAY_DAY,
   MYSTERIOUS_INCENSE_DURATION_MS, mysteriousIncenseDurationMs, mysteriousIncenseSpawns,
   MYSTERIOUS_INCENSE_GRUNT_CHANCE, MYSTERIOUS_INCENSE_RAID_CHANCE,
@@ -45,15 +46,23 @@ import {
   SUPER_EFFECTIVE_MULTIPLIER, NOT_VERY_EFFECTIVE_MULTIPLIER, TYPE_RESISTANCE,
   FRONTIER_LEVELS, FRONTIER_MODES, FRONTIER_TEAM_SIZE, FRONTIER_GRAND_LABEL,
   FRONTIER_GRAND_LEVEL, FRONTIER_RAID_LEVEL, FRONTIER_CHALLENGES,
-  frontierTrainerImage, frontierLevelRewards
+  frontierTrainerImage, frontierLevelRewards,
+  FRONTIER_DAILY_NAME, FRONTIER_DAILY_ART, frontierDailyResetIn, IMAGE_DIR,
+  FRONTIER_DAILY_LEVELS, frontierDailyModes,
+  FOSSIL_SET_NAME, FOSSIL_PARTS, FOSSIL_FINDS, FOSSIL_FIND_CHANCE,
+  FOSSIL_REVIVE_MS, FOSSIL_REVIVE_LEVEL, FOSSIL_REVIVE_BONUS_CANDY,
+  FOSSIL_SHINY_ODDS, FOSSIL_POI_VALUES,
+  FEATHER_ITEM, FEATHER_POINTS_PER_DAY, FEATHER_MIN_M, FEATHER_MAX_M,
+  FEATHERS_PER_DIAMOND, DIAMOND_ITEM, DIAMOND_STARDUST_COST, DIAMOND_POWER_BONUS,
+  DIAMOND_WINS_NEEDED, DIAMOND_METRES_NEEDED
 } from './data.js';
 import { store, maxHpOf, hpOf, isFainted } from './state.js';
 import { itemImage, itemName, ITEMS, itemsInOrder } from './items.js';
-import { sortedForPicker } from './views.js';
-import { openFrontierBattle, openFrontierGrand } from './battleui.js';
+import { pickerFilterSort, renderPickerTools, heldBadge } from './views.js';
+import { openFrontierBattle, openFrontierGrand, openFrontierDaily } from './battleui.js';
 const DEBUG_TRAINER_NAME = 'Test123';
 import {
-  $, $$, el, appendAll, toast, openSheet, closeSheet, num,
+  $, $$, el, appendAll, toast, openSheet, closeSheet, num, timeLeftLabel,
   PAGE_SIZE, clampPage, pageSlice, pagerBar, wireSwipe, bumpEl
 } from './ui.js';
 
@@ -73,18 +82,8 @@ export function initExtras({ onChange, onMapChange } = {}) {
   }));
 
   // ---- breeding pair picker ----
-  // Sorting is shared with Storage, so changing it here changes it there too,
-  // which is what "sorted the same way as your Storage" has to mean.
-  $('#breed-sort').addEventListener('change', e => {
-    store.setUI({ storageSort: e.target.value });
-    breedPage = 0;
-    renderBreedPicker();
-  });
-  $('#breed-dir').addEventListener('click', () => {
-    store.setUI({ storageDir: store.s.ui.storageDir > 0 ? -1 : 1 });
-    breedPage = 0;
-    renderBreedPicker();
-  });
+  // Sorting and filtering come from the shared picker toolbar, rebuilt by
+  // renderBreedPicker, so there are no static controls here to wire up.
   $('#breed-clear').addEventListener('click', () => {
     breedPicked = [];
     renderBreedPicker();
@@ -103,7 +102,8 @@ const MISSION_ICON = {
   registeredInSet: '🌌',
   essenceHarvests: '🔮', essenceToday: '🔮', essenceWeek: '🔮',
   capturesWeek: '🗓', daysCaughtThisWeek: '✅', eggsHatched: '🥚',
-  metresToday: '👣', metresWeek: '👣', creaturesAtLevel: '⬆'
+  metresToday: '👣', metresWeek: '👣', creaturesAtLevel: '⬆',
+  fossilPart: '🦴', fossilsRevived: '🦴'
 };
 
 /**
@@ -379,6 +379,9 @@ function renderResearchLab(inRange) {
 
   const options = store.statBoosterOptions();
   const held = store.itemCount(STAT_BOOSTER_ITEM);
+  const feathers = store.featherCount;
+  const diamonds = store.itemCount(DIAMOND_ITEM);
+  const canTrade = store.diamondsAffordable > 0;
 
   body.append(
     el('h4', { class: 'sheet-h4', text: 'Create items' }),
@@ -422,6 +425,27 @@ function renderResearchLab(inRange) {
     el('p', { class: 'hint', html: `Hand over a pile of one everyday item and take a few of another: ${
       ITEM_EXCHANGES.map(d => `<b>${d.cost} ${itemName(d.from)}${d.cost === 1 ? '' : 's'}</b>`).join(' · ')
     }. The rate is always in the lab's favour, so it is a way to clear out what you never use rather than a way to print discs.` }),
+    el('h4', { class: 'sheet-h4', text: 'Feather trade' }),
+    el('button', {
+      class: 'cell item-cell tappable lab-recipe',
+      disabled: !inRange,
+      onclick: () => openFeatherTrade()
+    },
+      diamonds ? el('span', { class: 'qty', text: String(diamonds) }) : null,
+      el('img', { src: itemImage(DIAMOND_ITEM), alt: '' }),
+      el('span', { class: 'nm', text: ITEMS[DIAMOND_ITEM].name }),
+      el('span', {
+        class: 'use-hint',
+        text: canTrade
+          ? `${store.diamondsAffordable} ready to make`
+          : `${feathers} of ${FEATHERS_PER_DIAMOND} feathers`
+      })
+    ),
+    el('p', { class: 'hint', html: `<b>${FEATHERS_PER_DIAMOND} ${itemName(FEATHER_ITEM, FEATHERS_PER_DIAMOND)}</b> `
+      + `buy one <b>${ITEMS[DIAMOND_ITEM].name}</b>, the only thing in the game that makes a move `
+      + `hit harder. Feathers come from the <b>${FEATHER_POINTS_PER_DAY} golden places</b> marked on `
+      + `your map each day, between ${FEATHER_MIN_M} m and ${FEATHER_MAX_M} m away.` }),
+
     el('p', { class: 'hint', text: 'More recipes will appear here in future updates.' }),
     el('div', { class: 'btn-row' },
       el('button', { class: 'btn ghost', disabled: !inRange, onclick: moveLab }, '🔬 Move lab')
@@ -473,6 +497,24 @@ function renderBattleFrontier(inRange) {
       'No challenges are loaded. "Battle Frontier.csv" is missing or unreadable, so there is '
       + 'nothing to fight here yet.'));
   }
+
+  /* The Daily Challenge goes first: it is the thing that changes, so it is what
+     anyone opening this building wants to see. */
+  const daily = store.dailyChallengeStates();
+  const dailyDone = daily.filter(d => d.cleared).length;
+  body.append(el('button', {
+    class: 'cell item-cell tappable frontier-card frontier-daily-card',
+    disabled: !inRange,
+    onclick: () => openDailyChallenge()
+  },
+    dailyDone ? el('span', { class: 'qty', text: `${dailyDone}/${daily.length}` }) : null,
+    el('img', { src: `${IMAGE_DIR}/${encodeURIComponent(FRONTIER_DAILY_ART)}`, alt: FRONTIER_DAILY_NAME }),
+    el('span', { class: 'nm', text: FRONTIER_DAILY_NAME }),
+    el('span', { class: 'sub', text: 'Easy · Medium · Hard' }),
+    el('span', { class: 'use-hint', text: dailyDone === daily.length
+      ? `All 3 beaten · resets in ${timeLeftLabel(frontierDailyResetIn())}`
+      : `${dailyDone} of ${daily.length} beaten · resets in ${timeLeftLabel(frontierDailyResetIn())}` })
+  ));
 
   for (const s of summaries) {
     const ch = s.challenge;
@@ -530,6 +572,128 @@ function moveFrontier() {
   refresh?.();
 }
 
+/* ---- the Daily Challenge ---- */
+
+function openDailyChallenge() {
+  renderDailyChallenge();
+  openSheet('frontier-daily');
+}
+
+function renderDailyChallenge() {
+  const body = $('#frontier-daily-body');
+  body.innerHTML = '';
+  const states = store.dailyChallengeStates();
+
+  $('#frontier-daily-hint').textContent =
+    `Three fights, drawn fresh every day. Resets in ${timeLeftLabel(frontierDailyResetIn())}.`;
+
+  appendAll(body,
+    el('div', { class: 'det-head' },
+      el('img', { src: `${IMAGE_DIR}/${encodeURIComponent(FRONTIER_DAILY_ART)}`, alt: FRONTIER_DAILY_NAME }),
+      el('div', { class: 'det-title' },
+        el('h3', { text: FRONTIER_DAILY_NAME }),
+        el('div', { class: 'det-tags' },
+          el('span', { class: 'tag', text: `${states.filter(s => s.cleared).length} of ${states.length} beaten` }),
+          el('span', { class: 'tag', text: `${timeLeftLabel(frontierDailyResetIn())} left` })
+        )
+      )
+    ),
+    el('p', { class: 'hint', text: 'Both the trainer\'s team and the restriction on yours are drawn '
+      + 'at random each day, and they hold until midnight — so a loss is worth studying. Win and you '
+      + 'get an Essence Harvesting game as if you were standing right on top of the creature.' })
+  );
+
+  for (const s of states) {
+    if (s.missing) {
+      body.append(el('p', { class: 'hint', style: { color: '#ffd9a8' },
+        text: `${s.level.label}: no creature in the game fits this brief yet.` }));
+      continue;
+    }
+    const levels = s.team.map(t => t.level).join('/');
+    const short = s.eligible < FRONTIER_TEAM_SIZE;
+    body.append(el('button', {
+      class: 'cell item-cell tappable frontier-level'
+        + (s.cleared ? ' done' : '') + (!s.cleared && !short ? ' open' : ''),
+      disabled: s.cleared || short,
+      onclick: () => startDailyChallenge(s.level.id)
+    },
+      el('span', { class: 'qty', text: s.cleared ? '✓' : String(s.level.order) }),
+      el('span', { class: 'nm', text: s.level.label }),
+      el('span', { class: 'sub', text: `Their creatures: Lv ${levels} · ${s.mode.label}` }),
+      el('span', {
+        class: 'use-hint',
+        text: s.cleared ? 'Beaten today'
+          : short ? `You need ${FRONTIER_TEAM_SIZE} creatures that fit ${s.mode.label}`
+          : `Rarity ${s.level.essenceRarities.join('–')} harvest · `
+            + `${Math.round(s.level.featherChance * 100)}% a feather`
+      })
+    ));
+  }
+
+  body.append(el('p', { class: 'hint', text: 'Each one can be won once a day. Losing costs nothing '
+    + 'but the healing — try again as many times as you like before midnight.' }));
+}
+
+function startDailyChallenge(levelId) {
+  const state = store.dailyChallengeState(levelId);
+  if (!state || state.missing) { toast('That challenge is not available', 'bad'); return; }
+  if (store.frontierEligible(state.mode.id).length < FRONTIER_TEAM_SIZE) {
+    toast(`You need ${FRONTIER_TEAM_SIZE} creatures that fit ${state.mode.label}`, 'bad', 4200);
+    return;
+  }
+  closeSheet('frontier-daily');
+  closeSheet('battle-frontier');
+  openFrontierDaily({
+    levelId,
+    // Handed the win on the way out, so the harvest opens onto a clear screen.
+    onClose: won => {
+      if (won) return payDailyReward(won);
+      reopenDaily();
+    }
+  });
+}
+
+/**
+ * The Daily Challenge prize: an Essence Harvesting game played as though you were
+ * standing on the creature, so every pin is available, plus the feather roll that
+ * has already happened.
+ */
+function payDailyReward(win) {
+  if (win.feather) {
+    toast(`${itemName(FEATHER_ITEM)} found — a rare one from a Daily Challenge`, 'good', 4600);
+  }
+  refresh?.();
+
+  if (!win.essenceSpecies) {
+    toast('No creature was available to harvest', 'bad', 4200);
+    reopenDaily();
+    return;
+  }
+  toast(`${win.level.label} beaten — ${win.essenceSpecies.name} left an essence for you`, 'good', 4600);
+  /* A synthetic point: there is nothing on the map to collect, and the harvest
+     only needs an id and a species. Zero metres gives the full six pins. */
+  onEssenceReward?.({
+    id: `daily-${win.level.id}-${Date.now()}`,
+    kind: 'essence',
+    speciesId: win.essenceSpecies.id
+  });
+}
+
+/** Back into the Daily Challenge list, with today's results up to date. */
+function reopenDaily() {
+  if (!store.s.battleFrontier) return;
+  renderBattleFrontier(true);
+  openSheet('battle-frontier');
+  renderDailyChallenge();
+  openSheet('frontier-daily');
+}
+
+/** main.js supplies this, because essence.js is its to open. */
+let onEssenceReward = null;
+export function setFossilAndDailyHooks({ essenceReward } = {}) {
+  onEssenceReward = essenceReward;
+}
+
 /* ---- one challenge, one mode at a time ---- */
 
 function openFrontierChallenge(challengeId) {
@@ -579,7 +743,10 @@ function renderFrontierChallenge() {
         )
       )
     ),
-    el('label', { class: 'field' },
+    // `.sel` is the styled wrapper the toolbars use. This used to say `.field`,
+    // which is not a class the stylesheet has, so the select fell back to the
+    // browser default — a white box inheriting the app's near-white text.
+    el('label', { class: 'sel frontier-mode-sel' },
       el('span', { text: 'Mode' }),
       select
     ),
@@ -719,6 +886,94 @@ function moveLab() {
   toast('Research Lab packed up — place it wherever you like', 'good', 3600);
   mapChanged?.();
   refresh?.();
+}
+
+/* ---- the feather trade ---- */
+
+let featherQty = 1;
+
+function openFeatherTrade() {
+  featherQty = 1;
+  renderFeatherTrade();
+  openSheet('lab-feather');
+}
+
+function renderFeatherTrade() {
+  const body = $('#lab-feather-body');
+  const hint = $('#lab-feather-hint');
+  body.innerHTML = '';
+
+  const feathers = store.featherCount;
+  const max = store.diamondsAffordable;
+  $('#lab-feather-title').textContent =
+    `${ITEMS[DIAMOND_ITEM].name} · ${store.itemCount(DIAMOND_ITEM)} held`;
+
+  if (max < 1) {
+    hint.textContent = `You have ${feathers} of the ${FEATHERS_PER_DIAMOND} `
+      + `${itemName(FEATHER_ITEM, FEATHERS_PER_DIAMOND)} one diamond costs.`;
+    body.append(
+      el('div', { class: 'det-rows' },
+        el('div', { class: 'det-row' },
+          el('img', { src: itemImage(FEATHER_ITEM), alt: '' }),
+          el('span', { text: itemName(FEATHER_ITEM, feathers) }),
+          el('b', { text: `${feathers} / ${FEATHERS_PER_DIAMOND}` }))),
+      el('p', { class: 'hint', text: `${FEATHER_POINTS_PER_DAY} places are marked on your map every `
+        + `day, between ${FEATHER_MIN_M} m and ${FEATHER_MAX_M} m away. Each one pays a feather, and `
+        + 'they disappear at midnight.' })
+    );
+    return;
+  }
+
+  featherQty = Math.max(1, Math.min(featherQty, max));
+  hint.textContent = `${FEATHERS_PER_DIAMOND} feathers per diamond. You can make ${max}.`;
+
+  appendAll(body,
+    el('div', { class: 'det-rows' },
+      el('div', { class: 'det-row' },
+        el('img', { src: itemImage(FEATHER_ITEM), alt: '' }),
+        el('span', { text: 'Feathers you hold' }),
+        el('b', { text: num(feathers) })),
+      el('div', { class: 'det-row' },
+        el('img', { src: itemImage(DIAMOND_ITEM), alt: '' }),
+        el('span', { text: 'Diamonds this makes' }),
+        el('b', { text: num(featherQty) })),
+      el('div', { class: 'det-row' },
+        el('span', { text: '➖' }),
+        el('span', { text: 'Feathers it spends' }),
+        el('b', { text: num(FEATHERS_PER_DIAMOND * featherQty) }))
+    ),
+    el('div', { class: 'qty-row' },
+      el('button', {
+        class: 'mini-btn', disabled: featherQty <= 1,
+        onclick: () => { featherQty--; renderFeatherTrade(); }
+      }, '−'),
+      el('span', { class: 'qty-value', text: String(featherQty) }),
+      el('button', {
+        class: 'mini-btn', disabled: featherQty >= max,
+        onclick: () => { featherQty++; renderFeatherTrade(); }
+      }, '+')
+    ),
+    el('button', {
+      class: 'btn primary wide',
+      onclick: () => {
+        const r = store.exchangeFeathersForDiamond(featherQty);
+        if (!r.ok) {
+          toast(r.reason === 'noLab' ? 'Place your Research Lab first'
+            : `You need ${r.cost} feathers`, 'bad');
+          return;
+        }
+        toast(`Traded ${r.spent} feathers for ${r.made} `
+          + `${itemName(DIAMOND_ITEM, r.made)}`, 'good', 3600);
+        featherQty = 1;
+        renderFeatherTrade();
+        renderResearchLab(true);
+        refresh?.();
+      }
+    }, `Trade ${FEATHERS_PER_DIAMOND * featherQty} feathers`),
+    el('p', { class: 'hint', text: 'A diamond adds +5 power to one attacking move of one creature, '
+      + 'but only after that creature wins 20 battles and you walk 10 km. Choose carefully — it '
+      + 'also costs 10,000 stardust to use.' })
+  );
 }
 
 /* ---- the candy exchange ---- */
@@ -1180,8 +1435,12 @@ function openBreedPicker() {
  * levelling and battling a buddy is meant to keep doing.
  */
 function breedCandidates() {
-  return sortedForPicker(store.s.storage.filter(c =>
-    c.breeding == null && !store.isBuddy(c.uid)));
+  return pickerFilterSort(breedEligible());
+}
+
+/** Everything the centre would take, before the toolbar narrows it. */
+function breedEligible() {
+  return store.s.storage.filter(c => c.breeding == null && !store.isBuddy(c.uid));
 }
 
 /** The two chosen creatures, or null while fewer than two are selected. */
@@ -1193,6 +1452,7 @@ function breedPickedPair() {
 }
 
 function renderBreedPicker() {
+  const usable = breedEligible();
   const all = breedCandidates();
   breedPage = clampPage(breedPage, all.length);
   const list = pageSlice(all, breedPage);
@@ -1202,12 +1462,17 @@ function renderBreedPicker() {
 
   $('#breed-picker-title').textContent = 'Choose 2 of the same creature';
   $('#breed-picker-hint').textContent =
-    `Two of the same creature generate that family's candy. ` +
-    `${all.length} available, sorted the same way as your Storage.`;
-  $('#breed-pick-count').textContent = `${breedPicked.length} of 2 selected`;
+    `Two of the same creature generate that family's candy, twice as fast if both `
+    + `are holding a ${heldItemName('breeding_amulet')} — the ◈ badge shows who is.`;
   $('#breed-picker-empty').classList.toggle('hidden', all.length > 0);
-  $('#breed-sort').value = store.s.ui.storageSort;
-  $('#breed-dir').textContent = store.s.ui.storageDir > 0 ? '↑' : '↓';
+  // The same toolbar as every other picker, with the pair counter alongside it.
+  renderPickerTools(() => { breedPage = 0; renderBreedPicker(); }, {
+    host: '#breed-picker-tools',
+    total: usable.length,
+    shown: all.length,
+    extra: el('span', { id: 'breed-pick-count', class: 'muted',
+      text: `${breedPicked.length} of 2 selected` })
+  });
 
   const warn = $('#breed-picker-warn');
   warn.classList.toggle('hidden', !mismatch);
@@ -1245,6 +1510,9 @@ function renderBreedPicker() {
           el('i', { style: { width: pct + '%' } }))),
       el('span', { class: `sub t-${s.type}`, text: s.type }),
       el('span', { class: 'stg', text: 'S' + s.stage }),
+      // A Breeding Amulet only doubles the candy when *both* halves have one, so
+      // seeing who is carrying what is the whole point of this screen.
+      heldBadge(c),
       isFainted(c) ? el('span', { class: 'fainted-badge', text: 'FAINTED' }) : null
     ));
   }
@@ -1422,6 +1690,28 @@ function keyline(k, text) {
   return el('div', { class: 'keyline' }, el('span', { class: 'k', text: k }), el('span', { html: text }));
 }
 
+/**
+ * The first move carrying one of the fossil battle effects.
+ *
+ * The percentages behind these live in the creature sheet, not in a constant, so
+ * they are read back off the moves themselves — editing fossils.csv edits this
+ * help text with it, rather than leaving the two to drift apart.
+ */
+function fossilEffectMove(kind) {
+  for (const sp of DB.fossil || []) {
+    for (const mv of sp.moves || []) {
+      if (mv.effect?.kind === kind) return mv;
+    }
+  }
+  return null;
+}
+
+/** The percentage behind a fossil effect, already formatted, or a fallback. */
+function fossilEffectPct(kind, fallback = 'a set share') {
+  const p = fossilEffectMove(kind)?.effect?.pct;
+  return p == null ? fallback : pct(p);
+}
+
 function renderInfo(tab = 'basics') {
   const body = $('#info-body');
   body.innerHTML = '';
@@ -1448,6 +1738,7 @@ function renderInfo(tab = 'basics') {
           store.exclusive2Unlocked || !DB.exclusive2.length ? ''
             : ` A <b>second wave</b> is waiting behind a <b>Set</b> mission — register all ${DB.exclusiveInPlay.length} of these and it opens.`
         }` }),
+        el('li', { html: `<b>${FOSSIL_SET_NAME}</b> — <b>${DB.fossil.length} creatures</b> that are not <i>caught</i> at all. They never spawn, never hatch, never lead a raid and no incense will find them: you <b>collect the parts of one</b> and have it <b>revived</b>. See Fossils below.` }),
         el('li', { html: `<b>${RARITY_NAMES[MYTHICAL_RARITY]}</b> — ${DB.mythical.length === 1 ? 'one creature' : `${DB.mythical.length} creatures`} so far, rarity ${MYTHICAL_RARITY}, each with its own single way of being found. See Mythicals below.` })
       ),
       el('h4', { text: 'Set missions' }),
@@ -1508,6 +1799,8 @@ function renderInfo(tab = 'basics') {
       keyline('🔥', 'Blue flame — an <b>Exclusive Raid</b>. Same idea, tougher boss, and the only place some creatures ever appear. See the Battles tab.'),
       keyline('🧍', `A person on grass, in a park or in a garden — a battle grunt who wants a 3 v 3. During <b>${TRAINING_DOJO_LABEL}</b> they turn up on ordinary map points too.`),
       keyline('⚑', 'Your breeding centre, once you place it.'),
+      keyline('✚', `A white cross — a real <b>pharmacy</b> or <b>hospital</b>. This is where fossils are revived. It is not a spawn and never rolls for anything: every one inside your <b>${RULES.SCAN_RADIUS_M} m</b> scan radius is simply drawn, stays drawn while you are in range, and disappears when you walk away. See Fossils below.`),
+      keyline('🦴', 'A pile of fossil parts with a countdown — fossils you have left to be revived. It waits for you however long you take, and swaps to the assistant\'s face once they are ready.'),
       keyline('↑', 'Put two fingers on the map and twist to rotate it. Pins and timers stay upright; street names are printed into the map tiles so those turn with the roads. The compass button appears once you are off north — tap it to straighten up, or let go within a few degrees and it snaps back on its own.'),
       keyline('✓', 'A green tick means you have already used that point. It stays until its timer ends. If the ticked-off pins clutter things up, <b>Profile → Map display</b> can hide them — they still hold their spot, so nothing new appears there until the timer runs out either way.'),
       el('h4', { text: 'Odds per point' }),
@@ -1528,7 +1821,8 @@ function renderInfo(tab = 'basics') {
       el('ul', {},
         el('li', { html: `<b>${RAID_INVASION_LABEL}</b> — ${weeklyWindowLabel(RAID_INVASION_DAY, RAID_INVASION_START, RAID_INVASION_END)}. Every <b>disc point</b> hands over <b>${itemListLine(RAID_INVASION_DISC_BONUS)}</b> on top of its usual drop, and <b>${pct(RAID_INVASION_DOUBLE_CHANCE)}</b> of the time it gives <b>two</b> instead. The odds become: ${poiOddsLine(POI_OUTCOMES_RAID_INVASION)}. There is <b>no "nothing"</b> slice, so every point in range turns into something, and <b>${POI_OUTCOMES_RAID_INVASION.filter(x => x.kind === 'raid' || x.kind === 'exraid').reduce((a, b) => a + b.weight, 0)}%</b> of them are raids.` }),
         el('li', { html: `<b>${TRAINING_DOJO_LABEL}</b> — ${weeklyWindowLabel(TRAINING_DOJO_DAY, TRAINING_DOJO_START, TRAINING_DOJO_END)}. Grunts take over the ordinary map points: this is the only time a shop or amenity becomes a grunt instead of loot, and they stand right at the point rather than being scattered like park grunts. The odds become: ${poiOddsLine(POI_OUTCOMES_TRAINING_DOJO)}. There is <b>no limit</b> on these for the 30 minutes, so every point in range can be one — but they still have to <b>come from a point</b>, and still keep <b>${RULES.MIN_GRUNT_SEPARATION_M} m</b> from each other. <b>Green space is not part of the event</b>: parks, gardens and grass roll as they always do, scattered across the scan radius and capped at <b>${RULES.MAX_ACTIVE_GRUNTS}</b> between them.` }),
-        el('li', { html: `<b>${GALACTIC_TAKEOVER_LABEL}</b> — ${weeklyWindowLabel(GALACTIC_TAKEOVER_DAY, GALACTIC_TAKEOVER_START, GALACTIC_TAKEOVER_END)}, and only once you have opened at least one rarity of <b>${GALACTIC_SET_NAME}</b>. For the hour every <b>wild spawn</b>, every <b>incense spawn</b>, every <b>ordinary raid boss</b> and every <b>5 and 10 km egg</b> that hatches comes from your unlocked ${GALACTIC_SET_NAME} creatures — the <b>${SET_NAME}</b> pool is out of play completely. The <b>odds do not move</b>: a rarity 1 roll is still ${pct(RARITY_WEIGHTS[1] / 100)} likely, it just picks from a different list. <b>Exclusive Raids</b> and the <b>15 km</b> and <b>50 km</b> eggs are untouched, since they are the only route to those creatures. If a rarity you have not unlocked comes up, you get one of the Galactic creatures you <i>have</i> unlocked instead.` })
+        el('li', { html: `<b>${GALACTIC_TAKEOVER_LABEL}</b> — ${weeklyWindowLabel(GALACTIC_TAKEOVER_DAY, GALACTIC_TAKEOVER_START, GALACTIC_TAKEOVER_END)}, and only once you have opened at least one rarity of <b>${GALACTIC_SET_NAME}</b>. For the hour every <b>wild spawn</b>, every <b>incense spawn</b>, every <b>ordinary raid boss</b> and every <b>5 and 10 km egg</b> that hatches comes from your unlocked ${GALACTIC_SET_NAME} creatures — the <b>${SET_NAME}</b> pool is out of play completely. The <b>odds do not move</b>: a rarity 1 roll is still ${pct(RARITY_WEIGHTS[1] / 100)} likely, it just picks from a different list. <b>Exclusive Raids</b> and the <b>15 km</b> and <b>50 km</b> eggs are untouched, since they are the only route to those creatures. If a rarity you have not unlocked comes up, you get one of the Galactic creatures you <i>have</i> unlocked instead.` }),
+        el('li', { html: `<b>${TEMPORAL_TAKEOVER_LABEL}</b> — ${weeklyWindowLabel(TEMPORAL_TAKEOVER_DAY, TEMPORAL_TAKEOVER_START, TEMPORAL_TAKEOVER_END)}, the evening after the Galactic one, and only once you have opened at least one rarity of <b>${TEMPORAL_SET_NAME}</b>. It works exactly the same way, one set further along: for the hour every wild spawn, incense spawn, ordinary raid boss and 5 and 10 km egg comes from your unlocked ${TEMPORAL_SET_NAME} creatures instead. The two can never clash, since they are on different days.` })
       ),
       el('h4', { text: SPOTLIGHT_LABEL }),
       el('p', { html: `Every <b>${weeklyWindowLabel(SPOTLIGHT_DAY, SPOTLIGHT_START, SPOTLIGHT_END)}</b> one creature takes over the map. Which one rotates weekly — the <b>📅 Calendar</b> button in the News tab always shows the next few and who is featured.` }),
@@ -1561,6 +1855,25 @@ function renderInfo(tab = 'basics') {
         el('li', { html: 'Backing out part-way still banks whatever you have won, but the essence is spent either way — it cannot be reopened for a better run.' }),
         el('li', { html: 'There are <b>lifetime, daily and weekly missions</b> for it. Only a harvest that actually paid candy counts, so a run of pure misses does not tick them along.' })
       ),
+      el('h4', { text: 'Fossils' }),
+      el('p', { html: `<b>${DB.fossil.length} creatures</b> are not in the world at all — they are extinct, and the only way to meet one is to <b>dig it up and have it revived</b>. There are <b>${FOSSIL_PARTS.length} fossil parts</b>: ${FOSSIL_PARTS.map(p => `<b>${itemName(p)}</b>`).join(', ')}. One of each is a complete skeleton, and a complete skeleton comes back as a living creature.` }),
+      el('ul', {},
+        el('li', { html: `You never go looking for parts. They are <b>found on the ground</b> while you play: every time you cross one of these thresholds there is a <b>${pct(FOSSIL_FIND_CHANCE)}</b> chance of a part.` }),
+        ...FOSSIL_FINDS.map(f => el('li', {
+          html: `<b>${f.label[0].toUpperCase()}${f.label.slice(1)}</b> — ${
+            f.part ? `a <b>${itemName(f.part)}</b>` : '<b>a random one</b> of the four'}.`
+        })),
+        el('li', { html: 'Each roll belongs to a <b>threshold crossed</b>, not to the day, so a 3 km walk rolls three times and a 60 km walk rolls sixty. The counters are the same ones your daily missions read, so they <b>reset at midnight</b> — a half-finished kilometre does not carry over.' }),
+        el('li', { html: 'A find is announced with <b>"Oh, it looks like you found something on the ground"</b> and you reveal what it is. The part is <b>yours the moment it is found</b> — the dialogue is only the reveal, so one that has to wait for you to finish a battle can never cost you the item.' }),
+        el('li', { html: `Reviving is done by someone who knows bones. Take a full set to a real <b>${FOSSIL_POI_VALUES.join(' or ')}</b> — they show on your map as <b>white crosses</b> — and hand it over. You need to be within the usual <b>${RULES.CAPTURE_RANGE_M} m</b> to talk to the assistant, though you can <b>see</b> the crosses from anywhere in your <b>${RULES.SCAN_RADIUS_M} m</b> scan radius so you know where to walk.` }),
+        el('li', { html: 'You can hand in <b>as many complete sets as you are holding</b> in one visit, and the parts go the moment you do. Leftover parts of an incomplete set stay in your Items waiting for the missing bone.' }),
+        el('li', { html: `Then it takes <b>${Math.round(FOSSIL_REVIVE_MS / 3_600_000)} hours</b>, and you have to <b>come back to the same place</b>. Your fossils sit on the map with a countdown on them the whole time — nothing expires, so being a week late costs you nothing.` }),
+        el('li', { html: 'When they are ready you get a <b>notification</b> and the same <b>flickering rainbow arrow</b> Essence Harvesting uses, pointing at where you left them. A ready fossil takes priority over an essence, since the essence will expire and the fossil will not.' }),
+        el('li', { html: `Collecting plays the full <b>capture animation</b>, one creature at a time. They arrive at <b>level ${FOSSIL_REVIVE_LEVEL}</b> with <b>+${FOSSIL_REVIVE_BONUS_CANDY} candy</b>, like a raid catch, and no disc is needed — it is already yours.` }),
+        el('li', { html: `<b>Which</b> creature it is, is decided when you <b>collect</b> it, not when you hand the parts in, so there is nothing to look up early. The <b>shiny odds are a flat ${pct(FOSSIL_SHINY_ODDS)}</b> and <b>nothing moves them</b> — not a <b>Shiny Bonanza</b>, not a <b>Shiny Incense</b>. A fossil is assembled rather than caught, so it should be worth the same whenever you happen to hand it in.` }),
+        el('li', { html: `They register into the <b>${FOSSIL_SET_NAME}</b> tab of your Collection, after <b>${EXCLUSIVE_SET_NAME}</b>. Once revived they are ordinary creatures — they level, evolve, battle and hold items like anything else.` }),
+        el('li', { html: 'There are <b>lifetime missions</b> for finding your first of each part and for reviving 1, 5, 10, 25 and 50 fossils. The part ones count <b>every part you have ever found</b>, so spending them on a revival does not un-complete a mission.' })
+      ),
       el('h4', { text: 'Annual events' }),
       el('p', { html: `Nine events come round once a year, each lasting <b>three days</b> — except the Holiday Season, which runs from <b>20 December to 1 January</b>. The <b>📅 Calendar</b> in the News tab lists whichever are coming up, and a green chip sits on the map while one is running.` }),
       el('p', { html: 'Most of them hand you a creature <b>every hour, on your own position</b>, which waits <b>30 minutes</b>. Those spawns use much flatter rarity odds than the wild does — <b>15% Common, 20% Uncommon, 30% Rare, 20% Epic, 15% Legendary</b> — so a Legendary is 15 times more likely from an event creature than from an ordinary spawn. One per clock hour, and opening the game late in an hour still gets that hour\'s creature.' }),
@@ -1589,6 +1902,7 @@ function renderInfo(tab = 'basics') {
         el('li', { html: '<b>Total stats</b> adds up HP, Attack, Defence and Speed, the same figure shown as "Total" on a creature. Tap <b>↓</b> to put your strongest first when picking a battle team.' }),
         el('li', { html: 'Tapping a <b>Potion</b> offers <b>Heal all</b>, which spends as many potions as each creature needs to reach full HP. A <b>Revive</b> offers <b>Revive all</b>. Both tell you how many they will use first.' }),
         el('li', { html: '<b>Hold</b> a creature in your Storage to start <b>multi-select</b> with that one already ticked, then tap the rest and <b>Release</b> them together. A plain tap still opens the creature. Favourites, shinies, buddies and creatures in the breeding centre cannot be selected. Holding a creature in the <b>battle team picker</b> is a different gesture — that one previews its moves.' }),
+        el('li', { html: 'Every place you choose a creature now has the <b>same Find box and Sort menu as your Storage</b>, with the whole filter language: the battle team picker, the Battle Frontier, the breeding pair picker, the buddy picker, held items, potions, boosters and the rest. <b>type = mystic & attack > 70</b> works in all of them. The filter is shared between them on purpose, so working through one part of your storage carries from screen to screen; it never touches the Storage tab\'s own filter. A tile also shows a <b>◈ badge</b> for whatever that creature is carrying — which matters most when pairing for the breeding centre, since a <b>Breeding Amulet</b> only doubles the candy when both halves have one.' }),
         el('li', { html: 'Open any creature from your <b>Storage</b> or your <b>Collection</b> and you can <b>swipe left and right</b>, or use the <b>‹ ›</b> arrows, to move through the list without going back. It follows the sort and filters you have set, so swiping through a filtered Collection only visits the creatures that match.' }),
         el('li', { html: 'Sorting the Collection by <b>Times caught</b> uses the <b>lifetime</b> total for each creature — the "Total caught" figure on its page. Releasing one does not change it.' })
       ),
@@ -1674,7 +1988,12 @@ function renderInfo(tab = 'basics') {
         el('li', { html: `<b>Rare Incense</b> spawns on the same 2-minute rhythm but with far better odds: ${rareIncenseLine()}. Compare that to a wild spawn at ${wildOddsLine()}.` }),
         el('li', { html: `<b>Incubators</b> let you hatch eggs by walking. The plain <b>Incubator</b> is reusable — it ties up until the egg hatches, then you can use it again. A <b>Single Use Incubator</b> is consumed the moment you start it. You get a plain incubator at player level 5, and single use incubators from raid wins (${pct(RAID_REWARD.incubatorChance)}, or <b>guaranteed</b> from a rarity ${RAID_BONUS_RARITIES.join(' or ')} boss) and several missions.` }),
         el('li', { html: `The <b>Research Lab</b> is a building rather than a consumable. Pin it to the map, like a Breeding Centre, then visit it to trade spare candy for <b>Stat Boosters</b> or use the <b>Exchange corner</b> to swap items you are sitting on for ones you need. <b>Move lab</b> picks it back up if you want it elsewhere. You earn it from the lifetime mission <b>Reach level 7 and register 70 creatures</b>.` }),
-        el('li', { html: `<b>Rare Incense</b> is the hardest one to come by: a <b>${pct(raidRareIncenseChance(RAID_BONUS_RARITIES[0]))}</b> drop from rarity ${RAID_BONUS_RARITIES.join(' and ')} raids, a handful of missions, and one <b>every level from player level ${RARE_INCENSE_FROM_LEVEL}</b> onwards.` }),
+        el('li', { html: `<b>Precious Feather.</b> Every day, the first time you open the game, <b>${FEATHER_POINTS_PER_DAY} real places</b> between <b>${FEATHER_MIN_M} m</b> and <b>${FEATHER_MAX_M} m</b> away are marked on your map with a golden feather. Walk to one, tap it, and you get a feather. They are the only points in the game placed <b>outside your ${RULES.SCAN_RADIUS_M} m scan radius</b> — everything else comes to you or sits on your street, and these are meant to be a trip. They <b>vanish at midnight</b>, so a day not walked is a day lost. It is <b>${FEATHER_POINTS_PER_DAY} a day, no more</b> — a <b>${FRONTIER_DAILY_NAME}</b> win at the Battle Frontier is the only other way to find one.` }),
+        el('li', { html: `<b>Precious Diamond.</b> <b>${FEATHERS_PER_DIAMOND} feathers</b> buy one at the <b>Research Lab</b>, and it is the only thing in the game that makes a move <b>hit harder</b>. Using it: pick a creature, pick one of its <b>attacking</b> moves — a move with no power has nothing to raise — and pay <b>${num(DIAMOND_STARDUST_COST)} stardust</b> on top of the diamond.` }),
+        el('li', { html: `The <b>+${DIAMOND_POWER_BONUS} power is earned, not bought.</b> After you spend it, that creature has to <b>win ${DIAMOND_WINS_NEEDED} battles</b> and you have to <b>walk ${DIAMOND_METRES_NEEDED / 1000} km</b>. Only when <i>both</i> are done does the move actually improve. Progress shows on the creature's own page, under the move. The walking is yours rather than the creature's, so several projects across your team count down together — and a creature can only work on <b>one at a time</b>.` }),
+        el('li', { html: `<b>One diamond per creature, for life.</b> Once a creature has finished a diamond it cannot take another, on that move or any other, so it is not a stat that can be stacked forever — it is a single decision you make about one creature. A creature that has already used one is greyed out in the picker and says why. It is worth spending the ${FEATHERS_PER_DIAMOND} feathers on a creature you intend to keep.` }),
+        el('li', { html: `<b>Fossil parts.</b> The four of them are collected rather than used, so they have no button in your Items. Full details are on the <b>Basics</b> tab under <b>Fossils</b>.` }),
+        el('li', { html: `Rare Incense is the hardest incense to come by: a <b>${pct(raidRareIncenseChance(RAID_BONUS_RARITIES[0]))}</b> drop from rarity ${RAID_BONUS_RARITIES.join(' and ')} raids, a handful of missions, and one <b>every level from player level ${RARE_INCENSE_FROM_LEVEL}</b> onwards.` }),
         el('li', { html: `<b>Shiny Incense</b> spawns creatures on the same rhythm and at the same wild odds as a plain Incense, but pins the shiny rate to a flat <b>${pct(SHINY_INCENSE_ODDS)}</b> for everything you catch or hatch while it runs. Because it <b>replaces</b> the normal odds it does not stack with a <b>Shiny Bonanza</b>. It comes from <b>Exclusive Raids</b> (a <b>${pct(EXCLUSIVE_RAID_REWARD.shinyIncenseChance)}</b> chance per win) and a few missions.` })
       )
     );
@@ -1692,6 +2011,17 @@ function renderInfo(tab = 'basics') {
         el('li', { html: `Some moves do <b>more than damage</b>. A move can <b>heal the creature using it</b> by a set number of HP, <b>raise its own</b> Attack, Defence or Speed, <b>lower the opponent's</b>, or even <b>lower its own</b> as the price of a heavy hit. These ride <b>on top of the damage</b> where the move has any, so a move can hit for 20 and heal 40 in the same turn — the log gives each part its own line.` }),
         el('li', { html: 'A stat can be pushed down as well as up, and the two cancel out: a lowered stat lasts for the rest of the fight unless something raises it again. Nothing can be ground below <b>1</b>, so a pile of debuffs never leaves a creature doing literally nothing.' }),
         el('li', { html: 'When a creature faints the next one you chose comes in. Run out and you lose.' })
+      ),
+      el('h4', { text: 'Moves that change the whole battle' }),
+      el('p', { html: `Every effect above belongs to <b>one creature</b> and dies with it. <b>${FOSSIL_SET_NAME}</b> creatures brought <b>five effects that do not</b>: once used they hold for the <b>rest of the battle</b>, including <b>after the creature that used them has fainted</b>. No other creature in the game has one.` }),
+      el('ul', {},
+        el('li', { html: `<b>${fossilEffectMove('teamIncomingDown')?.name || 'Damage debuff'}</b> — everything the opposing side does to you deals <b>${fossilEffectPct('teamIncomingDown')} less damage</b>, for the rest of the fight. It protects your <i>side</i>, not the creature, so the two creatures behind it are shielded too.` }),
+        el('li', { html: `<b>${fossilEffectMove('teamOutgoingUp')?.name || 'Damage buff'}</b> — the other half of the same idea: everything <b>your side</b> throws lands for <b>${fossilEffectPct('teamOutgoingUp')} more</b>, again for the rest of the fight and again for all three of your creatures.` }),
+        el('li', { html: `<b>${fossilEffectMove('speedInversion')?.name || 'Speed inversion'}</b> — from that moment on the <b>slower</b> creature moves first each turn. Turning the order upside down cuts both ways: your slow bruiser suddenly strikes first, and so does anything slower than the creature you send in next. A <b>tie stays a coin flip</b> — with nothing between them there is no order to invert.` }),
+        el('li', { html: `<b>${fossilEffectMove('reflectDamage')?.name || 'Reflect'}</b> — hands back <b>${fossilEffectPct('reflectDamage')} of the damage you took this turn</b>. It reads the damage <i>this turn</i>, so it does <b>nothing if you moved first</b>, or if the opponent used a status move. Worth aiming at something that hits hard.` }),
+        el('li', { html: `<b>${fossilEffectMove('copyStats')?.name || 'Copy stats'}</b> — takes the opponent's <b>stat changes</b> and makes them yours, <b>replacing</b> whatever you had. Against a creature that has spent three turns buffing itself that is the best move in the game; against a fresh one it wipes your own buffs for nothing.` }),
+        el('li', { html: `The two damage effects <b>stack</b> if you use them more than once, multiplying rather than adding, and the total is capped between <b>${ABILITY_MULTIPLIER_MIN}×</b> and <b>${ABILITY_MULTIPLIER_MAX}×</b> — the same ceiling abilities work under. Using one twice is worth something; using it six times is not a win button.` }),
+        el('li', { html: 'Both sides can hold these at once, and they are tracked separately — a grunt shielding its side does nothing to yours. The <b>battle log</b> calls out every one as it lands and says which side it belongs to.' })
       ),
       el('h4', { text: `Super effective (+${Math.round((SUPER_EFFECTIVE_MULTIPLIER - 1) * 100)}% damage)` }),
       el('ul', {},
@@ -1718,7 +2048,8 @@ function renderInfo(tab = 'basics') {
         el('li', { html: `<b>Gems, Shields and Cogs</b> — one per type, and only that type can hold one. <b>+10 Attack</b>, <b>+10 Defence</b> and <b>+10 Speed</b> respectively. Every stat figure here is added <b>after level growth</b>, so it is worth the same at level 1 as at level ${MAX_CREATURE_LEVEL}.` }),
         el('li', { html: 'A <b>Miracle Coin</b> turns a knockout into a survival at <b>1 HP</b>, but only from <b>full health</b>. Already hurt and it dies like anything else.' }),
         el('li', { html: 'A <b>Growth Crystal</b> is <b>+20 HP</b> for a <b>Stage 2</b> creature, and returns itself to your storage if that creature evolves. A <b>Strength Sigil</b> is <b>+20 Attack</b> from <b>level 8</b>.' }),
-        el('li', { html: `<b>Consumables</b> cannot be taken back off. A <b>Breeding Amulet</b> on <b>both</b> halves of a breeding pair halves the wait per candy, and both are spent once that pair has made its ${BREEDING_CANDY_CAP}. A <b>Candy Pouch</b> halves your <b>buddy's</b> walk and is spent on the next candy it earns.` }),
+        el('li', { html: `<b>Consumables</b> are spent when they do their job. A <b>Breeding Amulet</b> on <b>both</b> halves of a breeding pair halves the wait per candy, and both are spent once that pair has made its ${BREEDING_CANDY_CAP}. A <b>Candy Pouch</b> halves your <b>buddy's</b> walk and is spent on the next candy it earns.` }),
+        el('li', { html: 'A consumable that has <b>not started working yet</b> can be <b>taken back to your bag</b>, so putting one on the wrong creature costs you nothing. It locks in once it is actually in use — an amulet once that creature is in the breeding centre, a pouch once that creature is your buddy — and the creature\'s sheet says which of the two it is.' }),
         el('li', { html: `Beating a <b>raid</b> can drop one: ${HELD_ITEM_RAID_CHANCE.map((b, i) => {
           const from = i === 0 ? 3 : HELD_ITEM_RAID_CHANCE[i - 1].maxLevel + 1;
           return `<b>${pct(b.chance)}</b> at boss level ${from}–${b.maxLevel}`;
@@ -1781,6 +2112,27 @@ function renderInfo(tab = 'basics') {
         el('li', { html: `Clear all ${FRONTIER_LEVELS} levels on one mode and that challenge's <b>${FRONTIER_GRAND_LABEL}</b> opens — effectively a level ${FRONTIER_GRAND_LEVEL}. It is a <b>level ${FRONTIER_RAID_LEVEL}</b> boss with full <b>Exclusive Raid</b> strength, fought under the <b>same restriction</b>, and you catch it with an <b>Ultra Capture Disc</b> on the usual raid shiny odds.` }),
         el('li', { html: `The Grand Raid boss joins your <b>${EXCLUSIVE_SET_NAME}</b> collection and exists <b>nowhere else in the game</b> — no raid, no egg, no incense can produce one. Each challenge has its own, and it is the <b>same boss on every mode</b>, so clearing the same ladder under a different restriction is a chance to catch it again.` }),
         el('li', { html: 'Progress lives in your save rather than in the building, so <b>Move Battle Frontier</b> re-pins it anywhere without costing you a single clear.' })
+      ),
+      el('h4', { text: `The ${FRONTIER_DAILY_NAME}` }),
+      el('p', { html: `Above the ${FRONTIER_CHALLENGES.length} challenges sits the <b>${FRONTIER_DAILY_NAME}</b>: <b>${FRONTIER_DAILY_LEVELS.length} fights</b> — ${FRONTIER_DAILY_LEVELS.map(l => `<b>${l.label}</b>`).join(', ')} — that are <b>drawn fresh every day</b> and gone at midnight. Unlike the ladders, nothing here has to be unlocked in order: all three are open from the moment you walk in.` }),
+      el('ul', {},
+        ...FRONTIER_DAILY_LEVELS.map(l => el('li', {
+          html: `<b>${l.label}</b> — three <b>level ${l.creatureLevel}</b> creatures with <b>${
+            l.maxTotal === Infinity ? `${l.minTotal} or more` : `${l.minTotal}–${l.maxTotal}`
+          }</b> total base stats, ${
+            l.boosts ? `<b>${l.boosts} boost points</b> spent` : '<b>no boosts</b>'
+          } and ${l.held ? '<b>a held item each</b>' : '<b>nothing held</b>'}.`
+        })),
+        el('li', { html: `The whole day's challenge is <b>worked out from the date</b> rather than rolled when you tap it. The three teams and the three <b>modes</b> are fixed from midnight to midnight, so <b>losing does not reshuffle anything</b> — you get to study what beat you and come back with an answer.` }),
+        el('li', { html: 'You can <b>retry as many times as you like</b> until you win, or until midnight takes it away. There is no cost and no cooldown, only the healing your team needs.' }),
+        el('li', { html: `The <b>mode</b> is drawn from the <b>${frontierDailyModes().length} restrictive modes</b> — the five types and the five rarities. <b>No restriction</b> and the set modes are left out on purpose, because a daily fight should actually ask something of you, and each difficulty draws <b>its own</b>, so the three are usually different.` }),
+        el('li', { html: `Each difficulty is counted <b>separately</b>: the card and the sheet both show how many of the ${FRONTIER_DAILY_LEVELS.length} you have beaten today. Clears <b>do not carry over</b> — tomorrow is three new fights whether or not you finished today's.` }),
+        el('li', { html: `Winning pays an <b>Essence Harvest</b> straight away, played <b>as if you were standing on top of it</b> — the most pins the mini game gives, so it is the best version of that harvest you can get. Which creature's essence it is depends on the difficulty: ${
+          FRONTIER_DAILY_LEVELS.map(l => `<b>${l.label}</b> ${l.essenceRarities.map(r => RARITY_NAMES[r]).join(' or ')}`).join(' · ')
+        }.` }),
+        el('li', { html: `On top of that there is a chance of a <b>${itemName(FEATHER_ITEM)}</b> — ${
+          FRONTIER_DAILY_LEVELS.map(l => `<b>${l.label}</b> ${pct(l.featherChance)}`).join(' · ')
+        }. That is the only way to get one without walking to a feather point, so the hard fight is worth taking on.` })
       )
     );
   }
@@ -1861,10 +2213,10 @@ function renderInfo(tab = 'basics') {
       el('p', { html: `<b>Astralyon</b> and <b>Chromarion</b> are the <b>Mythicals</b> so far, rarity ${MYTHICAL_RARITY}, and more will follow. Each arrives with its own way of being found and a move that moves <b>several stats at once</b>.` }),
       el('h4', { text: 'More exclusive creatures' }),
       el('p', { html: `The <b>${EXCLUSIVE_SET_NAME}</b> roster is growing. New creatures are on the way that can only be met through <b>Exclusive Raids</b> and the <b>15 km eggs</b> they drop, so the blue flame stays worth chasing.` }),
-      el('h4', { text: 'Fossils' }),
-      el('p', { html: '<b>Fossils are coming.</b> Collect their <b>fragments</b> and take them to a specialist to have the creature inside <b>revived</b>.' }),
-      el('h4', { text: 'Battle Frontier' }),
-      el('p', { html: 'A new building called the <b>Battle Frontier</b> will open up new ways to battle, beyond the raids and grunts you meet on the map. More on how it works closer to the time.' }),
+      el('h4', { text: 'More fossils' }),
+      el('p', { html: `<b>${FOSSIL_SET_NAME}s are here</b> — see the Basics tab — and there are <b>${DB.fossil.length} of them</b> so far. More skeletons are being dug up, and a new one needs no new parts: the four you already collect will assemble it.` }),
+      el('h4', { text: 'More at the Battle Frontier' }),
+      el('p', { html: `The <b>Battle Frontier</b> is open, with ${FRONTIER_CHALLENGES.length} challenges, ${FRONTIER_MODES.length} modes and the <b>${FRONTIER_DAILY_NAME}</b> on top of them — see the Battles tab. More challenges and more reasons to keep coming back are on the way.` }),
       el('h4', { text: 'More abilities' }),
       el('p', { html: 'Abilities are only getting started. More are coming to <b>creatures that do not have one yet</b>, and to <b>creatures that already do</b> — so it is worth checking the Ability filter in your Collection after an update.' }),
       el('h4', { text: 'A fourth set' }),

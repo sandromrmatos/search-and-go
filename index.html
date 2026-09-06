@@ -520,25 +520,9 @@
       <h2>Pick 3 creatures</h2>
       <button class="bt-close" data-bt-close>✕</button>
     </div>
-    <div class="toolbar">
-      <label class="sel">
-        <span>Sort</span>
-        <select id="bt-sort">
-          <option value="id">Creature ID</option>
-          <option value="name">Name</option>
-          <option value="type">Type</option>
-          <option value="rarity">Rarity</option>
-          <option value="level">Level</option>
-          <option value="total">Total stats</option>
-          <option value="shiny">Shiny</option>
-          <option value="favourite">Favourite</option>
-          <option value="ability">Ability in this battle</option>
-          <option value="recent">Most recent</option>
-        </select>
-      </label>
-      <button id="bt-dir" class="mini-btn" title="Toggle sort direction">↑</button>
-      <span id="bt-pick-count" class="muted">0 of 3 chosen</span>
-    </div>
+    <!-- The sort and filter controls are built by views.js renderPickerTools,
+         the same toolbar every other creature picker uses. -->
+    <div id="bt-pick-tools" class="toolbar wrap hidden"></div>
     <p class="hint" style="padding:0 14px">They battle in the order you tap them. Fainted creatures and any in the breeding centre can't come.</p>
     <p id="bt-restrict" class="bt-restrict hidden"></p>
     <p id="bt-ability-legend" class="hint hidden" style="padding:0 14px"></p>
@@ -663,6 +647,37 @@
   </div>
 </div>
 
+<!-- ============ FOSSILS: "you found something" ============ -->
+<div id="fossil-find" class="sheet-wrap hidden">
+  <div class="sheet-backdrop" data-close="fossil-find"></div>
+  <div class="sheet">
+    <button class="sheet-close" data-close="fossil-find">✕</button>
+    <div id="fossil-find-body"></div>
+  </div>
+</div>
+
+<!-- ============ FOSSILS: the assistant ============ -->
+<div id="fossil-assistant" class="sheet-wrap hidden">
+  <div class="sheet-backdrop" data-close="fossil-assistant"></div>
+  <div class="sheet">
+    <button class="sheet-close" data-close="fossil-assistant">✕</button>
+    <h3 id="fossil-assistant-title">Assistant</h3>
+    <p id="fossil-assistant-hint" class="muted small"></p>
+    <div id="fossil-assistant-body"></div>
+  </div>
+</div>
+
+<!-- ============ FOSSILS: coming back for them ============ -->
+<div id="fossil-drop" class="sheet-wrap hidden">
+  <div class="sheet-backdrop" data-close="fossil-drop"></div>
+  <div class="sheet">
+    <button class="sheet-close" data-close="fossil-drop">✕</button>
+    <h3 id="fossil-drop-title">Your fossils</h3>
+    <p id="fossil-drop-hint" class="muted small"></p>
+    <div id="fossil-drop-body"></div>
+  </div>
+</div>
+
 <!-- ============ BATTLE FRONTIER ============
      The building's front page: one card per challenge. Tapping one opens
      #frontier-challenge on top of it. -->
@@ -673,6 +688,18 @@
     <h3>⚔ Battle Frontier</h3>
     <p id="frontier-hint" class="muted small"></p>
     <div id="frontier-body"></div>
+  </div>
+</div>
+
+<!-- ============ BATTLE FRONTIER: DAILY CHALLENGE ============
+     Three drawn fights that reset at midnight. Stacks on #battle-frontier. -->
+<div id="frontier-daily" class="sheet-wrap hidden">
+  <div class="sheet-backdrop" data-close="frontier-daily"></div>
+  <div class="sheet">
+    <button class="sheet-close" data-close="frontier-daily">✕</button>
+    <h3>📅 Daily Challenge</h3>
+    <p id="frontier-daily-hint" class="muted small"></p>
+    <div id="frontier-daily-body"></div>
   </div>
 </div>
 
@@ -699,6 +726,7 @@
     <button class="sheet-close" data-close="held-pick">✕</button>
     <h3 id="held-pick-title">Held items</h3>
     <p id="held-pick-hint" class="muted small"></p>
+    <div id="held-pick-tools" class="toolbar wrap hidden"></div>
     <div id="held-pick-body"></div>
   </div>
 </div>
@@ -714,6 +742,19 @@
     <h3 id="lab-exchange-title">Exchange corner</h3>
     <p id="lab-exchange-hint" class="muted small"></p>
     <div id="lab-exchange-body"></div>
+  </div>
+</div>
+
+<!-- ============ RESEARCH LAB: FEATHER TRADE ============
+     Ten Precious Feathers for one Precious Diamond. Stacks on #research-lab
+     like the other two counters. -->
+<div id="lab-feather" class="sheet-wrap hidden">
+  <div class="sheet-backdrop" data-close="lab-feather"></div>
+  <div class="sheet">
+    <button class="sheet-close" data-close="lab-feather">✕</button>
+    <h3 id="lab-feather-title">Precious Diamond</h3>
+    <p id="lab-feather-hint" class="muted small"></p>
+    <div id="lab-feather-body"></div>
   </div>
 </div>
 
@@ -739,24 +780,10 @@
     <button class="sheet-close" data-close="breed-picker">✕</button>
     <h3 id="breed-picker-title">Choose 2 of the same creature</h3>
     <p id="breed-picker-hint" class="muted small"></p>
-    <div class="toolbar">
-      <label class="sel">
-        <span>Sort</span>
-        <select id="breed-sort">
-          <option value="id">Creature ID</option>
-          <option value="name">Name</option>
-          <option value="type">Type</option>
-          <option value="rarity">Rarity</option>
-          <option value="level">Level</option>
-          <option value="total">Total stats</option>
-          <option value="shiny">Shiny</option>
-          <option value="favourite">Favourite</option>
-          <option value="recent">Most recent</option>
-        </select>
-      </label>
-      <button id="breed-dir" class="mini-btn" title="Toggle sort direction">↑</button>
-      <span id="breed-pick-count" class="muted">0 of 2 selected</span>
-    </div>
+    <!-- Built by views.js renderPickerTools, like every other creature picker.
+         The pair counter is rendered into it, so there are no static controls
+         here to keep in step. -->
+    <div id="breed-picker-tools" class="toolbar wrap hidden"></div>
     <div id="breed-picker-grid" class="grid"></div>
     <p id="breed-picker-empty" class="empty hidden">
       You need two of the same creature that are not already breeding.

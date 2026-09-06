@@ -5,8 +5,17 @@
 import {
   ITEM_DIR, RULES, SHINY_INCENSE_ODDS,
   SUPER_INCUBATOR, incubatorDiscount, MAX_STAT_BOOSTS,
-  MYSTERIOUS_INCENSE_DURATION_MS, RARITY_NAMES
+  MYSTERIOUS_INCENSE_DURATION_MS, RARITY_NAMES,
+  FEATHER_POINTS_PER_DAY, FEATHER_MIN_M, FEATHER_MAX_M, FEATHERS_PER_DIAMOND,
+  DIAMOND_STARDUST_COST, DIAMOND_POWER_BONUS, DIAMOND_WINS_NEEDED, DIAMOND_METRES_NEEDED,
+  FOSSIL_FIND_CHANCE, FOSSIL_PARTS
 } from './data.js';
+
+/** "5" — the fossil find chance as a percentage, for the four blurbs. */
+const FOSSIL_FIND_CHANCE_PCT = Math.round(FOSSIL_FIND_CHANCE * 100);
+
+/** "10,000" — thousands separators for a blurb, without pulling in the UI layer. */
+const num0 = n => Number(n).toLocaleString();
 
 /** "Common 30 min · Uncommon 20 min · …" for the Mysterious Incense blurb. */
 const mysteriousDurationLine = () => Object.entries(MYSTERIOUS_INCENSE_DURATION_MS)
@@ -197,6 +206,77 @@ export const ITEMS = {
     singleton: true,
     order: 12,
     blurb: 'Pin it to the map, like a Breeding Centre. Visit it to turn spare candy into Stat Boosters, and pick it back up any time to move it.'
+  },
+  /* ---- fossil parts ----
+     Four of them, and you need one of each. Collected rather than used, so they
+     have no action of their own on the Items tab. */
+  fossil_head: {
+    id: 'fossil_head',
+    name: 'Fossil Head',
+    plural: 'Fossil Heads',
+    image: 'images/Fossil_Head.png',
+    use: 'none',
+    order: 16,
+    blurb: `Part of a fossil. Found on the ground, ${FOSSIL_FIND_CHANCE_PCT}% of the time, `
+      + 'for every kilometre you walk in a day. Collect all four parts and a pharmacy or '
+      + 'hospital will bring the creature back.'
+  },
+  fossil_spine: {
+    id: 'fossil_spine',
+    name: 'Fossil Spine',
+    plural: 'Fossil Spines',
+    image: 'images/Fossil_Spine.png',
+    use: 'none',
+    order: 16.1,
+    blurb: `Part of a fossil. Found on the ground, ${FOSSIL_FIND_CHANCE_PCT}% of the time, `
+      + 'for every 3 grunts you beat in a day.'
+  },
+  fossil_tail: {
+    id: 'fossil_tail',
+    name: 'Fossil Tail',
+    plural: 'Fossil Tails',
+    image: 'images/Fossil_Tail.png',
+    use: 'none',
+    order: 16.2,
+    blurb: `Part of a fossil. Found on the ground, ${FOSSIL_FIND_CHANCE_PCT}% of the time, `
+      + 'for every 5 raids you beat in a day.'
+  },
+  fossil_hand: {
+    id: 'fossil_hand',
+    name: 'Fossil Hand',
+    plural: 'Fossil Hands',
+    image: 'images/Fossil_Hand.png',
+    use: 'none',
+    order: 16.3,
+    blurb: `Part of a fossil. Found on the ground, ${FOSSIL_FIND_CHANCE_PCT}% of the time, `
+      + 'for every egg you hatch in a day.'
+  },
+  precious_feather: {
+    id: 'precious_feather',
+    name: 'Precious Feather',
+    plural: 'Precious Feathers',
+    // Art shipped in `images/`, like the Super Incubator and the Battle Frontier.
+    image: 'images/Precious Feather.png',
+    // Collected off the map rather than used from the bag.
+    use: 'none',
+    order: 14,
+    blurb: `Every day, the first time you open the game, ${FEATHER_POINTS_PER_DAY} places between `
+      + `${FEATHER_MIN_M} m and ${FEATHER_MAX_M} m away are marked with a golden feather. Walk to one and `
+      + 'collect it for a Precious Feather. They vanish at midnight, so they are a reason to go '
+      + `out today. Trade ${FEATHERS_PER_DIAMOND} of them for a Precious Diamond at the Research Lab.`
+  },
+  precious_diamond: {
+    id: 'precious_diamond',
+    name: 'Precious Diamond',
+    plural: 'Precious Diamonds',
+    image: 'images/Precious Diamond.png',
+    use: 'creature',
+    order: 15,
+    blurb: `Permanently adds +${DIAMOND_POWER_BONUS} power to one attacking move of one creature — the only `
+      + 'way to make a move stronger. Choose the creature and the move, pay '
+      + `${num0(DIAMOND_STARDUST_COST)} stardust, and then earn it: that creature has to win `
+      + `${DIAMOND_WINS_NEEDED} battles and you have to walk ${DIAMOND_METRES_NEEDED / 1000} km. `
+      + 'The move only gets stronger once both are done.'
   },
   battle_frontier: {
     id: 'battle_frontier',

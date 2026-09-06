@@ -37,6 +37,13 @@ import {
   FRONTIER_CHALLENGES, FRONTIER_LEVELS, FRONTIER_MODES, FRONTIER_TEAM_SIZE,
   frontierChallenge, frontierMode, frontierModeAllows, frontierLevelRewards,
   frontierTeam, frontierLevelsLoaded, frontierBoss, frontierGrandRaid,
+  FRONTIER_DAILY_LEVELS, frontierDailyLevel, frontierDailyFight,
+  fullLearnset, movesForCreature, moveBoostFor,
+  FEATHER_ITEM, FEATHER_POINTS_PER_DAY, FEATHERS_PER_DIAMOND,
+  FOSSIL_PARTS, FOSSIL_FIND_CHANCE, fossilFindFor, rollFossilPart,
+  FOSSIL_REVIVE_MS, FOSSIL_REVIVE_LEVEL, FOSSIL_REVIVE_BONUS_CANDY, FOSSIL_SHINY_ODDS,
+  DIAMOND_ITEM, DIAMOND_STARDUST_COST,
+  DIAMOND_POWER_BONUS, DIAMOND_WINS_NEEDED, DIAMOND_METRES_NEEDED,
   SHOP_ITEMS, shopItem, COINS_PER_AD
 } from './data.js';
 import { ITEMS, item as itemDef } from './items.js';
@@ -46,11 +53,19 @@ import { Battery } from './battery.js';
 export const SAVE_VERSION = 3;
 
 /**
+ * Ceiling on the power a single move can gain from Precious Diamonds. Not a game
+ * rule so much as a guard: nothing stops a player using several on one move over
+ * time, but a tampered save should not be able to claim a 500-power move.
+ */
+const MAX_MOVE_BOOST = 50;
+
+/**
  * Ids for placed buildings and for breeding pairs. Random rather than a counter
  * so nothing extra has to be migrated or kept in step across saves.
  */
 const newBuildingId = () => `bd${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const newSlotId = () => `sl${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+const newFossilDropId = () => `fs${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 /** Local calendar day key, used for daily missions. */
 export const dayKey = (d = new Date()) =>
@@ -127,7 +142,9 @@ const blankDaily = () => ({
    */
   gruntsToday: 0,
   raidsToday: 0,
-  shiniesToday: 0
+  shiniesToday: 0,
+  /** Eggs hatched today. Only the fossil hand roll reads it. */
+  eggsToday: 0
 });
 
 function blankState() {
@@ -173,6 +190,12 @@ function blankState() {
      * write here, so a failed attempt can be retried.
      */
     frontierGrand: {},
+    /**
+     * Today's Daily Challenge clears: { day, cleared: { easy, medium, hard } }.
+     * The fights themselves are derived from the date, so only the result of each
+     * needs storing — and a stale day simply reads as nothing cleared.
+     */
+    frontierDaily: null,
     /** Galactic Adventures rarities opened by the Set missions. Never resets. */
     galacticUnlocked: [],
     /** Temporal Rift rarities opened by the Set missions. Never resets. */
@@ -204,6 +227,25 @@ function blankState() {
     /** Event + day + hour of the last annual-event creature handed out. */
     eventSpawn: null,
 
+    /**
+     * The local day the Precious Feather places were marked out. They are chosen
+     * once per day, on the first open, and expire at midnight — so this is what
+     * stops a second visit re-rolling them somewhere more convenient.
+     */
+    featherDay: null,
+
+    /**
+     * Fossil parts found but not yet revealed. The part is already in the bag —
+     * this only drives the "you found something on the ground" dialogue, so a
+     * reveal missed at a bad moment costs nothing.
+     */
+    fossilPending: [],
+    /**
+     * Sets of parts left with an assistant, each { id, lat, lng, poiName, count,
+     * startedAt, readyAt }. Which creatures they become is rolled at collection.
+     */
+    fossilDrops: [],
+
     /** Newest news entry the player has seen, as a timestamp. */
     newsSeenAt: 0,
 
@@ -217,6 +259,10 @@ function blankState() {
       exclusiveRaidsByRarity: {},
       /** Battle Frontier trainer battles won. Re-clears in a new mode all count. */
       frontierWins: 0,
+      /** Fossils brought back to life, for the revive missions. */
+      fossilsRevived: 0,
+      /** Lifetime count per fossil part, so spending one keeps the mission. */
+      fossilParts: {},
       adsWatched: 0, shopBuys: 0,
       /** Harvests that paid at least one candy — what the missions count. */
       essenceHarvests: 0
@@ -307,7 +353,9 @@ export function migrate(raw) {
       raidsByRarity: { ...(raw.stats?.raidsByRarity || {}) },
       exclusiveRaidsWon: Number(raw.stats?.exclusiveRaidsWon) || 0,
       exclusiveRaidsByRarity: { ...(raw.stats?.exclusiveRaidsByRarity || {}) },
-      frontierWins: Number(raw.stats?.frontierWins) || 0
+      frontierWins: Number(raw.stats?.frontierWins) || 0,
+      fossilsRevived: Number(raw.stats?.fossilsRevived) || 0,
+      fossilParts: { ...(raw.stats?.fossilParts || {}) }
     },
     debug: { ...base.debug, ...(raw.debug || {}) },
     ui: { ...base.ui, ...(raw.ui || {}) },
@@ -315,6 +363,35 @@ export function migrate(raw) {
     missions: { ...(raw.missions || {}) },
     frontierClears: { ...(raw.frontierClears || {}) },
     frontierGrand: { ...(raw.frontierGrand || {}) },
+    // A stale day reads as nothing cleared, so this only has to be shaped right.
+    frontierDaily: (raw.frontierDaily && typeof raw.frontierDaily === 'object')
+      ? { day: String(raw.frontierDaily.day || ''), cleared: { ...(raw.frontierDaily.cleared || {}) } }
+      : null,
+    // Only reveals for parts that still exist, so a renamed item cannot leave a
+    // dialogue that can never be shown blocking the queue.
+    fossilPending: (Array.isArray(raw.fossilPending) ? raw.fossilPending : [])
+      .filter(p => p && FOSSIL_PARTS.includes(p.part))
+      .map(p => ({ part: p.part, from: p.from || null, at: Number(p.at) || Date.now() })),
+    /* A drop-off is a promise the game has made, so it is normalised carefully
+       rather than dropped: bad coordinates or a nonsense count would otherwise
+       lose the player four parts and a day. */
+    fossilDrops: (Array.isArray(raw.fossilDrops) ? raw.fossilDrops : [])
+      .filter(d => d && isFinite(d.lat) && isFinite(d.lng))
+      .map(d => {
+        const startedAt = Number(d.startedAt) || Date.now();
+        return {
+          id: typeof d.id === 'string' && d.id ? d.id : newFossilDropId(),
+          lat: Number(d.lat),
+          lng: Number(d.lng),
+          poiId: d.poiId || null,
+          poiName: typeof d.poiName === 'string' && d.poiName ? d.poiName : 'a pharmacy',
+          count: Math.max(1, Math.floor(Number(d.count) || 1)),
+          startedAt,
+          // Derived rather than trusted, so the wait can never be shortened by
+          // editing the save — and never lengthened by a corrupted value either.
+          readyAt: startedAt + FOSSIL_REVIVE_MS
+        };
+      }),
     daily: { ...base.daily, ...(raw.daily || {}) },
     weekly: { ...base.weekly, ...(raw.weekly || {}) },
     storage: Array.isArray(raw.storage) ? raw.storage : [],
@@ -357,6 +434,10 @@ export function migrate(raw) {
         statMod: validStatMod(c.statMod) || rollStatModifier(),
         moveUnlock: validUnlock(c.moveUnlock) || { 3: 0, 4: 0 },
         boosts: validBoosts(c.boosts),
+        // Precious Diamond: the bonuses already earned, and the one still being
+        // worked towards. Both are dropped if they no longer name a real move.
+        moveBoost: validMoveBoost(c.moveBoost, c.speciesId),
+        diamond: validDiamond(c.diamond, c.speciesId),
         // Only ever a known held item id, so a renamed or removed item cannot
         // leave a creature holding something that no longer exists.
         held: isHeldItem(c.held) ? c.held : null,
@@ -394,6 +475,24 @@ export function migrate(raw) {
     kind: p.kind || 'creature',
     collected: !!p.collected
   })).filter(p => p.kind !== 'creature' || DB.byId.has(p.speciesId));
+
+  /* ---- Precious Feather places: never more than the daily allowance ----
+     A bug briefly let the once-a-second loop start a fresh lookup on every tick
+     while the first was still out, so some saves are holding six or nine of
+     these. Capped on load, keeping the ones already collected and then the
+     oldest, so a save that hit it repairs itself rather than staying wrong. */
+  const featherPoints = s.points.filter(p => p.kind === 'feather');
+  if (featherPoints.length > FEATHER_POINTS_PER_DAY) {
+    const keep = new Set(
+      featherPoints
+        .slice()
+        .sort((a, b) => (Number(b.collected) - Number(a.collected))
+          || (a.createdAt || 0) - (b.createdAt || 0))
+        .slice(0, FEATHER_POINTS_PER_DAY)
+        .map(p => p.id)
+    );
+    s.points = s.points.filter(p => p.kind !== 'feather' || keep.has(p.id));
+  }
 
   for (const k of Object.keys(s.registered)) if (!DB.byId.has(k)) delete s.registered[k];
   for (const k of Object.keys(s.candy)) if (!DB.byId.has(k)) delete s.candy[k];
@@ -542,6 +641,7 @@ export function migrate(raw) {
   s.daily.gruntsToday = Math.max(0, Math.floor(Number(s.daily.gruntsToday) || 0));
   s.daily.raidsToday = Math.max(0, Math.floor(Number(s.daily.raidsToday) || 0));
   s.daily.shiniesToday = Math.max(0, Math.floor(Number(s.daily.shiniesToday) || 0));
+  s.daily.eggsToday = Math.max(0, Math.floor(Number(s.daily.eggsToday) || 0));
   // Shop tallies are clamped to that row's own cap, so a tampered save cannot
   // hand out more than a day's worth and cannot go negative either.
   const rawShop = (s.daily.shop && typeof s.daily.shop === 'object') ? s.daily.shop : {};
@@ -637,6 +737,45 @@ function validBoosts(b) {
     total += allowed;
   }
   return out;
+}
+
+/**
+ * Move-power bonuses already earned, as `{ moveName: extraPower }`.
+ *
+ * Checked against the creature's own learnset, so a bonus on a move that has
+ * been renamed or removed from the sheet is dropped rather than sitting in the
+ * save forever pointing at nothing. Capped at a sane ceiling too: a hand-edited
+ * save should not be able to hand one creature a 500-power move.
+ */
+function validMoveBoost(raw, speciesId) {
+  if (!raw || typeof raw !== 'object') return null;
+  const known = new Set(fullLearnset(speciesId).map(m => m.name));
+  const out = {};
+  let any = false;
+  for (const [name, value] of Object.entries(raw)) {
+    if (!known.has(name)) continue;
+    const n = Math.max(0, Math.min(MAX_MOVE_BOOST, Math.round(Number(value) || 0)));
+    if (!n) continue;
+    out[name] = n;
+    any = true;
+  }
+  return any ? out : null;
+}
+
+/** The Precious Diamond currently being worked off, or null. */
+function validDiamond(raw, speciesId) {
+  if (!raw || typeof raw !== 'object') return null;
+  const move = String(raw.move ?? '').trim();
+  if (!move) return null;
+  // It has to still be a real attacking move on this creature's line.
+  const hit = fullLearnset(speciesId).find(m => m.name === move);
+  if (!hit || !(hit.power > 0)) return null;
+  return {
+    move,
+    wins: Math.max(0, Math.min(DIAMOND_WINS_NEEDED, Math.floor(Number(raw.wins) || 0))),
+    metres: Math.max(0, Math.min(DIAMOND_METRES_NEEDED, Number(raw.metres) || 0)),
+    startedAt: Number(raw.startedAt) || Date.now()
+  };
 }
 
 function validStatMod(m) {
@@ -811,12 +950,18 @@ class Store {
     const missionDone = this.addWalkMissionProgress(metres);
     const walked = this.addBuddyWalk(metres);
     const eggs = this.addEggWalk(metres);
+    // Precious Diamonds count the player's own walking, so they ride along here
+    // with the buddy and the eggs rather than having their own hook.
+    const diamonds = this.addDiamondWalk(metres);
     return {
-      changed: stepsMoved || walked.candy > 0 || walked.progressed || eggs.moved || missionDone,
+      changed: stepsMoved || walked.candy > 0 || walked.progressed || eggs.moved
+        || missionDone || diamonds.moved,
       buddyCandy: walked.candy,
       buddy: walked.candy > 0 ? this.buddy : null,
       eggsReady: eggs.ready,
-      walkMissionDone: missionDone
+      walkMissionDone: missionDone,
+      /** Diamond projects this stride finished, for the caller to announce. */
+      diamondsDone: diamonds.finished
     };
   }
 
@@ -1097,8 +1242,11 @@ class Store {
     });
 
     this.s.stats.eggsHatched++;
+    // Every hatch rolls for a Fossil Hand. bumpDaily does the roll, so this both
+    // records the day's count and returns anything found.
+    const fossils = this.bumpDaily('eggsToday');
     this.touch('hatch', { immediate: true });
-    return { ok: true, ...res, egg, eggType: egg.type, km: def.km, event };
+    return { ok: true, ...res, egg, eggType: egg.type, km: def.km, event, fossils };
   }
 
   /* ---------------- candy ---------------- */
@@ -2022,6 +2170,17 @@ class Store {
   /** Points that still block a new spawn from appearing nearby. */
   occupiedPoints(now = Date.now()) { return this.activePoints(now); }
 
+  /** Takes points off the map before their timer is up. */
+  removePoints(ids = []) {
+    const drop = new Set(ids);
+    if (!drop.size) return 0;
+    const before = this.s.points.length;
+    this.s.points = this.s.points.filter(p => !drop.has(p.id));
+    const gone = before - this.s.points.length;
+    if (gone) this.touch('remove-points', { immediate: true });
+    return gone;
+  }
+
   addPoints(list) {
     if (!list?.length) return;
     this.s.points.push(...list);
@@ -2115,6 +2274,28 @@ class Store {
   markEssenceSpawned(now = new Date()) {
     this.s.essenceWindow = essenceWindowKey(now);
     this.touch('essence', { immediate: true });
+  }
+
+  /* ---------------- the daily Precious Feather places ---------------- */
+
+  /**
+   * True when today has not had its feather places marked out yet. Keyed on the
+   * local day, so the first open of the day places them and every later open
+   * leaves them exactly where they were — walking to one should not be able to
+   * re-roll the other two somewhere closer.
+   */
+  canPlaceFeathers(now = new Date()) {
+    return this.s.featherDay !== dayKey(now);
+  }
+
+  markFeathersPlaced(now = new Date()) {
+    this.s.featherDay = dayKey(now);
+    this.touch('feathers', { immediate: true });
+  }
+
+  /** The feather points still live and uncollected. */
+  featherPoints(now = Date.now()) {
+    return this.activePoints(now).filter(p => p.kind === 'feather');
   }
 
   /* ---------------- the annual events' hourly creature ---------------- */
@@ -2516,6 +2697,80 @@ class Store {
     return { ...raid, mode: modeId };
   }
 
+  /* ---------------- the Daily Challenge ----------------
+     Only the clears are stored. The fights themselves are derived from the day,
+     so there is nothing to keep in step and nothing to migrate. */
+
+  /** Today's record, blanked when the day has rolled over. */
+  frontierDailyRecord(now = new Date()) {
+    const key = dayKey(now);
+    const rec = this.s.frontierDaily;
+    return rec && rec.day === key ? rec : { day: key, cleared: {} };
+  }
+
+  hasDailyChallengeClear(levelId, now = new Date()) {
+    return !!this.frontierDailyRecord(now).cleared?.[levelId];
+  }
+
+  /**
+   * One difficulty of today's challenge: the drawn fight, whether it is beaten,
+   * and how many of your creatures the drawn mode allows.
+   */
+  dailyChallengeState(levelId, now = new Date()) {
+    const def = frontierDailyLevel(levelId);
+    if (!def) return null;
+    const fight = frontierDailyFight(levelId, dayKey(now));
+    if (!fight) return { level: def, fight: null, cleared: false, eligible: 0, missing: true };
+    return {
+      level: def,
+      fight,
+      mode: fight.mode,
+      team: fight.team,
+      cleared: this.hasDailyChallengeClear(levelId, now),
+      eligible: this.frontierEligible(fight.mode.id).length,
+      missing: false
+    };
+  }
+
+  /** All three, in order. */
+  dailyChallengeStates(now = new Date()) {
+    return FRONTIER_DAILY_LEVELS.map(l => this.dailyChallengeState(l.id, now));
+  }
+
+  /**
+   * Records a Daily Challenge win and rolls its Precious Feather.
+   *
+   * The Essence Harvesting game the win also pays is opened by the UI rather than
+   * here, because it is an interaction rather than a reward — but the creature it
+   * runs against is drawn here so the whole payout is decided in one place.
+   */
+  rewardDailyChallenge(levelId, now = new Date()) {
+    const def = frontierDailyLevel(levelId);
+    if (!def) return { ok: false, reason: 'missing' };
+    if (this.hasDailyChallengeClear(levelId, now)) return { ok: false, reason: 'claimed' };
+
+    const rec = this.frontierDailyRecord(now);
+    rec.cleared = { ...rec.cleared, [levelId]: Date.now() };
+    this.s.frontierDaily = rec;
+    this.s.stats.frontierWins = (this.s.stats.frontierWins || 0) + 1;
+
+    // The feather, on the difficulty's own odds.
+    let feather = false;
+    if (chance(def.featherChance)) {
+      this.addItem(FEATHER_ITEM, 1);
+      feather = true;
+    }
+
+    // And the creature the harvest will run against: eligible for an essence, and
+    // inside this difficulty's rarity band.
+    const pool = DB.species.filter(sp => essenceEligible(sp)
+      && def.essenceRarities.includes(sp.rarity || familyRarity(sp.id) || 1));
+    const sp = pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
+
+    this.touch('daily-challenge', { immediate: true });
+    return { ok: true, level: def, feather, essenceSpecies: sp };
+  }
+
   /** Marks a Grand Raid as won. A loss writes nothing, so it can be retried. */
   recordFrontierGrandWin(challengeId, modeId) {
     const key = this.frontierGrandKey(challengeId, modeId);
@@ -2660,15 +2915,44 @@ class Store {
   }
 
   /**
-   * Takes an item back off a creature. Consumables cannot come back — they are
-   * spent by the thing they help with, so handing one over is a commitment.
+   * Is the consumable this creature is holding actually in use yet?
+   *
+   * A consumable is spent by the thing it helps with, so until that thing starts
+   * nothing has been used and the item should come back. A Breeding Amulet does
+   * nothing until the creature is in a centre; a Candy Pouch does nothing until
+   * the creature is your buddy. Handing one over is no longer a commitment — only
+   * putting it to work is.
+   *
+   * @returns {{engaged: boolean, why: string}}
+   */
+  heldItemEngaged(c) {
+    const def = c?.held ? heldItem(c.held) : null;
+    if (!def?.consumable) return { engaged: false, why: '' };
+    if (def.effect === 'breeding' && c.breeding != null) {
+      return { engaged: true, why: 'it is in the breeding centre with it' };
+    }
+    if (def.effect === 'buddy' && this.isBuddy(c.uid)) {
+      return { engaged: true, why: 'it is your buddy' };
+    }
+    return { engaged: false, why: '' };
+  }
+
+  /**
+   * Takes an item back off a creature.
+   *
+   * Consumables used to be refused outright. They now come back as long as they
+   * have not started being used, which is the fairer rule: giving one out is a
+   * decision, not a mistake you have to live with.
    */
   takeHeldItem(uid) {
     const c = this.creature(uid);
     if (!c) return { ok: false, reason: 'missing' };
     if (!c.held) return { ok: false, reason: 'empty' };
     const def = heldItem(c.held);
-    if (def?.consumable) return { ok: false, reason: 'consumable', item: def };
+    const engaged = this.heldItemEngaged(c);
+    if (engaged.engaged) {
+      return { ok: false, reason: 'inUse', item: def, why: engaged.why };
+    }
 
     const id = c.held;
     c.held = null;
@@ -2811,6 +3095,339 @@ class Store {
     };
   }
 
+  /* ---------------- fossils ----------------
+     Parts come from five different activities, on a threshold rather than per
+     event, so the counters are the daily ones and the roll happens whenever a
+     threshold is crossed. */
+
+  /** How many of each part you are holding, and whether that is a full set. */
+  fossilTally() {
+    const parts = {};
+    let sets = Infinity;
+    for (const id of FOSSIL_PARTS) {
+      const n = this.itemCount(id);
+      parts[id] = n;
+      sets = Math.min(sets, n);
+    }
+    return { parts, sets: isFinite(sets) ? sets : 0 };
+  }
+
+  /** Complete sets of four you could hand in right now. */
+  get fossilSets() { return this.fossilTally().sets; }
+
+  /**
+   * Rolls the fossil find for one counter crossing one or more thresholds.
+   *
+   * Called from the one place each counter is bumped, with the values either
+   * side, so a single stride that takes you past two kilometre marks gets two
+   * rolls rather than one. The part is added straight away and the *reveal* is
+   * queued — if the dialogue is never seen the player still has the part.
+   *
+   * @returns {string[]} the part ids found, usually empty
+   */
+  rollFossilFinds(counter, before, after) {
+    const rule = fossilFindFor(counter);
+    if (!rule) return [];
+    const crossings = Math.floor(after / rule.every) - Math.floor(before / rule.every);
+    if (crossings <= 0) return [];
+
+    const found = [];
+    for (let i = 0; i < crossings; i++) {
+      if (!chance(FOSSIL_FIND_CHANCE)) continue;
+      // The catch source gives a random one of the four; the rest are fixed.
+      const part = rule.part || rollFossilPart();
+      this.addItem(part, 1);
+      // A lifetime tally per part, separate from the bag: the "collect a fossil
+      // head" mission must not un-complete when the head is spent on a revival.
+      if (!this.s.stats.fossilParts) this.s.stats.fossilParts = {};
+      this.s.stats.fossilParts[part] = (this.s.stats.fossilParts[part] || 0) + 1;
+      this.s.fossilPending.push({ part, from: rule.id, at: Date.now() });
+      found.push(part);
+    }
+    if (found.length) this.touch('fossil-find', { immediate: true });
+    return found;
+  }
+
+  /** Is there a "found something on the ground" reveal waiting? */
+  get fossilRevealWaiting() { return this.s.fossilPending.length > 0; }
+
+  /**
+   * Takes the next reveal off the queue. The item was already added when it was
+   * found, so this only controls the dialogue — nothing is lost by never calling
+   * it, and nothing is double-counted by calling it late.
+   */
+  takeFossilReveal() {
+    const next = this.s.fossilPending.shift() || null;
+    if (next) this.touch('fossil-reveal', { immediate: true });
+    return next;
+  }
+
+  /* ---- handing them in ---- */
+
+  canReviveFossils() {
+    const sets = this.fossilSets;
+    if (sets < 1) return { ok: false, reason: 'parts', sets, tally: this.fossilTally() };
+    if (!DB.fossil.length) return { ok: false, reason: 'noSpecies' };
+    return { ok: true, sets };
+  }
+
+  /**
+   * Hands `count` complete sets to an assistant. The parts go now; the creatures
+   * are rolled at collection time rather than here, so the save never holds the
+   * answer and a peek at it cannot spoil the surprise.
+   */
+  startFossilRevive(count, spot, now = Date.now()) {
+    const n = Math.max(1, Math.floor(Number(count) || 1));
+    const check = this.canReviveFossils();
+    if (!check.ok) return check;
+    if (n > check.sets) return { ok: false, reason: 'parts', sets: check.sets };
+    if (!spot || !isFinite(spot.lat) || !isFinite(spot.lng)) {
+      return { ok: false, reason: 'noSpot' };
+    }
+
+    for (const id of FOSSIL_PARTS) this.spendItem(id, n);
+
+    const record = {
+      id: newFossilDropId(),
+      lat: Number(spot.lat),
+      lng: Number(spot.lng),
+      poiId: spot.id || null,
+      poiName: spot.name || 'a pharmacy',
+      count: n,
+      startedAt: now,
+      readyAt: now + FOSSIL_REVIVE_MS
+    };
+    this.s.fossilDrops.push(record);
+    this.touch('fossil-revive', { immediate: true });
+    return { ok: true, drop: record, count: n, readyAt: record.readyAt };
+  }
+
+  /** Everything currently with an assistant, soonest first. */
+  fossilDrops() {
+    return [...this.s.fossilDrops].sort((a, b) => a.readyAt - b.readyAt);
+  }
+
+  /** The ones whose 24 hours are up. */
+  fossilDropsReady(now = Date.now()) {
+    return this.fossilDrops().filter(d => d.readyAt <= now);
+  }
+
+  fossilDrop(id) { return this.s.fossilDrops.find(d => d.id === id) || null; }
+
+  /**
+   * Collects one finished drop-off. Rolls the creatures now, hands them over with
+   * the same rewards a capture pays plus the bonus candy, and clears the record.
+   *
+   * @returns {{ok:true, results:Array}} one capture result per creature revived
+   */
+  collectFossilRevive(id, now = Date.now()) {
+    const drop = this.fossilDrop(id);
+    if (!drop) return { ok: false, reason: 'missing' };
+    if (drop.readyAt > now) return { ok: false, reason: 'notReady', readyAt: drop.readyAt };
+    if (!DB.fossil.length) return { ok: false, reason: 'noSpecies' };
+
+    const results = [];
+    for (let i = 0; i < drop.count; i++) {
+      const sp = DB.fossil[Math.floor(Math.random() * DB.fossil.length)];
+      /* A flat 2%, rolled here rather than through `rollShiny`, so a Bonanza or a
+         Shiny Incense cannot move it. A fossil is assembled rather than caught and
+         the odds should not depend on when you happen to hand the parts in. */
+      const shiny = chance(FOSSIL_SHINY_ODDS);
+      results.push(this.capture(sp.id, {
+        origin: 'fossil',
+        level: FOSSIL_REVIVE_LEVEL,
+        shiny,
+        bonusCandy: FOSSIL_REVIVE_BONUS_CANDY
+      }));
+    }
+
+    this.s.fossilDrops = this.s.fossilDrops.filter(d => d.id !== drop.id);
+    this.s.stats.fossilsRevived = (this.s.stats.fossilsRevived || 0) + drop.count;
+    this.touch('fossil-collect', { immediate: true });
+    return { ok: true, results, drop, bonusCandy: FOSSIL_REVIVE_BONUS_CANDY };
+  }
+
+  /* ---------------- precious feathers and diamonds ----------------
+     The only route to a stronger move, and deliberately a long one: ten feathers
+     walked to on ten separate errands buy the diamond, and the diamond only pays
+     out after twenty wins and ten kilometres. */
+
+  get featherCount() { return this.itemCount(FEATHER_ITEM); }
+
+  /**
+   * Has this creature already had a Precious Diamond? One per creature for life,
+   * so a single creature cannot be stacked into an outlier.
+   */
+  hasUsedDiamond(c) {
+    return Object.values(c?.moveBoost || {}).some(n => Number(n) > 0);
+  }
+
+  /** How many diamonds the feathers in the bag could buy right now. */
+  get diamondsAffordable() {
+    return Math.floor(this.featherCount / FEATHERS_PER_DIAMOND);
+  }
+
+  /** The Research Lab's third counter: feathers in, diamond out. */
+  exchangeFeathersForDiamond(qty = 1) {
+    const n = Math.max(1, Math.floor(Number(qty) || 1));
+    if (!this.s.researchLab) return { ok: false, reason: 'noLab' };
+    const cost = FEATHERS_PER_DIAMOND * n;
+    if (this.featherCount < cost) {
+      return { ok: false, reason: 'feathers', cost, have: this.featherCount,
+               short: cost - this.featherCount };
+    }
+    this.spendItem(FEATHER_ITEM, cost);
+    this.addItem(DIAMOND_ITEM, n);
+    this.touch('feather-exchange', { immediate: true });
+    return { ok: true, made: n, spent: cost, feathersLeft: this.featherCount };
+  }
+
+  /**
+   * The attacking moves of one creature a diamond could be spent on. A move with
+   * no power is a status move — there is nothing to raise — and the creature has
+   * to actually know the move, not merely be working towards it.
+   */
+  diamondMoveOptions(uid) {
+    const c = this.creature(uid);
+    if (!c) return [];
+    return movesForCreature(c, species(c.speciesId))
+      .filter(m => m.power > 0)
+      .map(m => ({
+        name: m.name,
+        power: m.power,
+        basePower: m.power - moveBoostFor(c, m.name),
+        boost: moveBoostFor(c, m.name),
+        slot: m.slot
+      }))
+      .sort((a, b) => a.slot - b.slot);
+  }
+
+  canUseDiamond(uid) {
+    const c = this.creature(uid);
+    if (!c) return { ok: false, reason: 'missing' };
+    if (c.breeding != null) return { ok: false, reason: 'breeding' };
+    /* One diamond per creature, ever — not one at a time. A creature already
+       working one off cannot start a second, and one that has finished one is
+       done for good.
+
+       Both checked before the inventory, because more than one can be true at
+       once and the creature is the useful thing to report: telling someone they
+       have no diamonds when the real problem is the creature would send them off
+       to make another one for nothing. */
+    if (c.diamond) return { ok: false, reason: 'busy', pending: c.diamond };
+    if (this.hasUsedDiamond(c)) return { ok: false, reason: 'used' };
+    if (!this.hasItem(DIAMOND_ITEM)) return { ok: false, reason: 'noItem' };
+    if (this.s.stardust < DIAMOND_STARDUST_COST) {
+      return { ok: false, reason: 'dust', cost: DIAMOND_STARDUST_COST,
+               have: this.s.stardust, short: DIAMOND_STARDUST_COST - this.s.stardust };
+    }
+    if (!this.diamondMoveOptions(uid).length) return { ok: false, reason: 'noMoves' };
+    return { ok: true };
+  }
+
+  /**
+   * Spends a diamond and the stardust, and starts the project. The move does not
+   * change yet — that happens once the wins and the walking are done.
+   */
+  useDiamond(uid, moveName) {
+    const check = this.canUseDiamond(uid);
+    if (!check.ok) return check;
+    const c = this.creature(uid);
+    const move = this.diamondMoveOptions(uid).find(m => m.name === moveName);
+    if (!move) return { ok: false, reason: 'badMove' };
+
+    this.spendItem(DIAMOND_ITEM);
+    this.s.stardust -= DIAMOND_STARDUST_COST;
+    c.diamond = { move: move.name, wins: 0, metres: 0, startedAt: Date.now() };
+
+    this.touch('diamond', { immediate: true });
+    return {
+      ok: true, creature: c, move: move.name,
+      from: move.power, to: move.power + DIAMOND_POWER_BONUS,
+      dustSpent: DIAMOND_STARDUST_COST,
+      winsNeeded: DIAMOND_WINS_NEEDED, metresNeeded: DIAMOND_METRES_NEEDED
+    };
+  }
+
+  /** Everything the UI needs about a creature's pending diamond, or null. */
+  diamondProgress(uid) {
+    const c = this.creature(uid);
+    const d = c?.diamond;
+    if (!d) return null;
+    const wins = Math.min(DIAMOND_WINS_NEEDED, d.wins);
+    const metres = Math.min(DIAMOND_METRES_NEEDED, d.metres);
+    return {
+      move: d.move,
+      wins, winsNeeded: DIAMOND_WINS_NEEDED,
+      winsLeft: Math.max(0, DIAMOND_WINS_NEEDED - wins),
+      metres, metresNeeded: DIAMOND_METRES_NEEDED,
+      metresLeft: Math.max(0, DIAMOND_METRES_NEEDED - metres),
+      pct: Math.round(((wins / DIAMOND_WINS_NEEDED) + (metres / DIAMOND_METRES_NEEDED)) / 2 * 100),
+      bonus: DIAMOND_POWER_BONUS,
+      done: wins >= DIAMOND_WINS_NEEDED && metres >= DIAMOND_METRES_NEEDED
+    };
+  }
+
+  /**
+   * Pays out a finished project. Called from wherever progress was just made,
+   * so the move improves the moment the last win or the last metre lands.
+   */
+  finishDiamondIfDone(c) {
+    const d = c?.diamond;
+    if (!d) return null;
+    if (d.wins < DIAMOND_WINS_NEEDED || d.metres < DIAMOND_METRES_NEEDED) return null;
+
+    if (!c.moveBoost) c.moveBoost = {};
+    const before = c.moveBoost[d.move] || 0;
+    c.moveBoost[d.move] = Math.min(MAX_MOVE_BOOST, before + DIAMOND_POWER_BONUS);
+    const gained = c.moveBoost[d.move] - before;
+    c.diamond = null;
+    return { uid: c.uid, speciesId: c.speciesId, move: d.move, gained, total: c.moveBoost[d.move] };
+  }
+
+  /**
+   * Counts a battle win towards every creature that took part and has a diamond
+   * running. Called on a win only — a loss is not progress.
+   *
+   * @param {string[]} uids the creatures that were on the field
+   * @returns {Array} the projects this win finished, for the UI to announce
+   */
+  recordBattleWin(uids = []) {
+    const finished = [];
+    let moved = false;
+    for (const uid of new Set(uids)) {
+      const c = this.creature(uid);
+      if (!c?.diamond) continue;
+      c.diamond.wins = Math.min(DIAMOND_WINS_NEEDED, c.diamond.wins + 1);
+      moved = true;
+      const done = this.finishDiamondIfDone(c);
+      if (done) finished.push(done);
+    }
+    if (moved) this.touch('diamond-win', { immediate: true });
+    return finished;
+  }
+
+  /**
+   * Feeds walked metres into every pending diamond. The walking is the player's
+   * rather than the creature's, so two projects run down together — which is the
+   * kinder reading, and the only one that does not punish spreading diamonds
+   * across your team.
+   */
+  addDiamondWalk(metres) {
+    if (!isFinite(metres) || metres <= 0) return { finished: [], moved: false };
+    const finished = [];
+    let moved = false;
+    for (const c of this.s.storage) {
+      if (!c.diamond) continue;
+      if (c.diamond.metres >= DIAMOND_METRES_NEEDED) continue;
+      c.diamond.metres = Math.min(DIAMOND_METRES_NEEDED, c.diamond.metres + metres);
+      moved = true;
+      const done = this.finishDiamondIfDone(c);
+      if (done) finished.push(done);
+    }
+    return { finished, moved };
+  }
+
   /* ---------------- strength re-roll ---------------- */
 
   canRerollStrength(uid) {
@@ -2943,12 +3560,21 @@ class Store {
 
   /* ---------------- missions ---------------- */
 
+  /**
+   * Bumps one of today's counters.
+   *
+   * @returns {string[]} any fossil parts found by crossing a threshold. Every
+   *   integer daily counter funnels through here, which is why the fossil roll
+   *   lives here rather than at each of the four call sites.
+   */
   bumpDaily(key, n = 1) {
     if (this.s.daily.date !== dayKey()) this.s.daily = blankDaily();
-    this.s.daily[key] = (this.s.daily[key] || 0) + n;
+    const before = Number(this.s.daily[key]) || 0;
+    this.s.daily[key] = before + n;
     // A spawn restriction can read these, so data.js has to hear about it or a
     // creature gated behind "grunts today" would not appear until the next boot.
     this.syncSpawnConditions();
+    return this.rollFossilFinds(key, before, this.s.daily[key]);
   }
 
   /**
@@ -2966,6 +3592,10 @@ class Store {
     const weekBefore = Number(this.s.weekly.metresWeek) || 0;
     this.s.daily.metresToday = dayBefore + metres;
     this.s.weekly.metresWeek = weekBefore + metres;
+    /* Metres do not go through bumpDaily, so the fossil roll is done by hand
+       here. Every kilometre mark crossed gets its own roll, which matters on a
+       long stride after the app has been backgrounded. */
+    this.rollFossilFinds('metresToday', dayBefore, this.s.daily.metresToday);
     // Same reason as bumpDaily: "walked today" gates a spawn.
     this.syncSpawnConditions();
 
@@ -3010,6 +3640,10 @@ class Store {
         return n;
       }
       case 'exclusiveRaidsWon': return this.s.stats.exclusiveRaidsWon || 0;
+      case 'fossilsRevived': return this.s.stats.fossilsRevived || 0;
+      // Lifetime total for one part, not what is in the bag: spending parts on a
+      // revival must not undo a mission you have already earned.
+      case 'fossilPart': return this.s.stats.fossilParts?.[m.part] || 0;
       case 'exclusiveRaidRarity':
         return this.s.stats.exclusiveRaidsByRarity?.[m.rarity] || 0;
       // Counted live off storage rather than a stored tally, so releasing a

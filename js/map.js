@@ -2,7 +2,7 @@
    map.js — Leaflet map, player marker, spawn markers with timers
    ============================================================ */
 
-import { RULES, species } from './data.js';
+import { RULES, species, IMAGE_DIR } from './data.js';
 import { itemImage } from './items.js';
 import { distance, formatDistance } from './geo.js';
 import { timeLeftLabel } from './ui.js';
@@ -45,7 +45,13 @@ const ICON_HTML = {
   // Replaced per point by iconFor, which swaps in that creature's artwork.
   essence: `
     <div class="glow glow-essence"></div>
-    <div class="icon-wrap"><span class="ico-essence">✨</span></div>`
+    <div class="icon-wrap"><span class="ico-essence">✨</span></div>`,
+  // One of the three golden places of the day. Deliberately the loudest marker
+  // on the map: it is the only one worth a deliberate trip, and it is gone at
+  // midnight, so it has to be obvious from a glance at a zoomed-out map.
+  feather: `
+    <div class="glow glow-feather"></div>
+    <div class="icon-wrap"><img class="ico-feather" src="${itemImage('precious_feather')}" alt="" /></div>`,
 };
 
 const GRUNT_GLYPH = {
@@ -66,9 +72,43 @@ function iconFor(point) {
     return `<div class="glow glow-grunt"></div>
             <div class="icon-wrap"><span class="ico-grunt">${glyph}</span></div>`;
   }
+
   // Exclusive raids are raid points with a flag, and get the blue flame.
   if (point.kind === 'raid' && point.raid?.exclusive) return ICON_HTML.exraid;
   return ICON_HTML[point.kind] || ICON_HTML.creature;
+}
+
+/* ===============================================================
+   Pharmacies and hospitals
+
+   Not map points: they have no timer, no drop and no roll. They are simply
+   marked while you are near them, because they are where fossils are handed in.
+   Kept in their own layer so a scan replacing every spawn cannot disturb them.
+   =============================================================== */
+const MEDICAL_ICON = '<div class="medical-rot"><div class="medical-cross">✚</div></div>';
+
+/**
+ * A set of fossils left with an assistant.
+ *
+ * Its own layer rather than a map point: it has no timer to run out, no roll
+ * behind it and nothing to prune. It sits there until you come back for it, which
+ * is the opposite of everything `syncPoints` handles.
+ */
+function fossilDropIcon(drop, now = Date.now()) {
+  const ready = drop.readyAt <= now;
+  // Working shows the parts; ready shows the assistant, because that is who you
+  // are going back to see.
+  const art = ready ? `${IMAGE_DIR}/assistant.png` : itemImage('fossil_head');
+  const label = ready
+    ? 'Ready'
+    : timeLeftLabel(drop.readyAt - now);
+  return `<div class="fossil-rot">`
+    + `<div class="fossil-drop${ready ? ' ready' : ''}">`
+    + `<div class="fossil-drop-glow"></div>`
+    + `<img src="${art}" alt="" />`
+    + (drop.count > 1 ? `<i class="fossil-count">${drop.count}</i>` : '')
+    + `<b class="fossil-when">${label}</b>`
+    + `</div></div>`;
 }
 
 export const GameMap = {
@@ -88,6 +128,10 @@ export const GameMap = {
   onBreedingClick: null,
   onResearchLabClick: null,
   onBattleFrontierClick: null,
+  onMedicalClick: null,
+  medicalMarkers: new Map(),   // poiId -> { marker, spot }
+  onFossilDropClick: null,
+  fossilMarkers: new Map(),    // dropId -> { marker, drop, label }
   followMe: true,
   _lastPos: null,
   _paintedRange: null,  // interaction radius the green ring is currently drawn at
@@ -111,8 +155,12 @@ export const GameMap = {
     }).addTo(this.map);
 
     this.poiLayer = L.layerGroup().addTo(this.map);
+    // Below the spawns: the crosses are landmarks you navigate by, not targets.
+    this.medicalLayer = L.layerGroup().addTo(this.map);
     this.breedingLayer = L.layerGroup().addTo(this.map);
     this.spawnLayer = L.layerGroup().addTo(this.map);
+    // Above the spawns: a finished fossil is the most important thing on the map.
+    this.fossilLayer = L.layerGroup().addTo(this.map);
 
     // Any manual pan turns off auto-follow so the map stops fighting the user.
     this.map.on('dragstart', () => { this.followMe = false; });
@@ -533,6 +581,88 @@ export const GameMap = {
     this.labMarker.on('click', () => this.onResearchLabClick?.(lab));
   },
 
+  /**
+   * Marks every pharmacy and hospital currently in range with a cross, and takes
+   * the mark off anything no longer in the list.
+   *
+   * Diffed by POI id rather than rebuilt, so a marker already on screen is left
+   * alone — walking past a row of chemists should not make the crosses flicker
+   * once a second.
+   */
+  syncMedical(spots = []) {
+    if (!this.map || !this.medicalLayer) return;
+    const wanted = new Map(spots.map(s => [s.id, s]));
+
+    for (const [id, rec] of this.medicalMarkers) {
+      if (!wanted.has(id)) {
+        this.medicalLayer.removeLayer(rec.marker);
+        this.medicalMarkers.delete(id);
+      }
+    }
+
+    for (const spot of spots) {
+      const existing = this.medicalMarkers.get(spot.id);
+      if (existing) { existing.spot = spot; continue; }
+      const marker = L.marker([spot.lat, spot.lng], {
+        icon: L.divIcon({
+          className: '', html: MEDICAL_ICON, iconSize: [30, 30], iconAnchor: [15, 15]
+        }),
+        // Under the spawns: a cross is a landmark, not something to tap past.
+        zIndexOffset: 300
+      }).addTo(this.medicalLayer);
+      const rec = { marker, spot };
+      this.medicalMarkers.set(spot.id, rec);
+      marker.on('click', () => this.onMedicalClick?.(rec.spot));
+    }
+  },
+
+  /**
+   * Fossils waiting with an assistant. Re-rendered rather than diffed, because
+   * the countdown on the marker changes every second anyway — and there are only
+   * ever a handful of these.
+   */
+  syncFossilDrops(drops = [], now = Date.now()) {
+    if (!this.map || !this.fossilLayer) return;
+    const wanted = new Set(drops.map(d => d.id));
+
+    for (const [id, rec] of this.fossilMarkers) {
+      if (!wanted.has(id)) {
+        this.fossilLayer.removeLayer(rec.marker);
+        this.fossilMarkers.delete(id);
+      }
+    }
+
+    for (const drop of drops) {
+      const ready = drop.readyAt <= now;
+      const existing = this.fossilMarkers.get(drop.id);
+      if (existing) {
+        existing.drop = drop;
+        existing.marker.setLatLng([drop.lat, drop.lng]);
+        // Only redraw when the label actually changes, so this is cheap to call
+        // every second.
+        const label = ready ? 'Ready' : timeLeftLabel(drop.readyAt - now);
+        if (existing.label !== label) {
+          existing.label = label;
+          existing.marker.setIcon(L.divIcon({
+            className: '', html: fossilDropIcon(drop, now),
+            iconSize: [46, 58], iconAnchor: [23, 52]
+          }));
+        }
+        continue;
+      }
+      const marker = L.marker([drop.lat, drop.lng], {
+        icon: L.divIcon({
+          className: '', html: fossilDropIcon(drop, now),
+          iconSize: [46, 58], iconAnchor: [23, 52]
+        }),
+        zIndexOffset: 650
+      }).addTo(this.fossilLayer);
+      const rec = { marker, drop, label: ready ? 'Ready' : timeLeftLabel(drop.readyAt - now) };
+      this.fossilMarkers.set(drop.id, rec);
+      marker.on('click', () => this.onFossilDropClick?.(rec.drop));
+    }
+  },
+
   /** The Battle Frontier is the third permanent pin, and works the same way. */
   syncBattleFrontier(frontier) {
     if (!this.map || !this.breedingLayer) return;
@@ -574,6 +704,8 @@ export const GameMap = {
   /** Fires when the arrow itself is tapped, with the essence point. */
   onEssenceArrowClick: null,
   _essenceTarget: null,
+  /** 'essence' or 'fossil', so the tap goes to the right handler. */
+  _essenceTargetKind: null,
 
   /** How close to the edge of the view the arrow may sit, in px. */
   _essenceArrowMargin: 38,
@@ -583,7 +715,13 @@ export const GameMap = {
     if (!host) return;
     host.addEventListener('click', e => {
       e.stopPropagation();
-      if (this._essenceTarget) this.onEssenceArrowClick?.(this._essenceTarget);
+      if (!this._essenceTarget) return;
+      // Two kinds of target share the arrow, so the tap has to be routed.
+      if (this._essenceTargetKind === 'fossil') {
+        this.onFossilDropClick?.(this._essenceTarget);
+      } else {
+        this.onEssenceArrowClick?.(this._essenceTarget);
+      }
     });
     // Pan and zoom move the target on screen without any game state changing,
     // so the once-a-second tick is not enough on its own.
@@ -598,12 +736,25 @@ export const GameMap = {
     const host = document.getElementById('essence-arrow');
     if (!host || !this.map) return;
 
+    /* An uncollected essence, or a fossil that has finished — both are somewhere
+       you want to walk to and both can be off screen, so they share the one
+       arrow. A ready fossil wins: it is a day old, and the essence will come
+       round again in two hours. */
     let target = null;
-    for (const rec of this.markers.values()) {
-      if (rec.point.kind === 'essence' && !rec.point.collected) { target = rec.point; break; }
+    let kind = 'essence';
+    for (const rec of this.fossilMarkers.values()) {
+      if (rec.drop.readyAt <= Date.now()) { target = rec.drop; kind = 'fossil'; break; }
+    }
+    if (!target) {
+      for (const rec of this.markers.values()) {
+        if (rec.point.kind === 'essence' && !rec.point.collected) { target = rec.point; break; }
+      }
     }
     this._essenceTarget = target;
+    this._essenceTargetKind = target ? kind : null;
     if (!target) { host.classList.add('hidden'); return; }
+    // The arrow is styled per kind: the essence's rainbow, or a fossil's green.
+    host.classList.toggle('for-fossil', kind === 'fossil');
 
     // Vector from the centre of the view to the essence, in *container*
     // coordinates. The rotated container is still centred on the viewport, so

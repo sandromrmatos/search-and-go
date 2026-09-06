@@ -28,6 +28,8 @@ import {
   rollWildSpecies, isCreatureSpotlight, spotlightSpecies, dueSpotlightSpawn, familyRarity,
   canSpawnNow,
   hourlySpawnEvent, rollEventSpawnSpecies, EVENT_SPAWN_MS,
+  FEATHER_POINTS_PER_DAY, FEATHER_MIN_M, FEATHER_MAX_M, FEATHER_ITEM, FEATHER_REWARD,
+  FOSSIL_POI_VALUES, FOSSIL_REVIVE_MS,
   essenceEligible, ESSENCE_MAX_RARITY,
   SPOTLIGHT_LABEL, SPOTLIGHT_SPAWN_MS, ESSENCE_SPAWN_MS
 } from './data.js';
@@ -38,6 +40,33 @@ import { itemName } from './items.js';
 
 let scanning = false;
 export const isScanning = () => scanning;
+
+/**
+ * How far apart the three daily feather places are kept. Much wider than the
+ * ordinary 15 m, because three feathers within a few metres of each other would
+ * be one walk rather than three.
+ */
+const FEATHER_MIN_APART_M = 120;
+
+/**
+ * True while the daily feather lookup is out. The day is only stamped once the
+ * points land, and the lookup is slow, so without this the once-a-second loop
+ * fires a fresh one on every tick until the first returns.
+ */
+let placingFeathers = false;
+
+/**
+ * Every pharmacy and hospital the last scan saw, kept so the map can mark them.
+ *
+ * These are ordinary `amenity` POIs — they still roll for loot like any other —
+ * but they are also where fossils are handed in, so they get a cross on the map
+ * for as long as they are nearby. Held here rather than in the save because they
+ * are a property of where you are standing, not of your progress.
+ */
+let medicalPOIs = [];
+
+/** The pharmacies and hospitals from the last scan, nearest first. */
+export const medicalSpots = () => medicalPOIs;
 
 function newId(prefix) {
   return `${prefix}@${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -215,6 +244,12 @@ export async function runScan(pos, { force = false, forceKind = null, alwaysGrun
   try {
     const pois = await fetchPOIs(pos.lat, pos.lng, RULES.SCAN_RADIUS_M, { force });
     const { places, parks } = splitPOIs(pois);
+
+    /* Remember the pharmacies and hospitals. They take part in the ordinary loot
+       roll below like any other amenity; this list is only so the map can put a
+       cross on them, because they are also the fossil hand-in. */
+    medicalPOIs = pois.filter(p =>
+      p.kind === 'amenity' && FOSSIL_POI_VALUES.includes(p.kindValue));
 
     const now = Date.now();
     // One clock reading for the whole scan, so a scan that straddles the end of
@@ -525,6 +560,132 @@ export function spawnEssence(pos, now = Date.now()) {
   store.addPoints([point]);
   store.markEssenceSpawned(when);
   return point;
+}
+
+/**
+ * The three Precious Feather places for today, marked out the first time the game
+ * is opened each local day and gone at midnight.
+ *
+ * Unlike everything else in the game these sit *outside* the scan radius, on real
+ * POIs between FEATHER_MIN_M and FEATHER_MAX_M away. That needs its own, wider
+ * Overpass query, which is why it happens once a day rather than every scan: the
+ * 500 m circle is a much heavier request than the 150 m one, and osm.js keys its
+ * cache on the radius so the two never interfere.
+ *
+ * @returns the new points, or an empty list when today already had them, there is
+ *   nowhere far enough away, or the lookup failed.
+ */
+export async function spawnDailyFeathers(pos, now = Date.now()) {
+  if (!pos) return [];
+  const when = new Date(now);
+  if (!store.canPlaceFeathers(when)) return [];
+
+  /* The in-flight guard, and the whole reason this needs one.
+     `markFeathersPlaced` can only run after the Overpass lookup resolves, which
+     takes seconds. The game loop asks once a second, so without this flag every
+     tick during that wait started another lookup and every one of them went on
+     to place its own three points — six, nine, twelve feathers on the map. */
+  if (placingFeathers) return [];
+  placingFeathers = true;
+  try {
+    return await placeDailyFeathers(pos, when, now);
+  } finally {
+    placingFeathers = false;
+  }
+}
+
+/** The body of spawnDailyFeathers, wrapped by its in-flight guard. */
+async function placeDailyFeathers(pos, when, now) {
+  let pois = [];
+  try {
+    pois = await fetchPOIs(pos.lat, pos.lng, FEATHER_MAX_M);
+  } catch {
+    // A failed lookup is not marked as done, so the next open tries again.
+    return [];
+  }
+  // Checked again on the far side of the await: a save restored, or a day rolled
+  // over, while the request was out.
+  if (!store.canPlaceFeathers(when)) return [];
+
+  /* A hard ceiling on top of the day stamp. Belt and braces: it caps a top-up if
+     some already exist, and it repairs a save left holding more than three by the
+     bug above. */
+  const live = store.featherPoints(now);
+  if (live.length > FEATHER_POINTS_PER_DAY) {
+    const extra = live
+      .slice()
+      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
+      .slice(FEATHER_POINTS_PER_DAY)
+      // Never take away one the player has already walked to and collected.
+      .filter(p => !p.collected);
+    if (extra.length) store.removePoints(extra.map(p => p.id));
+  }
+  const room = FEATHER_POINTS_PER_DAY - store.featherPoints(now).length;
+  if (room <= 0) {
+    // Already at the cap, so today is done. Stamped so the loop stops asking.
+    store.markFeathersPlaced(when);
+    return [];
+  }
+
+  /* Only places in the band, and only ones with a usable position. Parks are
+     excluded: a park POI is the centre of a polygon that may be nowhere near a
+     path, and this point is meant to be somewhere you can actually stand. */
+  const { places } = splitPOIs(pois);
+  const inBand = places.filter(p => {
+    const d = Number(p.distance ?? distance(pos, p));
+    return d >= FEATHER_MIN_M && d <= FEATHER_MAX_M;
+  });
+  if (!inBand.length) return [];
+
+  // Spread them out: taking the three nearest would often mean three shops in a
+  // row, which is one errand rather than three.
+  const shuffled = inBand.slice().sort(() => Math.random() - 0.5);
+  const active = store.activePoints(now);
+  const takenPOIs = new Set(active.map(p => p.poiId));
+  const taken = active.map(p => ({ lat: p.lat, lng: p.lng }));
+
+  const chosen = [];
+  const minApart = Math.max(rule('MIN_SPAWN_SEPARATION_M', 15), FEATHER_MIN_APART_M);
+  for (const poi of shuffled) {
+    if (chosen.length >= room) break;
+    if (takenPOIs.has(poi.id)) continue;
+    if (tooClose(poi, taken, minApart)) continue;
+    chosen.push(poi);
+    takenPOIs.add(poi.id);
+    taken.push({ lat: poi.lat, lng: poi.lng });
+  }
+  if (!chosen.length) return [];
+
+  const expiresAt = nextLocalMidnight(when).getTime();
+  const points = chosen.map(poi => ({
+    id: newId('feather'),
+    kind: 'feather',
+    source: 'feather',
+    poiId: poi.id,
+    lat: poi.lat,
+    lng: poi.lng,
+    poiName: poi.name,
+    poiKind: poi.kind,
+    poiKindValue: poi.kindValue,
+    // Carried as an ordinary drop, so collecting one goes through exactly the
+    // same path as a disc or item point.
+    drop: { [FEATHER_ITEM]: FEATHER_REWARD },
+    createdAt: now,
+    // Not a lifetime: these last until local midnight however late they appear.
+    expiresAt,
+    collected: false
+  }));
+
+  store.addPoints(points);
+  store.markFeathersPlaced(when);
+  return points;
+}
+
+/** Local midnight at the end of the day `d` falls in. */
+function nextLocalMidnight(d) {
+  const midnight = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  midnight.setDate(midnight.getDate() + 1);
+  return midnight;
 }
 
 /** The essence point itself, shared by the real spawn and the debug button. */

@@ -500,6 +500,127 @@ a { color: var(--accent); }
 @keyframes essenceRainbow { to { background-position: 400% 50%; } }
 @keyframes essenceTimerFlash { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.5); } }
 
+/* ---- Precious Feather point ----
+   The only marker placed outside the scan radius, and the only one worth a
+   deliberate trip, so it is the loudest thing on the map: a big gold aura and a
+   slow shimmer that reads even at a zoom where the pin itself is tiny. */
+.spawn-marker .glow-feather {
+  background: radial-gradient(circle, #ffd76aaa 0%, #ffd76a00 72%);
+  animation: pulse 2.6s ease-in-out infinite;
+}
+.spawn-marker.kind-feather .ico-feather {
+  width: 42px; height: 42px; object-fit: contain;
+  filter: drop-shadow(0 0 10px #ffd76a) drop-shadow(0 2px 5px #0008);
+  animation: featherShimmer 3.2s ease-in-out infinite;
+}
+.spawn-marker.kind-feather.in-range .ico-feather { animation: gruntBob 1.6s ease-in-out infinite; }
+/* These last until midnight, so a minutes-and-seconds countdown would be absurd
+   for most of the day. The timer element is hidden and the aura does the work. */
+.spawn-marker.kind-feather .spawn-timer { display: none; }
+.spawn-marker.kind-feather.collected .ico-feather { animation: none; filter: grayscale(1) opacity(.6); }
+@keyframes featherShimmer {
+  0%, 100% { transform: scale(1) rotate(-3deg); }
+  50%      { transform: scale(1.08) rotate(3deg); }
+}
+
+/* ---- fossils ---- */
+/* The reveal. Big and centred, because the beat between "something" and "what"
+   is the whole appeal. */
+.fossil-reveal { text-align: center; padding: 10px 0 4px; }
+.fossil-reveal img { width: 132px; height: 132px; object-fit: contain; filter: drop-shadow(0 6px 18px #c9a06688); }
+.fossil-reveal h3 { margin: 8px 0 4px; font-size: 19px; }
+.fossil-reveal.mystery h3 { font-size: 17px; font-weight: 600; color: var(--muted); }
+.fossil-mystery {
+  width: 132px; height: 132px; margin: 0 auto; border-radius: 24px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 62px; font-weight: 800; color: #c9a066;
+  background: #c9a06618; border: 2px dashed #c9a06666;
+}
+/* The four parts and how many of each you hold. */
+.fossil-parts { display: flex; gap: 8px; justify-content: center; margin: 10px 0; }
+.fossil-part {
+  position: relative; width: 56px; padding: 6px 4px; border-radius: 10px;
+  background: #ffffff0d; border: 1px solid var(--line); text-align: center;
+}
+.fossil-part img { width: 34px; height: 34px; object-fit: contain; }
+.fossil-part b { display: block; font-size: 12.5px; margin-top: 2px; }
+.fossil-part.missing { opacity: .4; }
+.fossil-part.missing img { filter: grayscale(1); }
+/* The assistant's portrait. */
+.fossil-assistant { text-align: center; padding: 6px 0 0; }
+.fossil-assistant img { width: 120px; height: 120px; object-fit: contain; filter: drop-shadow(0 5px 16px #0007); }
+
+/* ---- pharmacy and hospital crosses ----
+   Landmarks rather than targets: small, calm and always there while you are
+   near one. The wrapper counter-rotates with the map like every other pin. */
+.medical-rot { transform: rotate(var(--map-rot, 0deg)); transform-origin: 50% 50%; }
+.medical-cross {
+  width: 26px; height: 26px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 17px; font-weight: 800; line-height: 1;
+  color: #fff; background: #d64545e6;
+  border: 1.5px solid #ffffffcc;
+  box-shadow: 0 2px 7px #0007;
+}
+
+/* ---- fossils left with an assistant ----
+   Not a spawn: no timer running out, nothing to prune. It sits where you left it
+   until you come back, so it gets a calm sepia aura while it works and a green
+   pulsing one the moment it is ready. */
+.fossil-rot { transform: rotate(var(--map-rot, 0deg)); transform-origin: 50% 92%; }
+.fossil-drop { position: relative; width: 46px; height: 58px; }
+.fossil-drop-glow {
+  position: absolute; left: 50%; top: 20px; width: 54px; height: 54px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, #c9a06699 0%, #c9a06600 70%);
+}
+.fossil-drop.ready .fossil-drop-glow {
+  background: radial-gradient(circle, #7bd88faa 0%, #7bd88f00 72%);
+  animation: pulse 1.9s ease-in-out infinite;
+}
+.fossil-drop img {
+  position: absolute; left: 50%; top: 20px; transform: translate(-50%, -50%);
+  width: 38px; height: 38px; object-fit: contain;
+  filter: drop-shadow(0 2px 5px #0008);
+}
+/* How many sets are waiting, when it is more than one. */
+.fossil-drop .fossil-count {
+  position: absolute; top: -2px; right: 0; z-index: 3;
+  min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px;
+  background: #ffc75f; color: #10142c;
+  font-size: 11px; font-weight: 800; line-height: 17px; text-align: center;
+  font-style: normal;
+}
+/* "Ready", or how long is left. */
+.fossil-drop .fossil-when {
+  position: absolute; left: 50%; bottom: 0; transform: translateX(-50%);
+  white-space: nowrap; padding: 1px 6px; border-radius: 8px;
+  font-size: 10.5px; font-weight: 800;
+  background: rgba(11, 16, 36, .9); color: var(--muted);
+  border: 1px solid var(--line);
+}
+.fossil-drop.ready .fossil-when {
+  background: #7bd88f; color: #06240f; border-color: #ffffffb3;
+}
+
+/* ---- Precious Diamond ---- */
+/* A move that has been permanently strengthened. */
+.move.boosted { border-color: #9d7bff59; background: #9d7bff12; }
+.move-diamond { color: #c9b3ff; font-size: 12px; margin-left: 4px; }
+/* The two requirements still outstanding, under the move they belong to. */
+.diamond-pending {
+  margin-top: 7px; padding: 8px 9px; border-radius: 9px;
+  background: #9d7bff14; border: 1px solid #9d7bff40;
+}
+.diamond-pending .hint { margin: 0 0 6px; }
+.diamond-bar { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.diamond-bar-label { flex: 0 0 auto; font-size: 11.5px; color: var(--muted); min-width: 132px; }
+.diamond-bar .hp-wrap { flex: 1; }
+.diamond-bar .hp-bar.done i { background: #7bd88f; }
+/* One row per move in the "which move?" step. */
+.diamond-move { margin-bottom: 6px; text-align: left; align-items: flex-start; max-width: none; }
+
 /* ---- Essence Harvesting direction arrow ----
    An essence is worth walking to and only lasts 30 minutes, so it gets a
    pointer that survives being off screen: zoom right in and the arrow pins
@@ -626,7 +747,17 @@ a { color: var(--accent); }
 .sel select {
   background: var(--panel-solid); border: 1px solid var(--line); border-radius: 10px;
   padding: 7px 9px; font-size: 13px; min-width: 104px;
+  /* Spelled out rather than inherited. A native select does not reliably take
+     the page's colour, and the open dropdown is drawn by the OS in its own
+     light panel — which left near-white text on a white background. */
+  color: var(--text);
 }
+/* The dropdown list itself. Dark text on a light panel, since that is what the
+   OS renders the popup as on both Windows and Android. */
+.sel select option { color: #10142c; background: #ffffff; }
+/* A wider box for the Battle Frontier's mode names, which are long. */
+.frontier-mode-sel { margin: 0 12px 4px; }
+.frontier-mode-sel select { min-width: 190px; }
 .mini-btn { background: #ffffff12; border: 1px solid var(--line); border-radius: 10px; padding: 8px 11px; font-size: 13px; }
 
 .grid {
@@ -716,6 +847,24 @@ a { color: var(--accent); }
 /* Rows in the stat-boost picker are buttons, so they need to look tappable. */
 .boost-row { width: 100%; text-align: left; cursor: pointer; }
 .boost-row:active { transform: scale(.99); }
+
+/* ---- held item badge on a picker tile ----
+   Bottom-left, opposite the level pill, so it never collides with the shiny
+   star, the favourite heart or the rarity pip. */
+.held-badge {
+  position: absolute; left: 3px; bottom: 3px; z-index: 3;
+  width: 20px; height: 20px; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  background: #0b1020cc; border: 1px solid #ffffff33;
+}
+.held-badge img { width: 15px; height: 15px; object-fit: contain; }
+/* A consumable is spent by the thing it helps with and cannot be taken back,
+   so it is worth telling apart at a glance. */
+.held-badge.consumable { border-color: #ffc75f99; background: #2a1c05cc; }
+
+/* The Daily Challenge card sits above the five ladders and is the thing that
+   changes, so it gets a warmer border to draw the eye first. */
+.frontier-daily-card { border-color: #ffc75f66; background: #ffc75f12; }
 
 /* ---- Battle Frontier ---- */
 /* The challenge cards and the Grand Raid share the lab's recipe-cell shape; the
@@ -1458,6 +1607,13 @@ a { color: var(--accent); }
 /* A stat going down reads warm, a heal reads like the HP bar it just refilled. */
 .bt-log .debuff { color: #ffc9a0; }
 .bt-log .heal { color: #a3f7bf; }
+/* The fossil effects. Their own teal, because they change a rule of the battle
+   for good rather than a number on one creature, and they outlive their user. */
+.bt-log .sidefx {
+  display: block; color: #8de7f0; font-weight: 600;
+  background: #6ee7f014; border-left: 2px solid #6ee7f088;
+  padding: 4px 7px; margin: 3px 0; border-radius: 0 7px 7px 0;
+}
 /* Abilities get their own colour so they read as a different kind of event to
    the blow by blow, and a pill saying whether they fired. */
 .bt-log .ability {

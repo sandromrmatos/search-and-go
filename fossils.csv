@@ -1,0 +1,11 @@
+id_output,Name,Stage,Type,image,Rarity,Evolves to,Evolution candy,HP,Attack,Defence,Speed,Move1 Name,Move1 Power,Move1 Level,Move1 Effect,Move1 Effect number,Move2 Name,Move2 Power,Move2 Level,Move2 Effect,Move2 Effect number,Move3 Name,Move3 Power,Move3 Level,Move3 Effect,Move3 Effect number,Move4 Name,Move4 Power,Move4 Level,Move4 Effect,Move4 Effect number
+Fossil_01,Capyrex,Stage 1,Mystic,Capyrex.png,4,Baryonyx,40,64,45,85,56,Ember Crown,31,1,,,Forge Stomp,0,4,Permanent opposing damage debuff,25%,,,,,,,,,,
+Fossil_02,Baryonyx,Stage 2,Mystic,Baryonyx.png,,,,93,82,105,65,Ember Crown,31,1,,,Forge Stomp,0,4,Permanent opposing damage debuff,25%,Ironhide Bash,67,7,,,Metallic Roar,77,9,,
+Fossil_03,Voltikeet,Stage 1,Wind,Voltikeet.png,4,Voltarchelon,40,57,45,85,63,Storm Peck,34,1,,,Thunder Spiral,0,4,Permanent self damage buff,25%,,,,,,,,,,
+Fossil_04,Voltarchelon,Stage 2,Wind,Voltarchelon.png,,,,71,89,105,80,Storm Peck,34,1,,,Thunder Spiral,0,4,Permanent self damage buff,25%,Arc Flash,65,7,,,Volt Cyclone,76,9,,
+Fossil_05,Spinarca,Stage 1,Neutral,Spinarca.png,4,Thornarchon,40,74,45,85,46,Web Lash,29,1,,,Silk Snare,0,4,Speed inversion,,,,,,,,,,,
+Fossil_06,Thornarchon,Stage 2,Neutral,Thornarchon.png,,,,104,81,105,55,Web Lash,29,1,,,Silk Snare,0,4,Speed inversion,,Spindle Crush,66,7,,,Threadburst,80,9,,
+Fossil_07,Poppinite,Stage 1,Celestial,Poppinite.png,4,Cryopaphera,40,76,45,85,44,Gem Burst,33,1,,,Crystal Pulse,0,4,Reflect damage,50%,,,,,,,,,,
+Fossil_08,Cryopaphera,Stage 2,Celestial,Cryopaphera.png,,,,105,78,105,57,Gem Burst,33,1,,,Crystal Pulse,0,4,Reflect damage,50%,Shard Volley,62,7,,,Prism Crash,80,9,,
+Fossil_09,Grillmite,Stage 1,Mechanic,Grillmite.png,4,Fossibraze,40,69,45,85,51,Smokeforge Slam,32,1,,,Charcoil Burst,0,4,Copy stats,,,,,,,,,,,
+Fossil_10,Fossibraze,Stage 2,Mechanic,Fossibraze.png,,,,90,91,105,59,Smokeforge Slam,32,1,,,Charcoil Burst,0,4,Copy stats,,Heat Vent,64,7,,,BBQ Barrage,79,9,,

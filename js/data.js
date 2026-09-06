@@ -1751,6 +1751,125 @@ export const GRUNT_ITEM_DROPS = [
 export const rollGruntItems = () => ({ ...weightedPick(GRUNT_ITEM_DROPS).items });
 
 /* ---------------------------------------------------------------
+   Fossils
+
+   Four parts, each falling out of a different way of playing, then a trip to a
+   real pharmacy or hospital and a day's wait. Nothing about it can be rushed with
+   items or stardust — the only currency is having played, which is why the parts
+   come from five separate activities rather than one drop table.
+
+   A part is found on a *threshold*, not per event: every kilometre walked, every
+   third grunt, every fifth raid, every hatch, every twentieth catch. Each time you
+   cross one there is a 5% roll. The counters are the daily ones, so they reset at
+   midnight and a long session is worth more than a long week.
+   --------------------------------------------------------------- */
+
+export const FOSSIL_HEAD = 'fossil_head';
+export const FOSSIL_SPINE = 'fossil_spine';
+export const FOSSIL_TAIL = 'fossil_tail';
+export const FOSSIL_HAND = 'fossil_hand';
+
+/** The four parts, in the order they read as a skeleton. */
+export const FOSSIL_PARTS = [FOSSIL_HEAD, FOSSIL_SPINE, FOSSIL_TAIL, FOSSIL_HAND];
+
+/** One roll per threshold crossed, for every source. */
+export const FOSSIL_FIND_CHANCE = 0.05;
+
+/**
+ * Where the parts come from. `counter` names a field of the daily block, `every`
+ * is the threshold, and `part` is null for the catch source, which rolls a random
+ * one of the four instead.
+ */
+export const FOSSIL_FINDS = [
+  { id: 'walk',    counter: 'metresToday',   every: 1000, part: FOSSIL_HEAD,
+    label: 'every kilometre you walk' },
+  { id: 'grunts',  counter: 'gruntsToday',   every: 3,    part: FOSSIL_SPINE,
+    label: 'every 3 grunts you beat' },
+  { id: 'raids',   counter: 'raidsToday',    every: 5,    part: FOSSIL_TAIL,
+    label: 'every 5 raids you beat' },
+  { id: 'eggs',    counter: 'eggsToday',     every: 1,    part: FOSSIL_HAND,
+    label: 'every egg you hatch' },
+  { id: 'catches', counter: 'capturesToday', every: 20,   part: null,
+    label: 'every 20 creatures you catch' }
+];
+
+export const fossilFindFor = counter =>
+  FOSSIL_FINDS.find(f => f.counter === counter) || null;
+
+/** A random one of the four, for the catch source. */
+export const rollFossilPart = () =>
+  FOSSIL_PARTS[Math.floor(Math.random() * FOSSIL_PARTS.length)];
+
+/* ---- the revival ---- */
+
+/** The creatures a fossil can come back as. */
+export const FOSSIL_CSV_FILE = 'fossils.csv';
+export const FOSSIL_SET_NAME = 'Fossil';
+/** Slotted between the Exclusives and the Mythicals, matching the Collection. */
+export const FOSSIL_ORDER_BASE = 2700;
+
+/** How long the assistant needs. */
+export const FOSSIL_REVIVE_MS = 24 * 60 * 60_000;
+
+/** One of each part revives one creature. */
+export const FOSSIL_PARTS_PER_REVIVE = 1;
+
+/** A revived creature arrives at this level, like a raid catch. */
+export const FOSSIL_REVIVE_LEVEL = 3;
+
+/** And with a couple of candy on top, again like a raid catch. */
+export const FOSSIL_REVIVE_BONUS_CANDY = 2;
+
+/**
+ * Flat 2%, and deliberately outside `shinyOdds`: a Bonanza, a Shiny Incense or
+ * anything else must not move it. A fossil is not caught, it is assembled, and
+ * the odds should be the same whenever you happen to hand the parts in.
+ */
+export const FOSSIL_SHINY_ODDS = 0.02;
+
+/** Which POIs will take your fossils. */
+export const FOSSIL_POI_VALUES = ['pharmacy', 'hospital'];
+
+/* ---------------------------------------------------------------
+   Precious Feathers and the Precious Diamond
+
+   A daily reason to walk somewhere you would not otherwise go. Three real places
+   between 250 m and 500 m away are marked the first time you open the game each
+   day, and each pays one feather. That is deliberately outside the 150 m scan
+   radius: everything else in the game comes to you or sits on your street, and
+   this is the one thing that asks you to make a trip.
+
+   Ten feathers buy a Precious Diamond at the Research Lab, and a diamond is the
+   only way to make a move hit harder. Spending one is not the end of it — the
+   +5 is *earned* afterwards, by winning twenty battles with that creature and
+   walking ten kilometres, so the strongest move in the game is a project rather
+   than a purchase.
+   --------------------------------------------------------------- */
+
+/** How many highlighted places appear per day. */
+export const FEATHER_POINTS_PER_DAY = 3;
+
+/** The band they are placed in. Well outside the scan radius, by design. */
+export const FEATHER_MIN_M = 250;
+export const FEATHER_MAX_M = 500;
+
+/** What one pays. */
+export const FEATHER_ITEM = 'precious_feather';
+export const FEATHER_REWARD = 1;
+
+/** The Research Lab's third counter. */
+export const FEATHERS_PER_DIAMOND = 10;
+export const DIAMOND_ITEM = 'precious_diamond';
+
+/** Using a diamond: what it costs, and what it eventually gives. */
+export const DIAMOND_STARDUST_COST = 10_000;
+export const DIAMOND_POWER_BONUS = 5;
+
+/** The two things that have to happen before the move actually improves. */
+export const DIAMOND_WINS_NEEDED = 20;
+export const DIAMOND_METRES_NEEDED = 10_000;
+
+/* ---------------------------------------------------------------
    Battle Frontier
 
    A building you pin to the map, holding one challenge per type. Each challenge
@@ -1806,6 +1925,188 @@ export const FRONTIER_CHALLENGES = [
     phrase: 'My machines do not get tired, and they do not get nervous.'
   }
 ];
+
+/* ---------------------------------------------------------------
+   The Daily Challenge
+
+   Three fights, rebuilt every day, sitting above the five type ladders. Unlike
+   them nothing here is authored: the teams and the restriction are *drawn*, to a
+   stat brief per difficulty, and they hold for the whole day so a failed attempt
+   can be studied and tried again.
+
+   Everything is derived from the date rather than stored, which is what makes it
+   the same for the whole day without a save field: the same day key seeds the same
+   picks, so closing the game and coming back gives the identical fight.
+   --------------------------------------------------------------- */
+
+export const FRONTIER_DAILY_ID = 'daily';
+export const FRONTIER_DAILY_NAME = 'Daily Challenge';
+export const FRONTIER_DAILY_ART = 'daily challenge.png';
+
+/**
+ * The three difficulties, and everything that varies between them: what the
+ * trainer brings, and what winning is worth.
+ *
+ * `maxTotal` is Infinity for Hard, which is how "330 or more" is written.
+ */
+export const FRONTIER_DAILY_LEVELS = [
+  {
+    id: 'easy', label: 'Easy', order: 1,
+    creatureLevel: 5, minTotal: 250, maxTotal: 299, boosts: 0, held: false,
+    essenceRarities: [1, 2, 3], featherChance: 0.01
+  },
+  {
+    id: 'medium', label: 'Medium', order: 2,
+    creatureLevel: 7, minTotal: 300, maxTotal: 329, boosts: 10, held: true,
+    essenceRarities: [3, 4], featherChance: 0.02
+  },
+  {
+    id: 'hard', label: 'Hard', order: 3,
+    creatureLevel: 9, minTotal: 330, maxTotal: Infinity, boosts: 20, held: true,
+    essenceRarities: [4, 5], featherChance: 0.03
+  }
+];
+
+export const frontierDailyLevel = id =>
+  FRONTIER_DAILY_LEVELS.find(l => l.id === id) || null;
+
+/**
+ * The modes a Daily Challenge can draw: the five types and the five rarities.
+ * The set and "no restriction" modes are left out on purpose — a daily fight
+ * should always actually restrict you.
+ */
+export const frontierDailyModes = () =>
+  FRONTIER_MODES.filter(m => m.kind === 'type' || m.kind === 'rarity');
+
+/* ---- the seeded draw ---- */
+
+/** A 32-bit hash of a string, for seeding. */
+function hashString(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+/**
+ * mulberry32: small, fast and — the only thing that matters here — identical for
+ * the same seed on every device and every reload.
+ */
+function seededRng(seed) {
+  let a = seed >>> 0;
+  return function next() {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** The base stat total a creature would bring to a Daily Challenge brief. */
+export const baseStatTotal = sp =>
+  STAT_KEYS.reduce((n, k) => n + (Number(sp?.baseStats?.[k]) || 0), 0);
+
+/**
+ * Everyone eligible for one difficulty: any creature from any set whose base
+ * stats land in the band. Exclusives, mythicals and fossils are all fair game,
+ * exactly as they are on the authored ladders.
+ */
+export function frontierDailyPool(level) {
+  const def = typeof level === 'string' ? frontierDailyLevel(level) : level;
+  if (!def) return [];
+  return DB.species.filter(sp => {
+    const total = baseStatTotal(sp);
+    return total >= def.minTotal && total <= def.maxTotal && sp.moves?.length > 0;
+  });
+}
+
+/**
+ * The whole of one day's challenge at one difficulty: the trainer's three
+ * creatures and the restriction on yours.
+ *
+ * `dayKey` is passed in rather than read from the clock so this stays a pure
+ * function — which is what lets the tests prove it is stable across a day and
+ * different between days.
+ */
+export function frontierDailyFight(levelId, dayKey) {
+  const def = frontierDailyLevel(levelId);
+  if (!def) return null;
+  const pool = frontierDailyPool(def);
+  const modes = frontierDailyModes();
+  if (!pool.length || !modes.length) return null;
+
+  // Seeded on the day *and* the difficulty, so the three fights differ from each
+  // other but each is stable for the day.
+  const rng = seededRng(hashString(`${dayKey}|${def.id}`));
+  const pick = list => list[Math.floor(rng() * list.length)];
+
+  const mode = pick(modes);
+
+  const team = [];
+  const used = new Set();
+  // A pool smaller than three would loop forever, so the attempt count is capped
+  // and duplicates are allowed as a last resort.
+  for (let guard = 0; team.length < FRONTIER_TEAM_SIZE && guard < 200; guard++) {
+    const sp = pick(pool);
+    if (used.has(sp.id) && used.size < pool.length) continue;
+    used.add(sp.id);
+    team.push({
+      speciesId: sp.id,
+      name: sp.name,
+      level: def.creatureLevel,
+      held: def.held ? pickDailyHeldItem(sp, def.creatureLevel, rng) : null,
+      boosts: spreadDailyBoosts(sp, def.boosts)
+    });
+  }
+  if (team.length < FRONTIER_TEAM_SIZE) return null;
+
+  return { level: def, mode, team, dayKey };
+}
+
+/** A held item this creature is actually allowed to carry, drawn from the seed. */
+function pickDailyHeldItem(sp, level, rng) {
+  const options = [];
+  if (level >= 8) options.push('strength_sigil');
+  if (sp.stage === 2) options.push('growth_crystal');
+  // The trinket matching whichever stat it already leans on.
+  const best = ['gem', 'shield', 'cog']
+    .map((suffix, i) => ({ suffix, stat: ['attack', 'defence', 'speed'][i] }))
+    .sort((a, b) => (sp.baseStats[b.stat] || 0) - (sp.baseStats[a.stat] || 0))[0];
+  options.push(`${String(sp.type).toLowerCase()}_${best.suffix}`);
+  options.push('miracle_coin');
+  const chosen = options[Math.floor(rng() * options.length)];
+  return isHeldItem(chosen) ? chosen : null;
+}
+
+/**
+ * Splits `points` across the stats, weighted towards what the creature already
+ * does well. Deliberately not seeded: the same creature at the same difficulty
+ * always builds the same way, so only the draw is random.
+ */
+function spreadDailyBoosts(sp, points) {
+  const out = emptyBoosts();
+  const total = Math.max(0, Math.min(MAX_STAT_BOOSTS, Math.floor(points) || 0));
+  if (!total) return out;
+  const order = [...STAT_KEYS].sort((a, b) => (sp.baseStats[b] || 0) - (sp.baseStats[a] || 0));
+  const share = [0.45, 0.30, 0.15, 0.10];
+  let left = total;
+  order.forEach((k, i) => {
+    const n = i === order.length - 1 ? left : Math.min(left, Math.round(total * share[i]));
+    out[k] = n;
+    left -= n;
+  });
+  if (left > 0) out[order[0]] += left;
+  return out;
+}
+
+/** Millis until the Daily Challenge resets, which is local midnight. */
+export function frontierDailyResetIn(now = new Date()) {
+  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  return Math.max(0, midnight - now);
+}
 
 export const frontierChallenge = id =>
   FRONTIER_CHALLENGES.find(c => c.id === id) || null;
@@ -2262,6 +2563,19 @@ export const GALACTIC_TAKEOVER_LABEL = 'Galactic Adventures Take Over';
 export const GALACTIC_TAKEOVER_DAY = 4;      // Thursday
 export const GALACTIC_TAKEOVER_START = 18;   // 18:00
 export const GALACTIC_TAKEOVER_END = 19;     // 19:00
+
+/**
+ * Temporal Rift Take Over: Fridays 18:00–19:00.
+ *
+ * The same event one set further along, on the following evening, and gated the
+ * same way — it does nothing until a Temporal Rift rarity has been unlocked. The
+ * two can never overlap, since they are on different days, so the pools never
+ * have to be merged.
+ */
+export const TEMPORAL_TAKEOVER_LABEL = 'Temporal Rift Take Over';
+export const TEMPORAL_TAKEOVER_DAY = 5;      // Friday
+export const TEMPORAL_TAKEOVER_START = 18;   // 18:00
+export const TEMPORAL_TAKEOVER_END = 19;     // 19:00
 
 /* ---------------------------------------------------------------
    Annual events
@@ -3073,6 +3387,8 @@ export function heldStatBonus(creature, sp = null) {
 /* ---------------------------------------------------------------
    Missions
    --------------------------------------------------------------- */
+/* `FOSSIL_HEAD` and friends are declared further down with the rest of the fossil
+   tables; the mission list only needs their values at read time. */
 export const MISSIONS = [
   { id: 'reg5',    kind: 'registered', target: 5,    xp: 10,  dust: 50,  label: 'Register 5 unique creatures' },
   { id: 'reg10',   kind: 'registered', target: 10,   xp: 20,  dust: 100, label: 'Register 10 unique creatures' },
@@ -3211,7 +3527,32 @@ export const MISSIONS = [
 
   { id: 'lv10x1',   kind: 'creaturesAtLevel', level: 10, target: 1,   xp: 75,  dust: 2000, discs: 5, items: { ultra_disc: 2 },    label: 'Level up 1 creature to level 10' },
   { id: 'lv10x5',   kind: 'creaturesAtLevel', level: 10, target: 5,   xp: 100, dust: 2500, discs: 5, items: { incense: 1 },       label: 'Level up 5 creatures to level 10' },
-  { id: 'lv10x10',  kind: 'creaturesAtLevel', level: 10, target: 10,  xp: 150, dust: 5000, discs: 5, items: { rare_incense: 1 },  label: 'Level up 10 creatures to level 10' }
+  { id: 'lv10x10',  kind: 'creaturesAtLevel', level: 10, target: 10,  xp: 150, dust: 5000, discs: 5, items: { rare_incense: 1 },  label: 'Level up 10 creatures to level 10' },
+
+  /* ---- fossils ----
+     One for each part, so the first of each is worth something, then the revive
+     ladder. `fossilPart` counts the lifetime total for one part rather than what
+     is in the bag, so spending them on a revival does not undo the mission. */
+  { id: 'fossilHead',  kind: 'fossilPart', part: FOSSIL_HEAD,  target: 1, xp: 10, dust: 50, label: 'Collect a fossil head' },
+  { id: 'fossilSpine', kind: 'fossilPart', part: FOSSIL_SPINE, target: 1, xp: 10, dust: 50, label: 'Collect a fossil spine' },
+  { id: 'fossilTail',  kind: 'fossilPart', part: FOSSIL_TAIL,  target: 1, xp: 10, dust: 50, label: 'Collect a fossil tail' },
+  { id: 'fossilHand',  kind: 'fossilPart', part: FOSSIL_HAND,  target: 1, xp: 10, dust: 50, label: 'Collect a fossil hand' },
+
+  { id: 'revive1',  kind: 'fossilsRevived', target: 1,  xp: 10, dust: 50,  label: 'Revive 1 fossil' },
+  { id: 'revive5',  kind: 'fossilsRevived', target: 5,  xp: 20, dust: 100, label: 'Revive 5 fossils' },
+  {
+    id: 'revive10', kind: 'fossilsRevived', target: 10, xp: 25, dust: 250,
+    items: { ultra_disc: 1 }, label: 'Revive 10 fossils'
+  },
+  {
+    id: 'revive25', kind: 'fossilsRevived', target: 25, xp: 30, dust: 500,
+    items: { ultra_disc: 1 }, label: 'Revive 25 fossils'
+  },
+  {
+    id: 'revive50', kind: 'fossilsRevived', target: 50, xp: 50, dust: 750,
+    items: { ultra_disc: 1, mysterious_incense: 1, strength_reroll: 1 },
+    label: 'Revive 50 fossils'
+  }
 ];
 
 /* Weekly missions reset every Monday, local time. */
@@ -3422,6 +3763,8 @@ export const SETS = [
   { id: 'galactic-adventures', title: GALACTIC_SET_NAME, available: true, setName: GALACTIC_SET_NAME, galactic: true },
   { id: 'temporal-rift', title: TEMPORAL_SET_NAME, available: true, setName: TEMPORAL_SET_NAME, temporal: true },
   { id: 'exclusive', title: EXCLUSIVE_SET_NAME, available: true, exclusive: true, setName: EXCLUSIVE_SET_NAME },
+  // Straight after the Exclusives, which is where the dex numbers put them too.
+  { id: 'fossil', title: FOSSIL_SET_NAME, available: true, fossil: true, setName: FOSSIL_SET_NAME },
   { id: 'mythical', title: MYTHICAL_SET_NAME, available: true, mythical: true, setName: MYTHICAL_SET_NAME },
   { id: 'coming-soon', title: 'Coming Soon', available: false }
 ];
@@ -3525,7 +3868,9 @@ export function setTemporalUnlocked(rarities = []) {
  */
 export function rebuildSpawnPools() {
   const inPlay = sp => {
-    if (sp.exclusive || sp.mythical) return false;
+    // Fossils sit alongside the exclusives and mythicals here: reachable, but
+    // never by a roll, so they must not enter `available` or `byRarity`.
+    if (sp.exclusive || sp.mythical || sp.fossil) return false;
     if (sp.galactic) return isGalacticRarityUnlocked(sp.rarity || familyRarity(sp.id));
     if (sp.temporal) return isTemporalRarityUnlocked(sp.rarity || familyRarity(sp.id));
     return true;
@@ -3543,6 +3888,11 @@ export function rebuildSpawnPools() {
   DB.galacticSpawnable = DB.spawnable.filter(s => s.galactic);
   DB.galacticByRarity = { 1: [], 2: [], 3: [], 4: [], 5: [] };
   for (const sp of DB.galacticSpawnable) DB.galacticByRarity[sp.rarity].push(sp);
+
+  // And the Temporal Rift one, for its own takeover the following evening.
+  DB.temporalSpawnable = DB.spawnable.filter(s => s.temporal);
+  DB.temporalByRarity = { 1: [], 2: [], 3: [], 4: [], 5: [] };
+  for (const sp of DB.temporalSpawnable) DB.temporalByRarity[sp.rarity].push(sp);
 
   return DB.spawnable.length;
 }
@@ -3562,9 +3912,10 @@ export function speciesForSet(set) {
   // In play only: the second wave of exclusives stays out of the tab entirely
   // until its Set mission is claimed, rather than sitting there as a spoiler.
   if (set?.exclusive) return DB.exclusiveInPlay;
+  if (set?.fossil) return DB.fossil;
   if (set?.mythical) return DB.mythical;
   return DB.species.filter(s =>
-    !s.galactic && !s.exclusive && !s.mythical && !s.temporal);
+    !s.galactic && !s.exclusive && !s.mythical && !s.temporal && !s.fossil);
 }
 
 /* ---------------------------------------------------------------
@@ -3875,6 +4226,36 @@ export function moveLevelFor(move, offsets) {
   return Math.max(1, move.level - shift);
 }
 
+/** Extra power a Precious Diamond has bought this creature on `moveName`. */
+export const moveBoostFor = (creature, moveName) =>
+  Math.max(0, Number(creature?.moveBoost?.[moveName]) || 0);
+
+/**
+ * One move as this particular creature knows it, with any Precious Diamond
+ * bonus folded into `power`.
+ *
+ * Returned as a copy when it differs. `Species.movesAt` filters rather than maps,
+ * so its entries are the very objects on `sp.moves` — raising one in place would
+ * quietly buff that move for every creature of the species and for every enemy
+ * that uses it.
+ */
+export function moveForCreature(move, creature) {
+  const boost = moveBoostFor(creature, move.name);
+  if (!boost || !(move.power > 0)) return move;
+  return { ...move, power: move.power + boost, boostedBy: boost };
+}
+
+/**
+ * The move list a creature actually fights with: the right ones for its level and
+ * unlock luck, each carrying its own diamond bonus.
+ */
+export function movesForCreature(creature, sp = species(creature?.speciesId)) {
+  if (!sp) return [];
+  const list = sp.movesAt(creature?.level ?? 1, creature?.moveUnlock);
+  if (!creature?.moveBoost) return list;
+  return list.map(m => moveForCreature(m, creature));
+}
+
 /**
  * The last species in a creature's family — Stage 2 or Stage 3 depending on
  * whether the middle form evolves again.
@@ -3998,6 +4379,18 @@ export const DB = {
   galacticByRarity: { 1: [], 2: [], 3: [], 4: [], 5: [] },
   /** Temporal Rift, all 74 whether unlocked or not. */
   temporal: [],
+  /**
+   * The unlocked Temporal Rift creatures on their own, in the same shape as
+   * `galacticSpawnable`. Only read during Temporal Rift Take Over.
+   */
+  temporalSpawnable: [],
+  temporalByRarity: { 1: [], 2: [], 3: [], 4: [], 5: [] },
+  /**
+   * The fossil creatures. Like the exclusives these are deliberately outside
+   * `spawnable`, `byRarity` and `available`: assembling the parts and waiting a
+   * day is the only route, so nothing must be able to roll one.
+   */
+  fossil: [],
   /** Rarity 6 creatures. Only ever obtained from their own egg. */
   mythical: [],
   /**
@@ -4042,7 +4435,8 @@ export async function loadDatabase(
   halloweenUrl = HALLOWEEN_CSV_FILE,
   thanksgivingUrl = THANKSGIVING_CSV_FILE,
   exclusive3Url = EXCLUSIVE3_CSV_FILE,
-  frontierUrl = FRONTIER_CSV_FILE
+  frontierUrl = FRONTIER_CSV_FILE,
+  fossilUrl = FOSSIL_CSV_FILE
 ) {
   DB.warnings = [];
 
@@ -4054,7 +4448,7 @@ export async function loadDatabase(
 
   const [baseText, statsText, exclusiveText, abilitiesText, galacticText, mythicalText,
          spotlightText, exclusive2Text, temporalText, halloweenText, thanksgivingText,
-         exclusive3Text, frontierText] =
+         exclusive3Text, frontierText, fossilText] =
     await Promise.all([
       fetchText(csvUrl),
       fetchText(statsUrl),
@@ -4075,7 +4469,10 @@ export async function loadDatabase(
       // file the ladders simply have no Grand Raid, and without the ladder file
       // the building opens to an empty challenge list.
       optional(exclusive3Url, 'Battle Frontier raid bosses'),
-      optional(frontierUrl, 'Battle Frontier challenges')
+      optional(frontierUrl, 'Battle Frontier challenges'),
+      // Without it the fossil parts still drop and simply have nothing to revive
+      // into, which is the same shape as every other optional set.
+      optional(fossilUrl, 'Fossil creatures')
     ]);
 
   const baseRows = toRecords(parseCSV(baseText));
@@ -4090,6 +4487,7 @@ export async function loadDatabase(
   const thanksgivingRows = thanksgivingText ? toRecords(parseCSV(thanksgivingText)) : [];
   const exclusive3Rows = exclusive3Text ? toRecords(parseCSV(exclusive3Text)) : [];
   const frontierRows = frontierText ? toRecords(parseCSV(frontierText)) : [];
+  const fossilRows = fossilText ? toRecords(parseCSV(fossilText)) : [];
 
   const statsById = new Map();
   const statsByName = new Map();
@@ -4106,6 +4504,7 @@ export async function loadDatabase(
   DB.abilities = new Map();
   DB.stage1 = []; DB.spawnable = []; DB.exclusive = [];
   DB.galactic = []; DB.mythical = []; DB.available = []; DB.temporal = [];
+  DB.fossil = [];
   DB.spotlight = [];
   DB.byRarity = { 1: [], 2: [], 3: [], 4: [], 5: [] };
   DB.exclusiveByRarity = { 3: [], 4: [], 5: [] };
@@ -4173,6 +4572,13 @@ export async function loadDatabase(
     setName: EXCLUSIVE_SET_NAME, orderBase: EXCLUSIVE_FRONTIER_ORDER_BASE,
     bucket: DB.exclusive, flags: { exclusive: true, frontier: true }
   });
+  /* The fossils. Their own set and their own Collection tab: nothing rolls them,
+     nothing spawns them, and the only way to one is to assemble the parts and
+     wait, so they must stay out of every pool exactly like the exclusives do. */
+  addSelfContainedSet(fossilRows, {
+    setName: FOSSIL_SET_NAME, orderBase: FOSSIL_ORDER_BASE,
+    bucket: DB.fossil, flags: { fossil: true }
+  });
   addSelfContainedSet(mythicalRows, {
     setName: MYTHICAL_SET_NAME, orderBase: MYTHICAL_ORDER_BASE,
     bucket: DB.mythical, flags: { mythical: true }
@@ -4183,7 +4589,7 @@ export async function loadDatabase(
   });
 
   DB.species.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
-  for (const list of [DB.galactic, DB.exclusive, DB.mythical, DB.temporal]) {
+  for (const list of [DB.galactic, DB.exclusive, DB.mythical, DB.temporal, DB.fossil]) {
     list.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
   }
 
@@ -4492,6 +4898,49 @@ function readEffect(rawEffect, rawNumber, { name, slot, moveName }) {
     return { kind: 'healSelf', stats: [], pct: null, amount };
   }
 
+  /* ---- the fossil effects ----
+     These five are unlike everything above: they change a rule of the battle
+     rather than a number on a creature, and they last until the fight ends — the
+     creature that used one can faint and the effect stays. `side` marks them so
+     the battle can hold them per team instead of per battler. */
+
+  // "Permanent opposing damage debuff" — everything the other side throws lands
+  // softer for the rest of the fight.
+  if (/^permanent\s+opposing\s+damage\s+debuff$/.test(low)) {
+    const p = pct(rawNumber);
+    if (p == null || p <= 0) {
+      DB.warnings.push(`${where} needs a percentage, got "${rawNumber}" — effect ignored`);
+      return null;
+    }
+    return { kind: 'teamIncomingDown', side: true, stats: [], pct: p, amount: null };
+  }
+  // "Permanent self damage buff" — everything your side throws lands harder.
+  if (/^permanent\s+self\s+damage\s+buff$/.test(low)) {
+    const p = pct(rawNumber);
+    if (p == null || p <= 0) {
+      DB.warnings.push(`${where} needs a percentage, got "${rawNumber}" — effect ignored`);
+      return null;
+    }
+    return { kind: 'teamOutgoingUp', side: true, stats: [], pct: p, amount: null };
+  }
+  // "Speed inversion" — the slower creature moves first from now on. No number.
+  if (/^speed\s+inversion$/.test(low)) {
+    return { kind: 'speedInversion', side: false, battle: true, stats: [], pct: null, amount: null };
+  }
+  // "Reflect damage" — hands back a share of what was just taken this turn.
+  if (/^reflect\s+damage$/.test(low)) {
+    const p = pct(rawNumber);
+    if (p == null || p <= 0) {
+      DB.warnings.push(`${where} needs a percentage, got "${rawNumber}" — effect ignored`);
+      return null;
+    }
+    return { kind: 'reflectDamage', stats: [], pct: p, amount: null };
+  }
+  // "Copy stats" — takes the opponent's buffs and debuffs, replacing your own.
+  if (/^copy\s+stats$/.test(low)) {
+    return { kind: 'copyStats', stats: [], pct: null, amount: null };
+  }
+
   const m = low.match(/^(de)?buffs?\s+(self|own|opponent|enemy|foe|target)\b(.*)$/);
   if (!m) {
     DB.warnings.push(`${where} has an effect we do not understand: "${text}" — effect ignored`);
@@ -4544,9 +4993,24 @@ export function moveEffectText(move) {
     // Older data reached here through the legacy buff columns.
     return move?.isBuff ? buffMoveText(move) : '';
   }
-  const amountPct = `${Math.round(fx.pct * 100)}%`;
+  const amountPct = fx.pct == null ? '' : `${Math.round(fx.pct * 100)}%`;
   switch (fx.kind) {
     case 'healSelf': return `Heals ${fx.amount} HP`;
+    // The five fossil effects. Each says "for the rest of the battle" out loud,
+    // because that — surviving the user fainting — is what makes them unusual.
+    case 'teamIncomingDown':
+      return `For the rest of the battle, everything the opposing side does to you `
+        + `deals ${amountPct} less damage`;
+    case 'teamOutgoingUp':
+      return `For the rest of the battle, everything your side does deals `
+        + `${amountPct} more damage`;
+    case 'speedInversion':
+      return 'For the rest of the battle, the slower creature moves first each turn';
+    case 'reflectDamage':
+      return `Deals ${amountPct} of the damage you took this turn straight back. `
+        + 'Nothing if you moved first, or if they did not attack';
+    case 'copyStats':
+      return "Copies the opponent's stat changes, replacing your own";
     case 'buffSelf': return `Raises your ${statListLabel(fx.stats)} by ${amountPct}`;
     case 'debuffSelf': return `Lowers your own ${statListLabel(fx.stats)} by ${amountPct}`;
     case 'debuffOpponent': return `Lowers the opponent's ${statListLabel(fx.stats)} by ${amountPct}`;
@@ -4974,9 +5438,21 @@ export function eventSpawnPool(spec, now = new Date()) {
   const buckets = { 1: [], 2: [], 3: [], 4: [], 5: [] };
   if (!spec) return buckets;
 
-  // A hand-written cast ignores rarity odds entirely: it is a short list and the
-  // point is that you meet those creatures, not that you roll a tier.
-  if (spec.list) return buckets;
+  /* A hand-written cast is bucketed by rarity like everything else, so Halloween
+     and Thanksgiving roll the same 15/20/30/20/15 odds the type days do. It used
+     to be a flat pick from the list, which quietly made those two events the only
+     ones where a Legendary was no rarer than a Common.
+
+     A cast creature with no rarity of its own — a Stage 2 form — is judged by its
+     family's, the same way every other rarity question in the game is. */
+  if (spec.list) {
+    const cast = (DB.eventPools[spec.list] || []).filter(sp => canSpawnNow(sp, now));
+    for (const sp of cast) {
+      const r = sp.rarity || familyRarity(sp.id) || 1;
+      if (buckets[r]) buckets[r].push(sp);
+    }
+    return buckets;
+  }
 
   const ok = sp => canSpawnNow(sp, now)
     && (!spec.type || sp.type === spec.type);
@@ -4992,13 +5468,10 @@ export function rollEventSpawnSpecies(event, now = new Date()) {
   const spec = event?.hourlySpawn;
   if (!spec) return null;
 
-  // Hand-picked casts are a uniform pick from the list.
-  if (spec.list) {
-    const pool = (DB.eventPools[spec.list] || []).filter(sp => canSpawnNow(sp, now));
-    if (!pool.length) return null;
-    return pool[Math.floor(Math.random() * pool.length)];
-  }
-
+  // One path for every event now, hand-picked cast included: bucket by rarity,
+  // roll the event odds, and fall back to anything at all rather than skipping
+  // the hour when the tier that came up is empty. A short cast will not contain
+  // all five tiers, and the fallback is what keeps those events working.
   const buckets = eventSpawnPool(spec, now);
   for (let attempt = 0; attempt < 8; attempt++) {
     const pool = buckets[rollRarityWith(EVENT_SPAWN_WEIGHTS)];
@@ -5060,6 +5533,43 @@ export function isGalacticTakeover(now = new Date()) {
   return inWeeklyWindow(now, GALACTIC_TAKEOVER_DAY, GALACTIC_TAKEOVER_START, GALACTIC_TAKEOVER_END);
 }
 
+/** The Friday twin, gated on Temporal Rift being unlocked instead. */
+export function isTemporalTakeover(now = new Date()) {
+  if (!DB.temporalSpawnable.length) return false;
+  return inWeeklyWindow(now, TEMPORAL_TAKEOVER_DAY, TEMPORAL_TAKEOVER_START, TEMPORAL_TAKEOVER_END);
+}
+
+/**
+ * Which set has taken the pools over right now, or null. One accessor so the
+ * pools, the cache key and the chip can never disagree about it — and so a third
+ * takeover is a table entry rather than another branch in three places.
+ */
+export function activeTakeover(now = new Date()) {
+  if (isGalacticTakeover(now)) {
+    return {
+      id: 'galacticTakeover',
+      label: GALACTIC_TAKEOVER_LABEL,
+      setName: GALACTIC_SET_NAME,
+      icon: '🛸',
+      byRarity: DB.galacticByRarity,
+      list: DB.galacticSpawnable,
+      endsIn: weeklyWindowEndsIn(now, GALACTIC_TAKEOVER_DAY, GALACTIC_TAKEOVER_START, GALACTIC_TAKEOVER_END)
+    };
+  }
+  if (isTemporalTakeover(now)) {
+    return {
+      id: 'temporalTakeover',
+      label: TEMPORAL_TAKEOVER_LABEL,
+      setName: TEMPORAL_SET_NAME,
+      icon: '⌛',
+      byRarity: DB.temporalByRarity,
+      list: DB.temporalSpawnable,
+      endsIn: weeklyWindowEndsIn(now, TEMPORAL_TAKEOVER_DAY, TEMPORAL_TAKEOVER_START, TEMPORAL_TAKEOVER_END)
+    };
+  }
+  return null;
+}
+
 /**
  * A signature for everything a spawn restriction can read. Values are rounded
  * so an imperceptible change in the weather does not rebuild the pools, but not
@@ -5070,7 +5580,9 @@ function restrictionCacheKey(now) {
   const d = spawnConditions.daily || {};
   const n = v => (typeof v === 'number' && Number.isFinite(v) ? Math.round(v * 10) : 'x');
   return [
-    isGalacticTakeover(now) ? 'g' : 'n',
+    // Which set has taken over, so the memoised pools invalidate the moment a
+    // takeover hour opens or closes.
+    activeTakeover(now)?.id || 'none',
     now.getDay(), now.getHours(),
     n(w.temperature), n(w.cloudCover), n(w.humidity), n(w.precipitation),
     w.isDay === true ? 'd' : w.isDay === false ? 'n' : 'x',
@@ -5091,9 +5603,9 @@ function restrictedPools(now) {
   const key = restrictionCacheKey(now);
   if (restrictedCache.key === key) return restrictedCache;
 
-  const takeover = isGalacticTakeover(now);
-  const baseByRarity = takeover ? DB.galacticByRarity : DB.byRarity;
-  const baseList = takeover ? DB.galacticSpawnable : DB.spawnable;
+  const takeover = activeTakeover(now);
+  const baseByRarity = takeover ? takeover.byRarity : DB.byRarity;
+  const baseList = takeover ? takeover.list : DB.spawnable;
   const ok = sp => canSpawnNow(sp, now);
 
   const byRarity = { 1: [], 2: [], 3: [], 4: [], 5: [] };
@@ -5252,14 +5764,16 @@ export function poiEventState(now = new Date()) {
       endsIn: weeklyWindowEndsIn(now, TRAINING_DOJO_DAY, TRAINING_DOJO_START, TRAINING_DOJO_END)
     };
   }
-  if (isGalacticTakeover(now)) {
-    // `table: null`, like the spotlight: the takeover changes which creatures
-    // are behind the odds, never the odds themselves.
+  const takeover = activeTakeover(now);
+  if (takeover) {
+    // `table: null`, like the spotlight: a takeover changes which creatures are
+    // behind the odds, never the odds themselves.
     return {
-      id: 'galacticTakeover',
-      label: GALACTIC_TAKEOVER_LABEL,
+      id: takeover.id,
+      label: takeover.label,
+      icon: takeover.icon,
       table: null,
-      endsIn: weeklyWindowEndsIn(now, GALACTIC_TAKEOVER_DAY, GALACTIC_TAKEOVER_START, GALACTIC_TAKEOVER_END)
+      endsIn: takeover.endsIn
     };
   }
   if (isCreatureSpotlight(now)) {
@@ -5376,6 +5890,17 @@ export const CALENDAR_EVENTS = [
     // the hour genuinely does nothing.
     onDay: d => d.getDay() === GALACTIC_TAKEOVER_DAY && DB.galacticSpawnable.length > 0,
     blurb: `Spawns, raids and ordinary eggs all come from your unlocked ${GALACTIC_SET_NAME} creatures.`
+  },
+  {
+    id: 'temporalTakeover',
+    label: TEMPORAL_TAKEOVER_LABEL,
+    icon: '⌛',
+    start: TEMPORAL_TAKEOVER_START,
+    end: TEMPORAL_TAKEOVER_END,
+    // Hidden until Temporal Rift is unlocked, for the same reason the Galactic
+    // one is: until then the hour genuinely does nothing.
+    onDay: d => d.getDay() === TEMPORAL_TAKEOVER_DAY && DB.temporalSpawnable.length > 0,
+    blurb: `Spawns, raids and ordinary eggs all come from your unlocked ${TEMPORAL_SET_NAME} creatures.`
   },
   {
     id: 'creatureSpotlight',

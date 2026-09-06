@@ -20,8 +20,12 @@ import { describeDrop, itemImage, itemName } from './items.js';
 import {
   runScan, debugPointAt, tickIncense, spawnWindowGrunt, spawnSpotlightCreature,
   spawnEssence, debugEssenceAt, msUntilNextScan, formatCountdown, isScanning,
-  spawnEventCreature
+  spawnEventCreature, spawnDailyFeathers, medicalSpots
 } from './spawns.js';
+import {
+  initFossils, showFossilReveal, isRevealingFossil, announceReadyFossils,
+  openFossilAssistant, openFossilDrop
+} from './fossils.js';
 import { initEssence, openEssence, abandonEssence } from './essence.js';
 import { GameMap } from './map.js';
 import { playCapture } from './anim.js';
@@ -34,7 +38,7 @@ import {
 } from './views.js';
 import {
   initExtras, renderMissions, renderMissionBadge, openBreeding, openResearchLab,
-  openBattleFrontier
+  openBattleFrontier, setFossilAndDailyHooks
 } from './extras.js';
 import { setMissionsRenderer, setShopRenderer } from './views.js';
 import { initShop, renderShop } from './shop.js';
@@ -368,6 +372,16 @@ function trackSteps(pos) {
     toast('You finished a walking mission — go and claim it', 'good', 3600);
   }
 
+  // A Precious Diamond can finish on a stride, which is the end of a long
+  // project and deserves saying properly.
+  for (const d of walk.diamondsDone || []) {
+    const name = species(d.speciesId)?.name || 'Your creature';
+    toast(`◆ ${name}'s ${d.move} is now +${d.gained} power — that was the last kilometre!`,
+      'good', 5600);
+    dlog(`Precious Diamond finished: ${name} ${d.move} +${d.gained}`);
+    refreshAll();
+  }
+
   // Buddy candy: one toast per candy earned, naming the creature.
   if (walk.buddyCandy > 0 && walk.buddy) {
     const name = species(walk.buddy.speciesId).name;
@@ -650,7 +664,10 @@ async function onPointTap(point) {
     return openEssence(live, d);
   }
   if (live.kind === 'creature') return captureCreature(live);
-  if (live.kind === 'discs' || live.kind === 'items') return collectItems(live);
+  // A feather point carries an ordinary `drop`, so it collects like a disc point.
+  if (live.kind === 'discs' || live.kind === 'items' || live.kind === 'feather') {
+    return collectItems(live);
+  }
   if (live.kind === 'raid' || live.kind === 'grunt') return openBattle(live);
 }
 
@@ -829,11 +846,34 @@ function syncMap() {
   GameMap.syncBreeding(store.s.breedings);
   GameMap.syncResearchLab(store.s.researchLab);
   GameMap.syncBattleFrontier(store.s.battleFrontier);
+  // Pharmacies and hospitals within the scan radius, so you can see where to take
+  // a fossil, plus anything of yours already waiting at one.
+  syncMedicalSpots();
+  GameMap.syncFossilDrops(store.fossilDrops());
   // Straight away rather than on the next tick, so playing a harvest clears the
   // arrow the moment the sheet closes.
   GameMap.syncEssenceArrow();
   const open = active.filter(p => !p.collected).length;
   $('#spawn-count').textContent = open === 1 ? '1 point active' : `${open} points active`;
+}
+
+/** Is any sheet or modal already on screen? Same test the map tap guard uses. */
+const anySheetOpen = () =>
+  !!document.querySelector('.sheet-wrap:not(.hidden)')
+  || !!document.querySelector('.modal-wrap:not(.hidden)');
+
+/**
+ * Marks the pharmacies and hospitals you are near.
+ *
+ * "In range" here is the scan radius, not the 25 m interaction range: the whole
+ * point of the cross is to show you where to walk to, so it has to appear before
+ * you are standing on it. Talking to the assistant still needs the usual 25 m.
+ */
+function syncMedicalSpots() {
+  const pos = Geo.current;
+  if (!pos) { GameMap.syncMedical([]); return; }
+  const reach = RULES.SCAN_RADIUS_M;
+  GameMap.syncMedical(medicalSpots().filter(s => distance(pos, s) <= reach));
 }
 
 function startLoop() {
@@ -893,6 +933,19 @@ function startLoop() {
       }
     }
 
+    // The three Precious Feather places of the day, the first time the game is
+    // open. Fire-and-forget: it does its own Overpass lookup at a wider radius,
+    // so it must not hold up the once-a-second loop.
+    if (Geo.current && store.canPlaceFeathers()) {
+      spawnDailyFeathers(Geo.current, now).then(points => {
+        if (!points.length) return;
+        dlog(`${points.length} Precious Feather place(s) marked for today`);
+        syncMap();
+        toast(`${points.length} golden place${points.length === 1 ? '' : 's'} marked on your map — `
+          + 'walk there for a Precious Feather. They go at midnight.', 'good', 5200);
+      });
+    }
+
     // Essence Harvesting: one registered creature turns up in the scan radius
     // per two-hour block, the first time the game is open during it.
     if (Geo.current) {
@@ -912,6 +965,27 @@ function startLoop() {
         dlog(`Incense spawned a creature (${Math.round(RULES.LIFETIME_MS.incense[0] / 1000)} s)`);
         syncMap();
       }
+    }
+
+    // The crosses and the fossil countdowns both follow where you are and the
+    // clock, so they are refreshed on the tick rather than only on a scan.
+    syncMedicalSpots();
+    GameMap.syncFossilDrops(store.fossilDrops(), now);
+
+    /* A fossil finishing is worth interrupting for: it is a day old and the
+       player has to walk back for it. Announced once per set. */
+    for (const drop of announceReadyFossils(now)) {
+      dlog(`Fossil ready at "${drop.poiName}" (${drop.count})`);
+      toast(`🦴 ${drop.count === 1 ? 'Your fossil is' : `Your ${drop.count} fossils are`} ready at `
+        + `${drop.poiName} — follow the arrow`, 'good', 6000);
+    }
+
+    /* And the "found something on the ground" reveal, drained one at a time and
+       only when nothing else is on screen, so it never fights a capture
+       animation or a battle for the player's attention. */
+    if (store.fossilRevealWaiting && !isRevealingFossil() && !capturing
+      && !isBattleOpen() && !anySheetOpen()) {
+      showFossilReveal();
     }
 
     updateResetChip(now);
@@ -999,6 +1073,15 @@ function initUI() {
   });
   initShop({ onChange: () => { refreshAll(); renderMissionBadge(); } });
 
+  initFossils({
+    onChange: () => { refreshAll(); renderMissionBadge(); },
+    // Handing fossils in and collecting them both add or remove a marker.
+    onMapChange: () => syncMap()
+  });
+
+  // The Daily Challenge's prize is a harvest, and essence.js is main.js's to open.
+  setFossilAndDailyHooks({ essenceReward: point => openEssence(point, 0) });
+
   initEssence({
     onChange: () => { refreshAll(); renderMissionBadge(); },
     // The essence is spent once the game finishes, however it went.
@@ -1032,6 +1115,23 @@ function initUI() {
     if (!near) {
       toast(`Get within ${range} m of your Research Lab to use it`, 'bad', 3400);
     }
+  };
+
+  // A pharmacy or hospital cross. Visible from the whole scan radius, but the
+  // assistant only talks to you from the usual interaction range.
+  GameMap.onMedicalClick = spot => {
+    const pos = Geo.current;
+    const range = interactRange();
+    const near = !isFinite(range) || (pos && distance(pos, spot) <= range);
+    openFossilAssistant(spot, { inRange: !!near });
+  };
+
+  // Your own fossils, waiting where you left them.
+  GameMap.onFossilDropClick = drop => {
+    const pos = Geo.current;
+    const range = interactRange();
+    const near = !isFinite(range) || (pos && distance(pos, drop) <= range);
+    openFossilDrop(drop, { inRange: !!near });
   };
 
   GameMap.onBattleFrontierClick = frontier => {

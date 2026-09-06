@@ -9,16 +9,22 @@ import {
   statsFor, raidBossStats, RAID_CAPTURE_LEVEL, raidModifiers, EXCLUSIVE_RAID_REWARD,
   eggLabel, buffMoveText, moveEffectText, moveSummaryText,
   abilityOutlook, abilityOutlookLabel, heldItemImage, abilityText,
-  rollShiny, heldItem, heldStatBonus, totalBoosts,
+  rollShiny, heldItem, heldStatBonus, totalBoosts, movesForCreature,
   FRONTIER_GRAND_LABEL, FRONTIER_LEVELS, frontierTeam, frontierTrainerImage,
-  frontierLevelRewards, frontierMode, frontierModeAllows, frontierChallenge
+  frontierLevelRewards, frontierMode, frontierModeAllows, frontierChallenge,
+  FRONTIER_DAILY_ID, FRONTIER_DAILY_NAME, FRONTIER_DAILY_ART, IMAGE_DIR
 } from './data.js';
 
 /** "+50%" style label straight from the raid modifier table. */
 const bossPct = (key, exclusive = false) =>
   `+${Math.round((raidModifiers(exclusive)[key] - 1) * 100)}%`;
 import { store, creatureStats, maxHpOf, hpOf, isFainted } from './state.js';
-import { sortedForPicker, setAbilityRanker } from './views.js';
+import {
+  pickerFilterSort, renderPickerTools, heldBadge, setAbilityRanker
+} from './views.js';
+
+/** The one sort that only exists in a battle, added to the shared toolbar's. */
+const BATTLE_EXTRA_SORTS = [['ability', 'Ability in this battle']];
 import {
   Battle, buildRaidBattle, buildGruntBattle, buildFrontierBattle,
   battlerFromEnemySpec, battleEnv
@@ -54,6 +60,8 @@ export function initBattleUI({ onDone } = {}) {
   $('#bt-fight-top').addEventListener('click', startFight);
   $('#bt-clear').addEventListener('click', () => { ctx.picked = []; renderPicker(); });
   $('#bt-done').addEventListener('click', closeBattle);
+  // Sorting and filtering live in the shared picker toolbar now, built fresh by
+  // renderPicker, so there are no static controls here to wire up.
   // "Try again" has to go back to whatever kind of fight this was. A Frontier
   // level and a Grand Raid have no map point to re-open.
   $('#bt-again').addEventListener('click', () => {
@@ -68,18 +76,6 @@ export function initBattleUI({ onDone } = {}) {
     }
   });
   $('#bt-catch').addEventListener('click', throwUltraDisc);
-  // Sorting is shared with Storage, so changing it here changes it there too.
-  // A new order makes the old page number meaningless, so go back to page 1.
-  $('#bt-sort').addEventListener('change', e => {
-    store.setUI({ storageSort: e.target.value });
-    pickPage = 0;
-    renderPicker();
-  });
-  $('#bt-dir').addEventListener('click', () => {
-    store.setUI({ storageDir: store.s.ui.storageDir > 0 ? -1 : 1 });
-    pickPage = 0;
-    renderPicker();
-  });
 }
 
 /** Entry point: show the preview for a raid or grunt point. */
@@ -118,6 +114,42 @@ export function openFrontierBattle({ challengeId, level, modeId, onClose = null 
     frontier: { challengeId, level, modeId, team },
     restrict: modeId,
     onClose,
+    picked: [],
+    battle: null,
+    result: null
+  };
+  step('preview');
+  renderPreview();
+  $('#battle').classList.remove('hidden');
+}
+
+/**
+ * One of the three Daily Challenge fights.
+ *
+ * The same battle as an authored Frontier level in every mechanical respect — the
+ * team restriction, the trainer's boosts and held items — but the team is drawn
+ * rather than looked up, and the reward is an Essence Harvesting game rather than
+ * a pile of items, so it carries its own `daily` context instead of a challenge id.
+ */
+export function openFrontierDaily({ levelId, onClose = null, onWin = null }) {
+  const state = store.dailyChallengeState(levelId);
+  if (!state || state.missing) { toast('That daily challenge is not available', 'bad'); return; }
+
+  ctx = {
+    point: null,
+    kind: 'frontier',
+    raid: null,
+    grunt: null,
+    frontier: {
+      challengeId: null,
+      daily: state,
+      level: state.level.label,
+      modeId: state.mode.id,
+      team: state.team
+    },
+    restrict: state.mode.id,
+    onClose,
+    onWin,
     picked: [],
     battle: null,
     result: null
@@ -188,13 +220,16 @@ export function closeBattle() {
   // it hands back to whatever opened it — otherwise closing the battle would
   // drop the player on the map instead of back in the building.
   const after = ctx?.onClose || null;
+  // A Daily Challenge win owes the player a harvest. Handed over on the way out
+  // so the game opens onto a clear screen rather than on top of the result sheet.
+  const won = ctx?.dailyWin || null;
   ctx = null;
   // The ability sort goes back to its plain "has one at all" meaning, since
   // there is no longer a battle to judge relevance against.
   outlookCache = new Map();
   setAbilityRanker(null);
   onFinished?.();
-  after?.();
+  after?.(won);
 }
 
 function step(name) {
@@ -205,9 +240,90 @@ function step(name) {
 
 /** The challenge definition behind a Frontier fight, whichever way it was opened. */
 const frontierChallengeOf = c => {
+  // The Daily Challenge has no entry in the table, so it describes itself.
+  if (c?.frontier?.daily) {
+    const lvl = c.frontier.daily.level;
+    return {
+      id: FRONTIER_DAILY_ID,
+      name: FRONTIER_DAILY_NAME,
+      type: null,
+      trainerName: `${FRONTIER_DAILY_NAME} · ${lvl.label}`,
+      phrase: DAILY_PHRASE[lvl.id] || 'Let us see what you have brought.',
+      daily: true
+    };
+  }
   const id = c?.frontier?.challengeId || c?.grand?.challengeId;
   return id ? frontierChallenge(id) : null;
 };
+
+/** What the daily trainer says, so each difficulty has its own tone. */
+const DAILY_PHRASE = {
+  easy: 'A warm-up. Show me you can follow the rules.',
+  medium: 'Better. Now with something worth beating.',
+  hard: "Today's best. I do not expect you to win."
+};
+
+/**
+ * The Daily Challenge preview: who they brought, what you are allowed to bring,
+ * and what winning pays. No reward list of items — the prize is a harvest.
+ */
+function renderDailyPreview(body) {
+  const state = ctx.frontier.daily;
+  const { level, mode, team } = state;
+  $('#bt-title').textContent = `${FRONTIER_DAILY_NAME} · ${level.label}`;
+
+  body.append(
+    el('div', { class: 'bt-boss frontier' },
+      el('img', { src: `${IMAGE_DIR}/${encodeURIComponent(FRONTIER_DAILY_ART)}`, alt: FRONTIER_DAILY_NAME }),
+      el('h3', { text: `${level.label} · today only` }),
+      el('div', { class: 'reveal-tags' },
+        el('span', { class: 'tag', text: `Their creatures: Lv ${level.creatureLevel}` }),
+        el('span', { class: 'tag', text: level.maxTotal === Infinity
+          ? `${level.minTotal}+ total stats`
+          : `${level.minTotal}–${level.maxTotal} total stats` }),
+        el('span', { class: 'tag', text: mode.label })
+      )
+    ),
+    el('p', { class: 'bt-quote', text: `"${DAILY_PHRASE[level.id] || ''}"` }),
+    el('p', { class: 'hint' }, el('b', { text: 'Your restriction. ' }), mode.blurb),
+    el('h4', { class: 'sheet-h4', text: 'Their team' }),
+    el('div', { class: 'bt-roster' }, ...team.map(t => {
+      const sp = species(t.speciesId);
+      const st = statsFor(sp, t.level, null, t.boosts,
+        heldStatBonus({ speciesId: t.speciesId, level: t.level, held: t.held }, sp));
+      const boosted = totalBoosts(t.boosts);
+      const held = t.held ? heldItem(t.held) : null;
+      return el('div', { class: 'cell' },
+        el('span', { class: 'lvl', text: 'Lv' + t.level }),
+        el('img', { src: sp.imagePath, alt: sp.name, loading: 'lazy' }),
+        el('span', { class: 'nm', text: sp.name }),
+        el('span', { class: `sub t-${sp.type}`, text: sp.type }),
+        el('span', { class: 'sub', text: `${st.hp} HP · ${st.attack}A ${st.defence}D ${st.speed}S` }),
+        held
+          ? el('span', { class: 'sub frontier-held' },
+            el('img', { src: heldItemImage(held.id), alt: '' }),
+            el('span', { text: held.name }))
+          : null,
+        boosted ? el('span', { class: 'sub', text: `+${boosted} boosted` }) : null
+      );
+    })),
+    el('h4', { class: 'sheet-h4', text: state.cleared ? 'Already beaten today' : 'If you win' }),
+    state.cleared
+      ? el('p', { class: 'hint', text: 'You have already won this one today. It resets at midnight '
+        + 'with a new team and a new restriction.' })
+      : el('div', { class: 'rewards' },
+        el('span', { class: 'reward' }, el('span', { text: '✨' }),
+          el('span', { text: `An Essence Harvesting game at point-blank range, on a rarity `
+            + `${state.level.essenceRarities.join('–')} creature` })),
+        el('span', { class: 'reward' },
+          el('img', { src: itemImage('precious_feather'), alt: '',
+            style: { width: '18px', height: '18px', objectFit: 'contain' } }),
+          el('span', { text: `${Math.round(level.featherChance * 100)}% a Precious Feather` }))
+      ),
+    el('p', { class: 'hint', text: 'Lose as many times as you like — the team and the restriction '
+      + 'stay the same until midnight, so you can come back with a better answer.' })
+  );
+}
 
 /* ---------------------------------------------------------------
    Step 1: preview
@@ -334,6 +450,9 @@ function renderPreview() {
  * the player has to plan around it rather than just bring their best three.
  */
 function renderFrontierPreview(body) {
+  // The Daily Challenge is a different enough screen to be worth its own.
+  if (ctx.frontier.daily) return renderDailyPreview(body);
+
   const { challengeId, level, modeId, team } = ctx.frontier;
   const state = store.frontierChallengeState(challengeId, modeId);
   const ch = state.challenge;
@@ -489,8 +608,9 @@ function showPeek(c) {
   if (!s) return;
   const st = creatureStats(c);
   const max = maxHpOf(c), hp = hpOf(c);
-  // Exactly the move list battlerFromCreature will hand to the battle.
-  const moves = s.movesAt(c.level, c.moveUnlock);
+  // Exactly the move list battlerFromCreature will hand to the battle, diamond
+  // bonuses included.
+  const moves = movesForCreature(c, s);
 
   peekEl?.remove();
   peekEl = el('div', { class: 'move-peek' },
@@ -635,17 +755,25 @@ function renderPicker() {
   // A Frontier mode narrows the roster to what it allows. Everything below —
   // sorting, paging, the ability legend, the heal/revive bar — then works on the
   // narrowed list, so the counts on screen are the counts that matter.
-  const all = sortedForPicker(ctx.restrict
+  const usable = ctx.restrict
     ? store.frontierEligible(ctx.restrict)
-    : store.battleReady());
+    : store.battleReady();
+  // The shared picker toolbar, so the filter language works here too. "Ability
+  // in this battle" is added on top: it is the one sort that only means
+  // something mid-battle, which is why it is not in the standard list.
+  const all = pickerFilterSort(usable, { extraSorts: BATTLE_EXTRA_SORTS });
   pickPage = clampPage(pickPage, all.length);
   const list = pageSlice(all, pickPage);
 
-  $('#bt-sort').value = store.s.ui.storageSort;
-  $('#bt-dir').textContent = store.s.ui.storageDir > 0 ? '↑' : '↓';
-
   const ready = ctx.picked.length === BATTLE_TEAM_SIZE;
-  $('#bt-pick-count').textContent = `${ctx.picked.length} of ${BATTLE_TEAM_SIZE} chosen`;
+  renderPickerTools(() => { pickPage = 0; renderPicker(); }, {
+    host: '#bt-pick-tools',
+    total: usable.length,
+    shown: all.length,
+    extraSorts: BATTLE_EXTRA_SORTS,
+    extra: el('span', { id: 'bt-pick-count', class: 'muted',
+      text: `${ctx.picked.length} of ${BATTLE_TEAM_SIZE} chosen` })
+  });
   $('#bt-fight').disabled = !ready;
   // The floating bar means you never have to scroll to start.
   $('#bt-ready').classList.toggle('hidden', !ready);
@@ -688,6 +816,7 @@ function renderPicker() {
       c.shiny ? el('span', { class: 'shiny-star', text: '★' }) : null,
       c.favourite ? el('span', { class: 'fav-star', text: '♥' }) : null,
       abilityBadge(c),
+      heldBadge(c),
       el('img', { src: sp.spritePath(c.shiny), alt: sp.name, loading: 'lazy' }),
       el('span', { class: 'nm', text: sp.name }),
       el('span', { class: `sub t-${sp.type}`, text: sp.type }),
@@ -1082,6 +1211,55 @@ async function playTurn(moveIndex) {
         : `<span class="heal">${who} <b>${e.actorLabel}</b> was already at full health.</span>`);
       refreshHpOnly();
       await sleep(400);
+    } else if (e.type === 'sideFx') {
+      /* One of the three lasting fossil effects. Logged with its own class and a
+         "rest of the battle" note, because that is what separates these from an
+         ordinary buff: the creature that set one up can faint and it stays. */
+      const mine = e.side === 'player';
+      const ours = mine ? 'your side' : 'the opposing side';
+      const theirs = mine ? 'the opposing side' : 'your side';
+      let text;
+      if (e.kind === 'teamIncomingDown') {
+        text = `everything ${theirs} does to ${ours} deals <b>${e.pct}% less</b> damage`
+          + (e.total !== e.pct ? ` (<b>${e.total}%</b> less in total)` : '');
+      } else if (e.kind === 'teamOutgoingUp') {
+        text = `everything ${ours} does deals <b>${e.pct}% more</b> damage`
+          + (e.total !== e.pct ? ` (<b>${e.total}%</b> more in total)` : '');
+      } else {
+        text = e.already
+          ? 'the turn order is already inverted, so nothing changed'
+          : 'the <b>slower</b> creature now moves <b>first</b> each turn';
+      }
+      logLine(`<span class="sidefx">✦ <b>${e.actorLabel}</b>: for the rest of the battle, ${text}.</span>`);
+      await sleep(520);
+    } else if (e.type === 'reflect') {
+      if (e.fizzled) {
+        logLine(`<span class="sidefx"><b>${e.actorLabel}</b> had nothing to reflect — `
+          + `${e.taken > 0 ? 'its target is already down' : 'it was not hit this turn'}.</span>`);
+        await sleep(320);
+      } else {
+        const imgSel = e.targetSide === 'player' ? '#bt-mine-img' : '#bt-enemy-img';
+        const img = $(imgSel);
+        img.classList.remove('hit'); void img.offsetWidth; img.classList.add('hit');
+        logLine(`<span class="sidefx">↩ <b>${e.actorLabel}</b> reflected <b>${e.pct}%</b> of the `
+          + `<b>${e.taken}</b> damage it took — <b>${e.amount}</b> back to `
+          + `<b>${e.targetLabel}</b> (${e.hpAfter}/${e.maxHp}).</span>`);
+        refreshHpOnly();
+        await sleep(520);
+      }
+    } else if (e.type === 'copyStats') {
+      if (e.nothing) {
+        logLine(`<span class="sidefx"><b>${e.actorLabel}</b> copied <b>${e.fromLabel}</b>'s stat `
+          + 'changes, but there were none.</span>');
+      } else {
+        const list = e.stats
+          .map(s => `${s.statLabel} ${s.totalPct > 0 ? '+' : ''}${s.totalPct}%`)
+          .join(', ');
+        logLine(`<span class="sidefx">⧉ <b>${e.actorLabel}</b> copied <b>${e.fromLabel}</b>'s stat `
+          + `changes: <b>${list}</b>.</span>`);
+      }
+      renderArena();
+      await sleep(480);
     } else if (e.type === 'skipped') {
       const who = e.side === 'player' ? 'Your' : 'The opposing';
       logLine(`${who} <b>${e.actorLabel}</b> was knocked out before it could move.`);
@@ -1147,9 +1325,25 @@ async function finishBattle() {
   let rewards = null;
   /** Set when a Frontier level was won that had already been won on this mode. */
   let repeat = false;
+  /** Precious Diamond projects this win completed. */
+  let diamondsDone = [];
+  /** Set on a Daily Challenge win, so the harvest can be opened on the way out. */
+  let dailyWin = null;
 
   if (won) {
-    if (ctx.kind === 'frontier') {
+    /* A win counts towards any Precious Diamond the team is carrying. Recorded
+       here rather than in applyBattleDamage, which also runs on a loss and on
+       the mid-fight bail-out. `ctx.picked` is the three creatures the player
+       actually chose, whether or not each one made it onto the field. */
+    diamondsDone = store.recordBattleWin(ctx.picked);
+
+    if (ctx.kind === 'frontier' && ctx.frontier.daily) {
+      /* The Daily Challenge. The feather is rolled here; the harvest is opened by
+         whoever launched the fight, once the result screen is closed, because it
+         is a second interactive screen rather than a reward chip. */
+      const res = store.rewardDailyChallenge(ctx.frontier.daily.level.id);
+      if (res.ok) { rewards = res; dailyWin = res; } else repeat = res.reason === 'claimed';
+    } else if (ctx.kind === 'frontier') {
       const { challengeId, level, modeId } = ctx.frontier;
       // Refuses a level already beaten on this mode, so re-fighting one for the
       // practice cannot also re-pay for it.
@@ -1169,7 +1363,10 @@ async function finishBattle() {
     // Frontier fight and a Grand Raid have no point behind them at all.
     if (ctx.point) store.markCollected(ctx.point.id);
   }
-  ctx.result = { won, rewards, repeat };
+  ctx.result = { won, rewards, repeat, diamondsDone, dailyWin };
+  // Handed to the opener rather than run here: the harvest is a whole screen, and
+  // it has to come after the result sheet is out of the way.
+  if (dailyWin) ctx.dailyWin = dailyWin;
 
   await sleep(400);
   renderResult();
@@ -1231,6 +1428,15 @@ function renderResult() {
           ? el('img', { src: r.img, alt: '', style: { width: '18px', height: '18px', objectFit: 'contain' } })
           : el('span', { text: r.icon }),
         el('span', { text: r.label })))));
+  }
+
+  // A Precious Diamond that finished on this win. Announced here rather than as a
+  // toast, because it is the end of a very long project.
+  for (const d of ctx.result.diamondsDone || []) {
+    body.append(el('p', { class: 'hint', style: { color: '#c8f7c5' } },
+      el('b', { text: '◆ Precious Diamond earned. ' }),
+      `${species(d.speciesId)?.name}'s ${d.move} is now permanently `
+      + `+${d.gained} power. That was the twentieth win.`));
   }
 
   // Where the ladder stands now, and the Grand Raid the moment it opens.

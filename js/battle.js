@@ -15,6 +15,7 @@
 
 import {
   damageOf, effectivenessOf, statsFor, raidBossStats, species, heldStatBonus,
+  movesForCreature, ABILITY_MULTIPLIER_MIN, ABILITY_MULTIPLIER_MAX,
   evaluateAbility, faintDamage, clauseEffectText, clauseConditionText, buffStatsLabel,
   moveEffectText, moveSummaryText,
   STAT_KEYS, STAT_LABELS, BATTLE_TEAM_SIZE, moveLevelFor, heldItem
@@ -113,7 +114,9 @@ export function battlerFromCreature(c) {
     shiny: c.shiny,
     stats: creatureStats(c),
     hp: hpOf(c),
-    moves: sp.movesAt(c.level, c.moveUnlock),
+    // movesForCreature, not sp.movesAt: a Precious Diamond raises one move's
+    // power for this creature alone, and this is the one place that has to know.
+    moves: movesForCreature(c, sp),
     held: c.held || null
   });
 }
@@ -255,6 +258,40 @@ export class Battle {
 
     /** Creatures whose held item has already been announced. */
     this._heldAnnounced = new Set();
+
+    /* ---- the fossil effects ----
+       These belong to the *battle*, not to a battler, which is the whole point
+       of them: the creature that set one up can faint and it stays in force.
+       Held per side, so "our attacks" and "their attacks" stay straight even as
+       creatures are swapped in and out.
+
+       `incomingDown` and `outgoingUp` are cumulative multipliers, so a second
+       use of the same move is worth something. They are clamped where they are
+       read rather than here, so the ledger stays honest. */
+    this.sideFx = {
+      player: { incomingDown: 1, outgoingUp: 1 },
+      enemy: { incomingDown: 1, outgoingUp: 1 }
+    };
+
+    /** Once true, the slower creature moves first for the rest of the fight. */
+    this.speedInverted = false;
+
+    /** Damage each side has taken so far *this turn*, for Reflect damage. */
+    this.turnDamage = { player: 0, enemy: 0 };
+  }
+
+  /**
+   * The damage multiplier the lasting side effects contribute to one attack.
+   * The attacker's own "we hit harder" and the defender's "we take less" both
+   * apply, exactly like the two halves of an ability read.
+   *
+   * Clamped to the same band abilities use, so no stack of these can trivialise
+   * a fight in either direction.
+   */
+  sideMultiplier(attackSide) {
+    const defendSide = attackSide === 'player' ? 'enemy' : 'player';
+    const raw = this.sideFx[attackSide].outgoingUp * this.sideFx[defendSide].incomingDown;
+    return Math.min(ABILITY_MULTIPLIER_MAX, Math.max(ABILITY_MULTIPLIER_MIN, raw));
   }
 
   /* ---- abilities ---- */
@@ -419,10 +456,19 @@ export class Battle {
     events.push(...this.heldLines());
     events.push(...this.abilityLines());
 
+    // Nothing has been hit yet this turn, which is what Reflect damage reads.
+    this.turnDamage = { player: 0, enemy: 0 };
+
     // Speed decides who swings first; equal speed is a coin flip.
     let first = 'player';
     if (theirs.stats.speed > mine.stats.speed) first = 'enemy';
     else if (theirs.stats.speed === mine.stats.speed) first = this.rng() < 0.5 ? 'player' : 'enemy';
+    /* Speed inversion flips the answer for the rest of the battle. Applied after
+       the normal decision rather than by reversing the comparison, so a tie stays
+       a coin flip instead of quietly becoming deterministic. */
+    if (this.speedInverted && theirs.stats.speed !== mine.stats.speed) {
+      first = first === 'player' ? 'enemy' : 'player';
+    }
 
     const order = first === 'player'
       ? [{ side: 'player', actor: mine, target: theirs, move: myMove },
@@ -476,6 +522,98 @@ export class Battle {
     const fx = move.effect;
     if (!fx) return [];
     const otherSide = side === 'player' ? 'enemy' : 'player';
+
+    /* ---- the five fossil effects ----
+       Handled before the buff/debuff machinery below because none of them is a
+       stat change on one creature. */
+
+    // Everything the other side does lands softer, for good.
+    if (fx.kind === 'teamIncomingDown') {
+      this.sideFx[side].incomingDown *= (1 - fx.pct);
+      return [{
+        type: 'sideFx', kind: fx.kind, side, targetSide: side,
+        actor: actor.key, actorLabel: actor.label,
+        pct: Math.round(fx.pct * 100),
+        total: Math.round((1 - this.sideFx[side].incomingDown) * 100)
+      }];
+    }
+    // Everything our side does lands harder, for good.
+    if (fx.kind === 'teamOutgoingUp') {
+      this.sideFx[side].outgoingUp *= (1 + fx.pct);
+      return [{
+        type: 'sideFx', kind: fx.kind, side, targetSide: side,
+        actor: actor.key, actorLabel: actor.label,
+        pct: Math.round(fx.pct * 100),
+        total: Math.round((this.sideFx[side].outgoingUp - 1) * 100)
+      }];
+    }
+    // The slower creature moves first from now on. Using it twice does not turn
+    // it back — it is a state, not a toggle.
+    if (fx.kind === 'speedInversion') {
+      const already = this.speedInverted;
+      this.speedInverted = true;
+      return [{
+        type: 'sideFx', kind: fx.kind, side, targetSide: side,
+        actor: actor.key, actorLabel: actor.label,
+        already
+      }];
+    }
+    // Hands back a share of what the user took this turn. Nothing if it moved
+    // first, or if the opponent did not attack — both read as zero damage taken.
+    if (fx.kind === 'reflectDamage') {
+      const taken = this.turnDamage[side] || 0;
+      const dealt = Math.floor(taken * fx.pct);
+      if (taken <= 0 || dealt <= 0 || target.fainted) {
+        return [{
+          type: 'reflect', side, targetSide: otherSide,
+          actor: actor.key, actorLabel: actor.label,
+          pct: Math.round(fx.pct * 100),
+          taken, amount: 0, fizzled: true
+        }];
+      }
+      const hpBefore = target.hp;
+      target.takeDamage(dealt);
+      // Reflected damage counts as damage taken for the other side's own reflect.
+      this.turnDamage[otherSide] = (this.turnDamage[otherSide] || 0) + dealt;
+      const events = [{
+        type: 'reflect', side, targetSide: otherSide,
+        actor: actor.key, actorLabel: actor.label,
+        target: target.key, targetLabel: target.label,
+        pct: Math.round(fx.pct * 100),
+        taken, amount: dealt, fizzled: false,
+        hpBefore, hpAfter: target.hp, maxHp: target.maxHp
+      }];
+      if (target.fainted) {
+        events.push({
+          type: 'faint', side: otherSide, actor: target.key, label: target.label
+        });
+        events.push(...this.partingShot(target, actor, otherSide));
+      }
+      return events;
+    }
+    // Takes the opponent's stat changes wholesale, replacing whatever it had.
+    if (fx.kind === 'copyStats') {
+      const copied = { ...target.buffs };
+      actor.buffs = copied;
+      // Re-derive the stats from base, so replacing really replaces rather than
+      // layering the copy on top of what was already there.
+      for (const k of STAT_KEYS) {
+        if (k === 'hp') continue;
+        const mult = copied[k] || 1;
+        actor.stats[k] = Math.max(1, Math.round(actor.baseStats[k] * mult));
+      }
+      const stats = STAT_KEYS
+        .filter(k => k !== 'hp' && (copied[k] || 1) !== 1)
+        .map(k => ({ stat: k, statLabel: STAT_LABELS[k], totalPct: actor.buffPercent(k) }));
+      return [{
+        type: 'copyStats', side, targetSide: side,
+        actor: actor.key, actorLabel: actor.label,
+        from: target.key, fromLabel: target.label,
+        stats,
+        // Nothing to copy is a real outcome worth reporting rather than silence.
+        nothing: stats.length === 0
+      }];
+    }
 
     if (fx.kind === 'healSelf') {
       const r = actor.heal(fx.amount);
@@ -552,9 +690,14 @@ export class Battle {
     const dealMultiplier = attackerRead?.dealMultiplier ?? 1;
     const takeMultiplier = defenderRead?.takeMultiplier ?? 1;
 
+    /* The lasting side effects ride on top of the ability multipliers. Folded
+       into `dealMultiplier` because damageOf already multiplies the two together
+       and there is nothing to be gained from a third parameter. */
+    const sideMult = this.sideMultiplier(side);
+
     const dmg = damageOf(
       move, actor.type, actor.stats.attack, target.type, target.stats.defence,
-      { dealMultiplier, takeMultiplier }
+      { dealMultiplier: dealMultiplier * sideMult, takeMultiplier }
     );
     const hpBefore = target.hp;
 
@@ -573,11 +716,17 @@ export class Battle {
     }
 
     target.takeDamage(dealt);
+    /* Banked for Reflect damage, which pays back a share of what its user took
+       *this turn*. Keyed by the side that was hit. */
+    const hitSide = side === 'player' ? 'enemy' : 'player';
+    this.turnDamage[hitSide] = (this.turnDamage[hitSide] || 0) + dealt;
 
     events.push({
       type: 'damage', side, actor: actor.key, target: target.key,
       targetLabel: target.label,
       amount: dealt,
+      // Named so the log can explain a number the stats alone do not account for.
+      sideFx: sideMult !== 1 ? Math.round((sideMult - 1) * 100) : null,
       // The blow it would have been, so the log can say what was survived.
       wouldHaveBeen: saved ? dmg : null,
       savedBy: saved,
