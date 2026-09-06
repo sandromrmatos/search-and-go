@@ -19,7 +19,7 @@
   --t-neutral: #a8b0c8;
   --t-mystic: #b07cff;
   --t-wind: #56d2f0;
-  --t-celestial: #ff8ec7;
+  --t-celestial: #4ade80;
   --t-mechanic: #ffb865;
 
   --r1: #9aa3bd;
@@ -377,19 +377,29 @@ a { color: var(--accent); }
 .spawn-marker.in-range .spawn-timer { color: #b9ffd0; border-color: #4ade8066; }
 .spawn-marker.in-range .stars .s { color: #eaffef; text-shadow: 0 0 9px #4ade80, 0 0 18px #4ade8055; }
 
-/* An incense spawn is purple whatever the distance, because distance does not
-   apply to it: you summoned it, so it is always tappable. Placed after the
-   in-range rules so it wins over both of them, and the marker is never dimmed
-   for being "out of range" when there is no range to be out of. */
-.spawn-marker.src-incense .stars .s {
+/* A spawn that came to *you* is purple whatever the distance, because distance
+   does not apply to it: an incense you lit, a Creature Spotlight visit and an
+   annual event's hourly gift all appear on your own position and are always
+   tappable. Placed after the in-range rules so it wins over both of them, and the
+   marker is never dimmed for being "out of range" when there is no range to be
+   out of. */
+.spawn-marker.src-incense .stars .s,
+.spawn-marker.src-spotlight .stars .s,
+.spawn-marker.src-event .stars .s {
   color: #f3e6ff; text-shadow: 0 0 9px #b07cff, 0 0 18px #b07cff66;
 }
 /* Scoped the same way as the essence aura, so it outranks the base gold glow. */
-.spawn-marker.src-incense .glow {
+.spawn-marker.src-incense .glow,
+.spawn-marker.src-spotlight .glow,
+.spawn-marker.src-event .glow {
   background: radial-gradient(circle, #b07cff66 0%, transparent 70%);
 }
-.spawn-marker.src-incense .spawn-timer { color: #e8dcff; border-color: #b07cff77; }
-.spawn-marker.src-incense.out-range { opacity: 1; }
+.spawn-marker.src-incense .spawn-timer,
+.spawn-marker.src-spotlight .spawn-timer,
+.spawn-marker.src-event .spawn-timer { color: #e8dcff; border-color: #b07cff77; }
+.spawn-marker.src-incense.out-range,
+.spawn-marker.src-spotlight.out-range,
+.spawn-marker.src-event.out-range { opacity: 1; }
 .spawn-marker.out-range { opacity: .78; }
 
 /* ---- non-creature point icons ---- */
@@ -1657,6 +1667,12 @@ body.overlay-open .essence-arrow-glyph {
   padding: 1px 6px; border-radius: 99px;
   background: #ffffff1a; color: #cbb6e8;
 }
+/* An ability that has just switched over mid-battle, rather than one being
+   introduced. Brighter, because it is news: something the player did or took
+   changed what their creature is doing. */
+.bt-log .ability.ability-change { border-left-color: #ffd166; }
+.bt-log .ability-state.on { background: #4ade8033; color: #b9ffd0; }
+.bt-log .ability-state.off { background: #ffffff14; color: #9aa3bd; }
 
 .bt-moves {
   flex: 0 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 7px;

@@ -1773,7 +1773,7 @@ export const FOSSIL_HAND = 'fossil_hand';
 export const FOSSIL_PARTS = [FOSSIL_HEAD, FOSSIL_SPINE, FOSSIL_TAIL, FOSSIL_HAND];
 
 /** One roll per threshold crossed, for every source. */
-export const FOSSIL_FIND_CHANCE = 0.05;
+export const FOSSIL_FIND_CHANCE = 0.1;
 
 /**
  * Where the parts come from. `counter` names a field of the daily block, `every`
@@ -2111,8 +2111,19 @@ export function frontierDailyResetIn(now = new Date()) {
 export const frontierChallenge = id =>
   FRONTIER_CHALLENGES.find(c => c.id === id) || null;
 
-/** The artwork path for a challenge's trainer. */
+/**
+ * The artwork path for a challenge's trainer.
+ *
+ * The Daily Challenge has no row in `FRONTIER_CHALLENGES` but it does have art,
+ * and the battle screens ask for it by id like any other challenge — so it is
+ * answered here rather than special-cased at every call site. Without this the
+ * lookup fell through to an empty string, which a browser renders as a broken
+ * image rather than as nothing at all.
+ */
 export const frontierTrainerImage = id => {
+  if (id === FRONTIER_DAILY_ID) {
+    return `${IMAGE_DIR}/${encodeURIComponent(FRONTIER_DAILY_ART)}`;
+  }
   const ch = frontierChallenge(id);
   return ch ? `${IMAGE_DIR}/${encodeURIComponent(ch.trainer)}` : '';
 };
@@ -2449,6 +2460,18 @@ export function frontierGrandRaid(challengeId) {
     dustRange: tier.dust
   };
 }
+
+/**
+ * A Grand Raid boss's shiny chance: flat, and deliberately outside `shinyOdds`.
+ *
+ * It is decided *once*, when the ladder is cleared, and stored against that
+ * challenge and mode for good. Rolling it each time the raid was opened meant a
+ * player could back out and walk in again until the roll went their way, which
+ * made the whole thing a button rather than a chance. A Bonanza or a Shiny
+ * Incense must not move it either: the decision is made when the raid appears, not
+ * when you happen to walk into it.
+ */
+export const FRONTIER_GRAND_SHINY_ODDS = 0.02;
 
 /* ---------------------------------------------------------------
    Shiny

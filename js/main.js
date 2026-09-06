@@ -647,12 +647,16 @@ function checkInteractable(point, { requireRange = true } = {}) {
  * Points you can reach from anywhere, whatever the range says.
  *
  * Essence Harvesting was always one: distance decides how many attempts you get
- * rather than whether you get any. An incense spawn is the other — you paid an
- * item to summon it to yourself, so having to walk the last few metres to
- * something you conjured is a poor reward for spending it.
+ * rather than whether you get any. The others are the three spawns that come to
+ * *you* rather than being found: an incense you paid for, a Creature Spotlight
+ * visit and an annual event's hourly gift. All three appear on your own position,
+ * so a range check on them only ever punishes a GPS fix that has drifted a few
+ * metres — there is no walk to make.
  */
+const PERSONAL_SPAWN_SOURCES = new Set(['incense', 'spotlight', 'event']);
+
 const reachableFromAnywhere = point =>
-  point.kind === 'essence' || point.source === 'incense';
+  point.kind === 'essence' || PERSONAL_SPAWN_SOURCES.has(point.source);
 
 /** Routes a tap on the map to whatever that point actually is. */
 async function onPointTap(point) {

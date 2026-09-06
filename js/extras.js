@@ -512,8 +512,8 @@ function renderBattleFrontier(inRange) {
     el('span', { class: 'nm', text: FRONTIER_DAILY_NAME }),
     el('span', { class: 'sub', text: 'Easy · Medium · Hard' }),
     el('span', { class: 'use-hint', text: dailyDone === daily.length
-      ? `All 3 beaten · resets in ${timeLeftLabel(frontierDailyResetIn())}`
-      : `${dailyDone} of ${daily.length} beaten · resets in ${timeLeftLabel(frontierDailyResetIn())}` })
+      ? `All 3 beaten · resets in ${hoursMinutesLabel(frontierDailyResetIn())}`
+      : `${dailyDone} of ${daily.length} beaten · resets in ${hoursMinutesLabel(frontierDailyResetIn())}` })
   ));
 
   for (const s of summaries) {
@@ -584,8 +584,10 @@ function renderDailyChallenge() {
   body.innerHTML = '';
   const states = store.dailyChallengeStates();
 
+  /* hh:mm, not the mm:ss `timeLeftLabel` gives: this counts down to midnight, so
+     for most of the day mm:ss reads as a meaningless four-digit minute count. */
   $('#frontier-daily-hint').textContent =
-    `Three fights, drawn fresh every day. Resets in ${timeLeftLabel(frontierDailyResetIn())}.`;
+    `Three fights, drawn fresh every day. Resets in ${hoursMinutesLabel(frontierDailyResetIn())}.`;
 
   appendAll(body,
     el('div', { class: 'det-head' },
@@ -594,7 +596,7 @@ function renderDailyChallenge() {
         el('h3', { text: FRONTIER_DAILY_NAME }),
         el('div', { class: 'det-tags' },
           el('span', { class: 'tag', text: `${states.filter(s => s.cleared).length} of ${states.length} beaten` }),
-          el('span', { class: 'tag', text: `${timeLeftLabel(frontierDailyResetIn())} left` })
+          el('span', { class: 'tag', text: `${hoursMinutesLabel(frontierDailyResetIn())} left` })
         )
       )
     ),
@@ -659,9 +661,8 @@ function startDailyChallenge(levelId) {
  * has already happened.
  */
 function payDailyReward(win) {
-  if (win.feather) {
-    toast(`${itemName(FEATHER_ITEM)} found — a rare one from a Daily Challenge`, 'good', 4600);
-  }
+  // The feather is announced on the battle's own win screen, so no toast for it
+  // here — it would land on top of the harvest and say the same thing twice.
   refresh?.();
 
   if (!win.essenceSpecies) {

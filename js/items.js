@@ -11,7 +11,7 @@ import {
   FOSSIL_FIND_CHANCE, FOSSIL_PARTS
 } from './data.js';
 
-/** "5" — the fossil find chance as a percentage, for the four blurbs. */
+/** "15" — the fossil find chance as a percentage, for the four blurbs. */
 const FOSSIL_FIND_CHANCE_PCT = Math.round(FOSSIL_FIND_CHANCE * 100);
 
 /** "10,000" — thousands separators for a blurb, without pulling in the UI layer. */

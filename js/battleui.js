@@ -9,10 +9,11 @@ import {
   statsFor, raidBossStats, RAID_CAPTURE_LEVEL, raidModifiers, EXCLUSIVE_RAID_REWARD,
   eggLabel, buffMoveText, moveEffectText, moveSummaryText,
   abilityOutlook, abilityOutlookLabel, heldItemImage, abilityText,
-  rollShiny, heldItem, heldStatBonus, totalBoosts, movesForCreature,
+  heldItem, heldStatBonus, totalBoosts, movesForCreature,
   FRONTIER_GRAND_LABEL, FRONTIER_LEVELS, frontierTeam, frontierTrainerImage,
   frontierLevelRewards, frontierMode, frontierModeAllows, frontierChallenge,
-  FRONTIER_DAILY_ID, FRONTIER_DAILY_NAME, FRONTIER_DAILY_ART, IMAGE_DIR
+  FRONTIER_DAILY_ID, FRONTIER_DAILY_NAME, FRONTIER_DAILY_ART, IMAGE_DIR,
+  FEATHER_ITEM
 } from './data.js';
 
 /** "+50%" style label straight from the raid modifier table. */
@@ -66,11 +67,20 @@ export function initBattleUI({ onDone } = {}) {
   // level and a Grand Raid have no map point to re-open.
   $('#bt-again').addEventListener('click', () => {
     if (!ctx) return;
-    if (ctx.kind === 'frontier') {
+    /* A Daily Challenge is a Frontier fight but it is not on the authored ladder:
+       its `challengeId` is null and its `level` is a label rather than a number,
+       so `openFrontierBattle` looked both up, found nothing and refused. It has to
+       go back through its own entry point, carrying the `onClose` that owes the
+       player their harvest. */
+    if (ctx.frontier?.daily) {
+      const levelId = ctx.frontier.daily.level.id;
+      const onClose = ctx.onClose;
+      openFrontierDaily({ levelId, onClose });
+    } else if (ctx.kind === 'frontier') {
       const { challengeId, level, modeId } = ctx.frontier;
-      openFrontierBattle({ challengeId, level, modeId });
+      openFrontierBattle({ challengeId, level, modeId, onClose: ctx.onClose });
     } else if (ctx.grand) {
-      openFrontierGrand({ ...ctx.grand });
+      openFrontierGrand({ ...ctx.grand, onClose: ctx.onClose });
     } else {
       openBattle(ctx.point);
     }
@@ -175,10 +185,11 @@ export function openFrontierGrand({ challengeId, modeId, onClose = null }) {
     onClose,
     kind: 'raid',
     raid: {
+      /* `shiny` comes in on the raid: it was decided once, when the ladder was
+         cleared, and stored against this challenge and mode. It used to be rolled
+         here instead, which meant walking out of the raid and back in re-rolled
+         it — so a 2% chance was really a certainty for anyone willing to tap. */
       ...raid,
-      // Rolled here rather than on a map point, on the ordinary raid odds, so a
-      // shiny boss is visible before the fight exactly as it is in a raid.
-      shiny: store.s.debug.shinyBoost ? Math.random() < 0.5 : rollShiny('raid', new Date(), store.shinyOpts()),
       defeated: false
     },
     grunt: null,
@@ -1005,6 +1016,12 @@ function startFight() {
       : buildGruntBattle(team, ctx.grunt.team);
 
   const frontierTitle = () => {
+    // The Daily Challenge names itself: "Daily Challenge · Hard" rather than the
+    // ladder's "Mystic challenge · Level 4", since it has neither a type nor a
+    // numbered level.
+    if (ctx.frontier.daily) {
+      return `${FRONTIER_DAILY_NAME} · ${ctx.frontier.daily.level.label}`;
+    }
     const ch = frontierChallengeOf(ctx);
     return `${ch?.name || 'Frontier'} challenge · Level ${ctx.frontier.level}`;
   };
@@ -1120,10 +1137,18 @@ function logAbility(e) {
     ? `${fired.map(p => p.effect).join(' and ')} — ${fired.map(p => p.reason).join(', ')}`
     : e.parts.map(p => p.reason).join(', ');
 
+  /* `changed` marks an ability that has just switched over mid-battle rather than
+     one being introduced. The player already knows it exists, so the news is the
+     switch itself — and it gets its own pill so it is obvious at a glance which
+     way it went. */
+  const state = e.changed
+    ? (e.active ? 'now triggered' : 'no longer triggered')
+    : (e.active ? 'triggered' : 'not triggered');
+
   logLine(
-    `<span class="ability">✦ ${who} <b>${e.actorLabel}</b>: ${e.ability}` +
-    ` — ${detail}.` +
-    `<span class="ability-state">${e.active ? 'triggered' : 'not triggered'}</span></span>`
+    `<span class="ability${e.changed ? ' ability-change' : ''}">✦ ${who} <b>${e.actorLabel}</b>: ${e.ability}` +
+    ` — ${e.changed && e.active ? 'now ' : ''}${detail}.` +
+    `<span class="ability-state${e.changed ? (e.active ? ' on' : ' off') : ''}">${state}</span></span>`
   );
 }
 
@@ -1374,7 +1399,7 @@ async function finishBattle() {
 }
 
 function renderResult() {
-  const { won, rewards, repeat } = ctx.result;
+  const { won, rewards, repeat, dailyWin } = ctx.result;
   const body = $('#bt-result-body');
   body.innerHTML = '';
 
@@ -1389,6 +1414,9 @@ function renderResult() {
       trainer ? el('img', { src: frontierTrainerImage(trainer.id), alt: trainer.trainerName }) : null,
       el('p', { class: 'muted', text: won
         ? (ctx.kind === 'raid' ? `${sp.name} was beaten!`
+          // The daily trainer has no name of their own, so "Daily Challenge ·
+          // Easy is out of creatures" would read like a bug rather than a line.
+          : trainer?.daily ? `Today's ${dailyWin?.level?.label || ctx.frontier.daily.level.label} trainer is out of creatures.`
           : frontier ? `${trainer?.trainerName} is out of creatures.`
           : 'You cleared their whole team.')
         : frontier
@@ -1405,7 +1433,36 @@ function renderResult() {
       + 'Take the same level on a mode you have not cleared it with yet.'));
   }
 
-  if (won && rewards) {
+  /* A Daily Challenge win pays two things, neither of which is an item chip: a
+     Precious Feather on the difficulty's own odds, and an Essence Harvest that
+     opens once this screen is out of the way. Both are spelled out here rather
+     than left to a toast — the harvest is a whole second screen, so the player
+     should know it is coming before pressing the button that starts it. */
+  if (won && dailyWin) {
+    const pctFeather = Math.round(dailyWin.level.featherChance * 100);
+    body.append(
+      el('div', { class: 'rewards' },
+        el('span', { class: 'reward' },
+          el('img', { src: itemImage(FEATHER_ITEM), alt: '',
+            style: { width: '18px', height: '18px', objectFit: 'contain' } }),
+          el('span', { text: dailyWin.feather
+            ? `A ${itemName(FEATHER_ITEM)}!`
+            : `No ${itemName(FEATHER_ITEM)} this time — it was a ${pctFeather}% chance` })),
+        el('span', { class: 'reward' },
+          el('span', { text: '✨' }),
+          el('span', { text: dailyWin.essenceSpecies
+            ? `${dailyWin.essenceSpecies.name} left an essence for you`
+            : 'No creature was free to leave an essence' }))
+      )
+    );
+    body.append(el('p', { class: 'hint', text: dailyWin.essenceSpecies
+      ? 'The harvest is played as though you were standing right on top of it, so you '
+        + 'get every pin. Tap below when you are ready.'
+      : 'Nothing in your registry fitted this difficulty\'s rarity band, so there is no '
+        + 'harvest to play this time.' }));
+  }
+
+  if (won && rewards && !dailyWin) {
     const chips = [
       rewards.xp ? { icon: '⭐', label: `+${rewards.xp} XP` } : null,
       // A Frontier level pays items only, so there is no stardust line to show.
@@ -1439,8 +1496,12 @@ function renderResult() {
       + `+${d.gained} power. That was the twentieth win.`));
   }
 
-  // Where the ladder stands now, and the Grand Raid the moment it opens.
-  if (won && frontier && rewards) {
+  /* Where the ladder stands now, and the Grand Raid the moment it opens.
+     Skipped for the Daily Challenge, which has no ladder: its `challengeId` is
+     null, so `frontierChallengeState` returns null and reading `state.cleared`
+     threw — which aborted this whole function before `step('result')` could run,
+     leaving the player looking at the arena and a fainted opponent. */
+  if (won && frontier && rewards && !dailyWin) {
     const state = store.frontierChallengeState(
       ctx.frontier.challengeId, ctx.frontier.modeId);
     if (rewards.unlockedGrand) {
@@ -1466,7 +1527,11 @@ function renderResult() {
   const canCatch = won && ctx.kind === 'raid' && store.hasItem('ultra_disc');
   $('#bt-catch').classList.toggle('hidden', !canCatch);
   $('#bt-again').classList.toggle('hidden', won);
-  $('#bt-done').textContent = canCatch ? 'Leave it' : 'Done';
+  /* Closing the battle is what hands the harvest over (see closeBattle), so on a
+     Daily win the Done button *is* the start button and says so. */
+  $('#bt-done').textContent = canCatch ? 'Leave it'
+    : dailyWin?.essenceSpecies ? '✨ Start the harvest'
+    : 'Done';
 
   if (won && ctx.kind === 'raid' && !store.hasItem('ultra_disc')) {
     body.append(el('p', { class: 'hint', style: { color: '#ffd9a8' } },

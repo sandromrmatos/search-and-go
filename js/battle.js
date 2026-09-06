@@ -256,6 +256,18 @@ export class Battle {
     /** The pairing the last ability read was made for, so it is not repeated. */
     this._abilityPairing = null;
 
+    /**
+     * What each creature's ability was last seen doing, keyed "side:key".
+     *
+     * The damage step has always read abilities live — `applyMove` re-evaluates
+     * both sides on every hit — so an ability that turns on at 60% HP has always
+     * *worked* from the moment the bar crossed the line. What it did not do was
+     * say so: the announcement only spoke when a creature took the field. This
+     * remembers the last state so a mid-battle change can be reported once, when
+     * it happens, rather than every turn or not at all.
+     */
+    this._abilityState = new Map();
+
     /** Creatures whose held item has already been announced. */
     this._heldAnnounced = new Set();
 
@@ -375,24 +387,82 @@ export class Battle {
       const self = side === 'player' ? this.playerActive : this.enemyActive;
       const read = this.abilityFor(side);
       if (!self || !read) continue;
-      events.push({
-        type: 'ability',
-        side,
-        actor: self.key,
-        actorLabel: self.label,
-        ability: read.ability.name,
-        active: read.anyActive,
-        // Only the clauses that fired are worth reading out; when none did, the
-        // reasons explain why, which is the "not triggered" case.
-        parts: read.clauses.map(c => ({
-          active: c.active,
-          reason: c.reason,
-          effect: clauseEffectText(c.clause),
-          condition: clauseConditionText(c.clause)
-        })),
-        dealMultiplier: read.dealMultiplier,
-        takeMultiplier: read.takeMultiplier
-      });
+      // The announcement is also what seeds the change tracker, so a creature
+      // just introduced is never immediately reported as having changed.
+      this._rememberAbility(side, self, read);
+      events.push(this._abilityEvent(side, self, read));
+    }
+    return events;
+  }
+
+  /** The shape the UI renders for one ability read. */
+  _abilityEvent(side, self, read, extra = {}) {
+    return {
+      type: 'ability',
+      side,
+      actor: self.key,
+      actorLabel: self.label,
+      ability: read.ability.name,
+      active: read.anyActive,
+      // Only the clauses that fired are worth reading out; when none did, the
+      // reasons explain why, which is the "not triggered" case.
+      parts: read.clauses.map(c => ({
+        active: c.active,
+        reason: c.reason,
+        effect: clauseEffectText(c.clause),
+        condition: clauseConditionText(c.clause)
+      })),
+      dealMultiplier: read.dealMultiplier,
+      takeMultiplier: read.takeMultiplier,
+      ...extra
+    };
+  }
+
+  /**
+   * Which clauses were firing, as a string. Compared rather than just `anyActive`
+   * so an ability that swaps *which* of its clauses is doing the work is reported
+   * too — that changes what it is doing, even though it stayed on throughout.
+   */
+  _abilitySignature(read) {
+    return read.clauses.map(c => (c.active ? '1' : '0')).join('');
+  }
+
+  _rememberAbility(side, self, read) {
+    this._abilityState.set(`${side}:${self.key}`, {
+      active: read.anyActive,
+      signature: this._abilitySignature(read)
+    });
+  }
+
+  /**
+   * Abilities whose state has just changed, as log events.
+   *
+   * Called after every move and after any switch, because that is when the things
+   * abilities read mid-battle actually move: how hurt a creature is, whether it is
+   * the last one standing, and what the opponent has raised. An ability that has
+   * not changed says nothing, so a long fight does not fill the log with the same
+   * line every turn.
+   *
+   * A creature with no remembered state is skipped rather than reported: it is
+   * about to be introduced by `abilityLines`, which would say the same thing.
+   */
+  abilityChanges() {
+    const events = [];
+    for (const side of ['player', 'enemy']) {
+      const self = side === 'player' ? this.playerActive : this.enemyActive;
+      const read = this.abilityFor(side);
+      if (!self || !read) continue;
+
+      const prev = this._abilityState.get(`${side}:${self.key}`);
+      const signature = this._abilitySignature(read);
+      if (prev && prev.signature === signature) continue;
+      this._rememberAbility(side, self, read);
+      if (!prev) continue;
+
+      events.push(this._abilityEvent(side, self, read, {
+        changed: true,
+        wasActive: prev.active
+      }));
     }
     return events;
   }
@@ -490,10 +560,18 @@ export class Battle {
         continue;
       }
       events.push(...this.applyMove(step));
+      /* A hit is what moves the readings abilities watch — how hurt each side is,
+         what the opponent has raised, whether anyone is now alone — so any ability
+         that has just switched on or off says so here, next to the blow that did
+         it, rather than at the top of some later turn. */
+      events.push(...this.abilityChanges());
     }
 
     // Bring in replacements
     events.push(...this.handleFaints());
+    /* And again after a switch: coming in as the last one standing, or against a
+       different opponent, can flip an ability that the move loop could not see. */
+    events.push(...this.abilityChanges());
 
     // Win / lose
     if (this.enemyRemaining === 0) {

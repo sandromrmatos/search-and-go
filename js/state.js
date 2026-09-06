@@ -38,6 +38,7 @@ import {
   frontierChallenge, frontierMode, frontierModeAllows, frontierLevelRewards,
   frontierTeam, frontierLevelsLoaded, frontierBoss, frontierGrandRaid,
   FRONTIER_DAILY_LEVELS, frontierDailyLevel, frontierDailyFight,
+  FRONTIER_GRAND_SHINY_ODDS,
   fullLearnset, movesForCreature, moveBoostFor,
   FEATHER_ITEM, FEATHER_POINTS_PER_DAY, FEATHERS_PER_DIAMOND,
   FOSSIL_PARTS, FOSSIL_FIND_CHANCE, fossilFindFor, rollFossilPart,
@@ -190,6 +191,13 @@ function blankState() {
      * write here, so a failed attempt can be retried.
      */
     frontierGrand: {},
+    /**
+     * Whether each Grand Raid boss is shiny, keyed "challenge|mode" as above:
+     * { shiny: true|false, at }. Decided once, when the ladder is cleared, and
+     * never rolled again — otherwise backing out of the raid and walking in again
+     * re-rolls it, and a 2% chance becomes a certainty for anyone patient.
+     */
+    frontierGrandShiny: {},
     /**
      * Today's Daily Challenge clears: { day, cleared: { easy, medium, hard } }.
      * The fights themselves are derived from the date, so only the result of each
@@ -363,6 +371,7 @@ export function migrate(raw) {
     missions: { ...(raw.missions || {}) },
     frontierClears: { ...(raw.frontierClears || {}) },
     frontierGrand: { ...(raw.frontierGrand || {}) },
+    frontierGrandShiny: { ...(raw.frontierGrandShiny || {}) },
     // A stale day reads as nothing cleared, so this only has to be shaped right.
     frontierDaily: (raw.frontierDaily && typeof raw.frontierDaily === 'object')
       ? { day: String(raw.frontierDaily.day || ''), cleared: { ...(raw.frontierDaily.cleared || {}) } }
@@ -587,6 +596,21 @@ export function migrate(raw) {
   };
   s.frontierClears = cleanClears(s.frontierClears, 3);
   s.frontierGrand = cleanClears(s.frontierGrand, 2);
+
+  /* The Grand Raid shiny decisions are keyed the same way but hold a boolean
+     rather than a timestamp, so they are cleaned separately. `shiny` is read
+     strictly: anything unrecognised becomes "not shiny" rather than being
+     dropped, because dropping the record would let it be rolled again. */
+  {
+    const out = {};
+    for (const [key, val] of Object.entries(s.frontierGrandShiny || {})) {
+      const bits = String(key).split('|');
+      if (bits.length !== 2) continue;
+      if (!frontierChallenge(bits[0]) || !frontierMode(bits[1])) continue;
+      out[key] = { shiny: val?.shiny === true, at: Number(val?.at) || Date.now() };
+    }
+    s.frontierGrandShiny = out;
+  }
 
   /* ---- breeding centres ----
      Saves from before centres went plural carry a single `breeding` object, so
@@ -2542,6 +2566,30 @@ class Store {
     return !!this.s.frontierClears[this.frontierKey(challengeId, level, modeId)];
   }
 
+  /**
+   * Whether this challenge and mode's Grand Raid boss is shiny, deciding it now
+   * if it has never been decided.
+   *
+   * Called from `frontierGrandFor`, so the answer is fixed the first time anything
+   * asks — which is either the win that clears the ladder or, for a save from
+   * before this was stored, the first time the raid is looked at. Either way it is
+   * written down once and read back for ever after: opening the raid, backing out
+   * and opening it again cannot change it, and neither can a Shiny Bonanza.
+   *
+   * The debug shiny boost applies at the moment of the decision, not afterwards,
+   * so turning it on cannot retrospectively make a boss shiny.
+   */
+  frontierGrandShiny(challengeId, modeId) {
+    const key = this.frontierGrandKey(challengeId, modeId);
+    const rec = this.s.frontierGrandShiny[key];
+    if (rec) return rec.shiny === true;
+
+    const shiny = chance(this.s.debug.shinyBoost ? 0.5 : FRONTIER_GRAND_SHINY_ODDS);
+    this.s.frontierGrandShiny[key] = { shiny, at: Date.now() };
+    this.touch('frontier-grand-shiny', { immediate: true });
+    return shiny;
+  }
+
   hasFrontierGrandWin(challengeId, modeId) {
     return !!this.s.frontierGrand[this.frontierGrandKey(challengeId, modeId)];
   }
@@ -2672,6 +2720,12 @@ class Store {
     this.s.stats.frontierWins = (this.s.stats.frontierWins || 0) + 1;
 
     const state = this.frontierChallengeState(challengeId, modeId);
+
+    /* The win that finishes the ladder is the moment the Grand Raid boss exists,
+       so it is the moment its shiny status is settled — before the player has ever
+       looked at it, and once only. */
+    if (state?.grandAvailable) this.frontierGrandShiny(challengeId, modeId);
+
     this.touch('frontier-win', { immediate: true });
     return {
       ok: true, challenge: ch, mode, level,
@@ -2694,7 +2748,8 @@ class Store {
     if (!state?.grandAvailable) return null;
     const raid = frontierGrandRaid(challengeId);
     if (!raid) return null;
-    return { ...raid, mode: modeId };
+    // Decided once and stored, not rolled per visit — see frontierGrandShiny.
+    return { ...raid, mode: modeId, shiny: this.frontierGrandShiny(challengeId, modeId) };
   }
 
   /* ---------------- the Daily Challenge ----------------
