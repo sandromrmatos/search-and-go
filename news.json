@@ -364,5 +364,15 @@
       "**Celestial is green.** The type label on a creature was a pink that read as too close to the shiny and favourite markers.",
       "**Abilities now say when they change mid-battle.** An ability like **Second Wind**, which only works once its creature is on 60% HP or less, has always *worked* the moment the health bar crossed the line — the damage step reads abilities fresh on every hit. What it did not do was tell you: the log only spoke when a creature took the field. Abilities are now re-checked after every move and after every switch, and the log says **\"now triggered\"** or **\"no longer triggered\"** the moment one turns over. Only changes are reported, so a long fight does not repeat the same line every turn."
     ]
+  },
+  {
+    "at": "2026-09-07 10:20",
+    "title": "A shiny counter in your Profile, sparkling feathers, and two fixes",
+    "body": [
+      "**Your Profile now counts shinies.** A new line under Registered, reading the same way: how many creatures you have caught a shiny of, out of how many can be shiny. It is a slightly smaller total than the registered one, because the **Mythicals only come from 50 km eggs and those never hatch a shiny** — counting them would set a target nobody could ever reach. Tap and hold the figure to see that spelled out.",
+      "**Precious Feather points sparkle now.** They were still easy to scroll straight past, so the golden aura has been joined by **six rainbow sparkles** that flash around the pin in sequence. It is the only point in the game worth a deliberate walk, so it should be the one you cannot miss. They stop the moment you have collected it.",
+      "**Fixed: a held item's description was squashed into one word per line.** The \"Not used yet, so it can come back\" note added with the last update was sharing a row with the item name, the artwork and the Take back button, and since it will not shrink, the description got what was left — which on a phone was almost nothing. The note now sits on its own line underneath.",
+      "**Fixed: Essence Harvesting could offer a creature you had never met.** The harvest a **Daily Challenge** pays out was drawing from the whole database rather than from your registry, so it could hand you the essence of something you had never seen — including a **fossil**, which cannot be met any other way than by assembling one. It now draws only from creatures you have **registered**, the same as the essences that appear on the map have always done. If nothing you have registered fits the difficulty's rarities, the rarity gives way rather than the reward: you get a commoner creature instead of nothing at all."
+    ]
   }
 ]

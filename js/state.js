@@ -2816,10 +2816,21 @@ class Store {
       feather = true;
     }
 
-    // And the creature the harvest will run against: eligible for an essence, and
-    // inside this difficulty's rarity band.
-    const pool = DB.species.filter(sp => essenceEligible(sp)
-      && def.essenceRarities.includes(sp.rarity || familyRarity(sp.id) || 1));
+    /* And the creature the harvest will run against: one you have **registered**,
+       and inside this difficulty's rarity band.
+
+       Registered is the part that was wrong. This drew from the whole database, so
+       it could hand you the essence of a creature you had never met — a fossil,
+       even, which cannot be met at all except by assembling one. The map's own
+       essence has always drawn from the registry; this now matches it.
+
+       When nothing registered fits the band, the band is dropped rather than the
+       reward: winning promised a harvest, so a narrow collection should get a
+       commoner creature rather than nothing at all. */
+    const registered = this.essenceCandidates();
+    const inBand = registered.filter(sp =>
+      def.essenceRarities.includes(sp.rarity || familyRarity(sp.id) || 1));
+    const pool = inBand.length ? inBand : registered;
     const sp = pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
 
     this.touch('daily-challenge', { immediate: true });

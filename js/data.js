@@ -3858,6 +3858,17 @@ export function rebuildExclusivePools() {
 export const discoverableSpeciesCount = () =>
   DB.species.length - (exclusive2Unlocked ? 0 : DB.exclusive2.length);
 
+/**
+ * How many creatures the player could possibly catch a *shiny* of right now.
+ *
+ * Not the same figure as above: a mythical's only route into the game is its own
+ * 50 km egg, and those eggs never roll a shiny (see `eggCanBeShiny`), so counting
+ * them would give a total the player can never reach. Everything else can be
+ * shiny somewhere — wild, raid, egg, or a revived fossil's flat 2%.
+ */
+export const shinyObtainableSpeciesCount = () =>
+  discoverableSpeciesCount() - DB.mythical.length;
+
 /** True once the Set mission for this Galactic rarity has been claimed. */
 export const isGalacticRarityUnlocked = r => galacticUnlocked.has(Number(r));
 export const unlockedGalacticRarities = () => [...galacticUnlocked].sort((a, b) => a - b);

@@ -25,7 +25,7 @@ import {
   moveEffectText, moveSummaryText,
   GALACTIC_SET_NAME, MYTHICAL_RARITY, unlockedGalacticRarities,
   TEMPORAL_SET_NAME, unlockedTemporalRarities,
-  discoverableSpeciesCount
+  discoverableSpeciesCount, shinyObtainableSpeciesCount
 } from './data.js';
 import { renderEggs, renderEggTabBadge, openEggPickerFor } from './eggs.js';
 import { store, creatureStats, maxHpOf, hpOf, isFainted, isHurt } from './state.js';
@@ -1249,9 +1249,12 @@ function heldItemRow(c) {
           refreshAll();
         }
       }, 'Take back'),
-    // Says why a consumable is still retrievable, since it used to not be.
+    /* Says why a consumable is still retrievable, since it used to not be.
+       `held-note` puts it on its own full-width row: as a plain flex sibling it
+       competed with the blurb for the same line, and since it will not shrink the
+       blurb got squeezed down to one word per line. */
     def.consumable && !engaged.engaged
-      ? el('span', { class: 'muted small',
+      ? el('span', { class: 'muted small held-note',
         text: 'Not used yet, so it can come back.' })
       : null
   );
@@ -3160,6 +3163,19 @@ export function renderProfile() {
   // The denominator counts what this player could actually register: a locked
   // second wave of Exclusives is not in their game yet, so it is left out.
   $('#p-registered').textContent = `${store.registeredCount} / ${discoverableSpeciesCount()}`;
+  /* The same idea for shinies, against its own total: the mythicals come out of
+     eggs that never roll a shiny, so counting them would set a target nobody can
+     reach. The tooltip says so, since a smaller denominator invites the question. */
+  const shinyTotal = shinyObtainableSpeciesCount();
+  const shinyEl = $('#p-shinies');
+  if (shinyEl) {
+    shinyEl.textContent = `${store.shinyCaughtCount} / ${shinyTotal}`;
+    shinyEl.title = DB.mythical.length
+      ? `Out of the ${shinyTotal} creatures that can be shiny. `
+        + `${DB.mythical.length === 1 ? 'The Mythical is' : `The ${DB.mythical.length} Mythicals are`} `
+        + 'left out — they only come from eggs that never hatch a shiny.'
+      : `Out of the ${shinyTotal} creatures that can be shiny.`;
+  }
   $('#p-captures').textContent = num(store.s.stats.captures);
   $('#p-evolutions').textContent = num(store.s.stats.evolutions);
 

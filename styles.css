@@ -536,6 +536,45 @@ a { color: var(--accent); }
   50%      { transform: scale(1.08) rotate(3deg); }
 }
 
+/* ---- rainbow sparkles ----
+   The gold aura alone was still easy to scroll past. Six sparks orbit the pin,
+   one per colour of the rainbow, each flashing on its own beat so the group reads
+   as a shimmer of colour rather than a blink.
+
+   Deliberately only `transform` and `opacity`, both of which the compositor can
+   animate on its own — no `filter: hue-rotate`, which would repaint every frame.
+   The colour comes from six fixed values instead. */
+.spawn-marker.kind-feather .feather-sparks {
+  position: absolute; left: 50%; bottom: 26px;
+  width: 0; height: 0; pointer-events: none;
+}
+.spawn-marker.kind-feather .feather-sparks i {
+  position: absolute; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px;
+  border-radius: 50%; background: currentColor;
+  box-shadow: 0 0 7px 2px currentColor, 0 0 14px currentColor;
+  opacity: 0;
+  animation: featherSpark 1.8s ease-in-out infinite;
+}
+/* Spread around the pin, and staggered so they never all fire together. */
+.spawn-marker.kind-feather .feather-sparks .fs1 { color: #ff6b6b; left: 0;    top: -20px; animation-delay: 0s; }
+.spawn-marker.kind-feather .feather-sparks .fs2 { color: #ffd166; left: 18px; top: -12px; animation-delay: .3s; }
+.spawn-marker.kind-feather .feather-sparks .fs3 { color: #6ee7a0; left: 20px; top: 6px;   animation-delay: .6s; }
+.spawn-marker.kind-feather .feather-sparks .fs4 { color: #56d2f0; left: 0;    top: 14px;  animation-delay: .9s; }
+.spawn-marker.kind-feather .feather-sparks .fs5 { color: #7b8cff; left: -20px; top: 6px;  animation-delay: 1.2s; }
+.spawn-marker.kind-feather .feather-sparks .fs6 { color: #d68cff; left: -18px; top: -12px; animation-delay: 1.5s; }
+@keyframes featherSpark {
+  0%      { opacity: 0;   transform: scale(.4); }
+  12%     { opacity: 1;   transform: scale(1.5); }
+  30%     { opacity: .55; transform: scale(.9); }
+  55%     { opacity: 0;   transform: scale(.4); }
+  100%    { opacity: 0;   transform: scale(.4); }
+}
+/* Collected: the pin greys out, so the sparkles have nothing left to advertise. */
+.spawn-marker.kind-feather.collected .feather-sparks { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .spawn-marker.kind-feather .feather-sparks i { animation: none; opacity: .8; }
+}
+
 /* ---- fossils ---- */
 /* The reveal. Big and centred, because the beat between "something" and "what"
    is the whole appeal. */
@@ -1134,12 +1173,17 @@ body.overlay-open .essence-arrow-glyph {
 /* held item lines in the battle log, in the same green as the tag */
 .bt-log .held-log { color: #a8f0d0; }
 .bt-log .held-log b { color: #d6ffe9; }
-/* the slot on a creature's own sheet */
+/* The slot on a creature's own sheet.
+   It wraps, so anything added after the button drops to its own line instead of
+   stealing width from the blurb. A plain sibling span will not shrink, which is
+   what squeezed a Breeding Amulet's description down to one word per row. */
 .held-slot {
-  display: flex; align-items: center; gap: 11px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 11px;
   padding: 9px 11px; border-radius: 12px;
   background: #ffffff0a; border: 1px solid var(--line);
 }
+/* Its own full-width row under the item, rather than a fourth column. */
+.held-slot .held-note { flex: 1 0 100%; margin: -2px 0 0; }
 .held-slot.empty { border-style: dashed; }
 .held-slot .held-ico { font-size: 22px; color: var(--muted); width: 34px; text-align: center; }
 .held-slot .held-ico-img { width: 34px; height: 34px; object-fit: contain; flex: 0 0 auto; }

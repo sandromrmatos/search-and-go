@@ -62,6 +62,12 @@ const ICON_HTML = {
   // midnight, so it has to be obvious from a glance at a zoomed-out map.
   feather: `
     <div class="glow glow-feather"></div>
+    <div class="feather-sparks">${
+    // Six sparks, one per colour of the rainbow, flashing in sequence. Only three
+    // of these points exist a day, so a handful of extra animated nodes each is a
+    // price worth paying to make the one thing worth a walk impossible to miss.
+    [1, 2, 3, 4, 5, 6].map(n => `<i class="fs${n}"></i>`).join('')
+  }</div>
     <div class="icon-wrap"><img class="ico-feather" src="${itemImage('precious_feather')}" alt="" /></div>`,
 };
 

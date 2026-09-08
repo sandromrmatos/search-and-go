@@ -2131,6 +2131,7 @@ function renderInfo(tab = 'basics') {
         el('li', { html: `Winning pays an <b>Essence Harvest</b> straight away, played <b>as if you were standing on top of it</b> — the most pins the mini game gives, so it is the best version of that harvest you can get. Which creature's essence it is depends on the difficulty: ${
           FRONTIER_DAILY_LEVELS.map(l => `<b>${l.label}</b> ${l.essenceRarities.map(r => RARITY_NAMES[r]).join(' or ')}`).join(' · ')
         }.` }),
+        el('li', { html: 'It is always a creature you have <b>registered</b>, exactly like the essences that turn up on the map — a harvest should never be your first sight of something. If nothing you have registered fits the difficulty\'s rarities, the <b>rarity gives way rather than the reward</b>: you get a commoner creature instead of nothing.' }),
         el('li', { html: `On top of that there is a chance of a <b>${itemName(FEATHER_ITEM)}</b> — ${
           FRONTIER_DAILY_LEVELS.map(l => `<b>${l.label}</b> ${pct(l.featherChance)}`).join(' · ')
         }. That is the only way to get one without walking to a feather point, so the hard fight is worth taking on.` })
