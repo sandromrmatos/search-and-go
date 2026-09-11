@@ -23,7 +23,9 @@ import {
 import { store } from './state.js';
 import { itemImage, itemName, ITEMS } from './items.js';
 import { playCapture } from './anim.js';
-import { $, el, appendAll, toast, openSheet, closeSheet, num, timeLeftLabel } from './ui.js';
+import {
+  $, el, appendAll, toast, openSheet, closeSheet, num, hoursMinutesLabel
+} from './ui.js';
 
 const CANDY_ICON = '🍬';
 const DUST_ICON = '✨';
@@ -183,7 +185,8 @@ function renderAssistant(inRange) {
         el('div', { class: 'det-row' },
           el('img', { src: itemImage('fossil_head'), alt: '' }),
           el('span', { text: `${d.count} fossil${d.count === 1 ? '' : 's'}` }),
-          el('b', { text: ready ? 'Ready' : timeLeftLabel(d.readyAt - Date.now()) })
+          // hh:mm, not mm:ss: this is a 24 hour wait.
+          el('b', { text: ready ? 'Ready' : hoursMinutesLabel(d.readyAt - Date.now()) })
         )
       ));
     }
@@ -284,7 +287,7 @@ export function openFossilDrop(drop, { inRange = true } = {}) {
         el('span', { text: ready ? 'Ready since' : 'Ready in' }),
         el('b', { text: ready
           ? new Date(live.readyAt).toLocaleString()
-          : timeLeftLabel(live.readyAt - Date.now()) })
+          : hoursMinutesLabel(live.readyAt - Date.now()) })
       )
     ),
     !ready

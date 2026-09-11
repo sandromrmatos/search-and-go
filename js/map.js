@@ -5,7 +5,7 @@
 import { RULES, species, IMAGE_DIR } from './data.js';
 import { itemImage } from './items.js';
 import { distance, formatDistance } from './geo.js';
-import { timeLeftLabel } from './ui.js';
+import { timeLeftLabel, hoursMinutesLabel } from './ui.js';
 
 /**
  * How far past the edge of the view a marker still counts as on screen.
@@ -116,9 +116,11 @@ function fossilDropIcon(drop, now = Date.now()) {
   // Working shows the parts; ready shows the assistant, because that is who you
   // are going back to see.
   const art = ready ? `${IMAGE_DIR}/assistant.png` : itemImage('fossil_head');
+  // hh:mm rather than mm:ss: the wait is 24 hours, which the minutes-and-seconds
+  // label would show as "1439:59".
   const label = ready
     ? 'Ready'
-    : timeLeftLabel(drop.readyAt - now);
+    : hoursMinutesLabel(drop.readyAt - now);
   return `<div class="fossil-rot">`
     + `<div class="fossil-drop${ready ? ' ready' : ''}">`
     + `<div class="fossil-drop-glow"></div>`
@@ -719,7 +721,7 @@ export const GameMap = {
         existing.marker.setLatLng([drop.lat, drop.lng]);
         // Only redraw when the label actually changes, so this is cheap to call
         // every second.
-        const label = ready ? 'Ready' : timeLeftLabel(drop.readyAt - now);
+        const label = ready ? 'Ready' : hoursMinutesLabel(drop.readyAt - now);
         if (existing.label !== label) {
           existing.label = label;
           existing.marker.setIcon(L.divIcon({
@@ -736,7 +738,7 @@ export const GameMap = {
         }),
         zIndexOffset: 650
       }).addTo(this.fossilLayer);
-      const rec = { marker, drop, label: ready ? 'Ready' : timeLeftLabel(drop.readyAt - now) };
+      const rec = { marker, drop, label: ready ? 'Ready' : hoursMinutesLabel(drop.readyAt - now) };
       this.fossilMarkers.set(drop.id, rec);
       marker.on('click', () => this.onFossilDropClick?.(rec.drop));
     }

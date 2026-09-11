@@ -3202,16 +3202,36 @@ class Store {
       if (!chance(FOSSIL_FIND_CHANCE)) continue;
       // The catch source gives a random one of the four; the rest are fixed.
       const part = rule.part || rollFossilPart();
-      this.addItem(part, 1);
-      // A lifetime tally per part, separate from the bag: the "collect a fossil
-      // head" mission must not un-complete when the head is spent on a revival.
-      if (!this.s.stats.fossilParts) this.s.stats.fossilParts = {};
-      this.s.stats.fossilParts[part] = (this.s.stats.fossilParts[part] || 0) + 1;
+      this.addFossilPart(part, 1);
       this.s.fossilPending.push({ part, from: rule.id, at: Date.now() });
       found.push(part);
     }
     if (found.length) this.touch('fossil-find', { immediate: true });
     return found;
+  }
+
+  /**
+   * Puts a fossil part in the bag and on the lifetime tally, in one place.
+   *
+   * The tally is deliberately separate from the bag: the "collect a Fossil Head"
+   * missions read it, so spending a head on a revival must not un-complete one.
+   * Everything that hands out a part comes through here — a find on the ground,
+   * and the weekly mission that lets you choose one — so a part obtained any way
+   * counts towards those missions.
+   *
+   * @returns {number} how many were added.
+   */
+  addFossilPart(part, n = 1) {
+    if (!FOSSIL_PARTS.includes(part) || !(n > 0)) return 0;
+    this.addItem(part, n);
+    if (!this.s.stats.fossilParts) this.s.stats.fossilParts = {};
+    this.s.stats.fossilParts[part] = (this.s.stats.fossilParts[part] || 0) + n;
+    return n;
+  }
+
+  /** How many of each part is in the bag right now, for the mission chooser. */
+  fossilPartCounts() {
+    return Object.fromEntries(FOSSIL_PARTS.map(p => [p, this.itemCount(p)]));
   }
 
   /** Is there a "found something on the ground" reveal waiting? */
@@ -3787,12 +3807,23 @@ class Store {
     return this.allMissions().filter(m => m.claimable).length;
   }
 
-  claimMission(id) {
+  /**
+   * Claims a mission and pays it out.
+   *
+   * `fossilPart` is only needed by the missions whose reward the player chooses.
+   * They are refused until one is picked, and the refusal happens before anything
+   * at all is paid — otherwise a claim that stopped half way to ask a question
+   * would bank the XP and the stardust and lose the part.
+   */
+  claimMission(id, { fossilPart = null } = {}) {
     const all = this.allMissions();
     const m = all.find(x => x.def.id === id);
     if (!m) return { ok: false, reason: 'missing' };
     if (!m.complete) return { ok: false, reason: 'incomplete' };
     if (m.claimed) return { ok: false, reason: 'claimed' };
+    if (m.def.fossilPart === 'choose' && !FOSSIL_PARTS.includes(fossilPart)) {
+      return { ok: false, reason: 'needsFossilPart', parts: [...FOSSIL_PARTS] };
+    }
 
     const dust = this.addStardust(m.def.dust + dustBonusFor(this.level));
     const levelUp = this.addXP(m.def.xp);
@@ -3843,6 +3874,15 @@ class Store {
       this.syncExclusiveUnlocks();
     }
 
+    /* The fossil part the player chose. Folded into `bonusItems` as well, so
+       every reader that lists what a claim paid picks it up without changing. */
+    let fossilPartReward = null;
+    if (m.def.fossilPart === 'choose') {
+      this.addFossilPart(fossilPart, 1);
+      bonusItems[fossilPart] = (bonusItems[fossilPart] || 0) + 1;
+      fossilPartReward = fossilPart;
+    }
+
     // A mission can pay out a held item at random. Rolled on claim rather than
     // fixed in the table, so the weekly one is a different surprise each week.
     let heldReward = null;
@@ -3889,7 +3929,7 @@ class Store {
       ok: true, xp: m.def.xp, dust, levelUp, label: m.def.label,
       discs: bonusDiscs, items: bonusItems,
       unlockedRarity, unlockedTemporalRarity, unlockedExclusiveSet, egg,
-      heldReward, incenseReward
+      heldReward, incenseReward, fossilPart: fossilPartReward
     };
   }
 

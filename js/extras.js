@@ -63,6 +63,7 @@ import { openFrontierBattle, openFrontierGrand, openFrontierDaily } from './batt
 const DEBUG_TRAINER_NAME = 'Test123';
 import {
   $, $$, el, appendAll, toast, openSheet, closeSheet, num, timeLeftLabel,
+  hoursMinutesLabel,
   PAGE_SIZE, clampPage, pageSlice, pagerBar, wireSwipe, bumpEl
 } from './ui.js';
 
@@ -209,18 +210,6 @@ export function renderMissions() {
   renderMissionBadge();
 }
 
-/**
- * "11:59" / "00:07" from a millisecond gap — hours and minutes, zero padded.
- * Breeding waits run 12 to 36 hours, which `timeLeftLabel` would render as a
- * useless "719:59" because it counts in minutes and seconds.
- */
-function hoursMinutesLabel(ms) {
-  const mins = Math.max(0, Math.ceil(ms / 60_000));
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-}
-
 /** "2d 5h" / "5h 12m" / "12m" from a millisecond gap. */
 function countdownLabel(ms) {
   const total = Math.max(0, ms);
@@ -263,6 +252,10 @@ function missionRow(m) {
         el('span', { class: 'r', text: `${DUST_ICON} ${num(dust)}` }),
         m.def.discs ? el('span', { class: 'r', text: `◉ ${m.def.discs} disc${m.def.discs > 1 ? 's' : ''}` }) : null,
         ...itemChips,
+        // Worth calling out: it is the only reward in the game you get to pick.
+        m.def.fossilPart === 'choose'
+          ? el('span', { class: 'r reward-unlock', text: '🦴 A fossil part you choose' })
+          : null,
         // The real prize on a Set mission is the unlock, not the stardust.
         m.def.unlockGalacticRarity
           ? el('span', {
@@ -311,9 +304,15 @@ function missionRow(m) {
   );
 }
 
-function claim(id) {
-  const r = store.claimMission(id);
-  if (!r.ok) { toast('That mission cannot be claimed yet', 'bad'); return; }
+function claim(id, opts = {}) {
+  const r = store.claimMission(id, opts);
+  if (!r.ok) {
+    /* One mission pays a reward you choose, so the claim asks first and nothing
+       has been paid out yet. Come back through here once a part is picked. */
+    if (r.reason === 'needsFossilPart') { openFossilPartChoice(id, r.parts); return; }
+    toast('That mission cannot be claimed yet', 'bad');
+    return;
+  }
   let msg = `${r.label} · +${r.xp} XP, +${num(r.dust)} stardust`;
   if (r.discs) msg += `, +${r.discs} Capturing Disc${r.discs > 1 ? 's' : ''}`;
   for (const [id, n] of Object.entries(r.items || {})) msg += `, +${n} ${itemName(id, n)}`;
@@ -334,6 +333,69 @@ function claim(id) {
   if (r.levelUp.levelledUp) toast(`Player level ${r.levelUp.to}!`, 'good', 3200);
   renderMissions();
   refresh?.();
+}
+
+/**
+ * The one reward in the game the player picks: which fossil part a mission pays.
+ *
+ * Shows what is in the bag for all four, because the whole point of choosing is
+ * to fill the gap — and which bone you are short of is not something anyone keeps
+ * in their head. Nothing has been paid at this point: the claim was refused and
+ * comes back through `claim` with the answer, so closing this sheet leaves the
+ * mission sitting there still claimable.
+ */
+function openFossilPartChoice(missionId, parts = FOSSIL_PARTS) {
+  const list = parts.filter(p => FOSSIL_PARTS.includes(p));
+  const counts = store.fossilPartCounts();
+  const fewest = Math.min(...list.map(p => counts[p] || 0));
+  // One of each is a skeleton, so the number of complete sets is the smallest pile.
+  const sets = Math.min(...FOSSIL_PARTS.map(p => counts[p] || 0));
+
+  const body = $('#sheet-body');
+  body.innerHTML = '';
+  appendAll(body,
+    el('div', { class: 'det-head' },
+      el('img', { src: itemImage(FOSSIL_PARTS[0]), alt: '' }),
+      el('div', { class: 'det-title' },
+        el('h3', { text: 'Choose a fossil part' }),
+        el('div', { class: 'det-tags' },
+          el('span', { class: 'tag', text: 'Weekly reward' }),
+          el('span', { class: 'tag', text: sets
+            ? `${sets} complete skeleton${sets === 1 ? '' : 's'}`
+            : 'No complete skeleton yet' })
+        )
+      )
+    ),
+    el('p', { class: 'hint', text: 'A week of catching something every day is worth one '
+      + 'fossil part, and you pick which. Here is what you are holding — the one you have '
+      + 'fewest of is marked.' })
+  );
+
+  for (const part of list) {
+    const have = counts[part] || 0;
+    const lowest = have === fewest;
+    body.append(el('button', {
+      class: 'cell item-cell tappable fossil-choice' + (lowest ? ' low' : ''),
+      onclick: () => {
+        closeSheet('sheet');
+        claim(missionId, { fossilPart: part });
+      }
+    },
+      have ? el('span', { class: 'qty', text: String(have) }) : null,
+      el('img', { src: itemImage(part), alt: itemName(part) }),
+      el('span', { class: 'nm', text: itemName(part) }),
+      el('span', { class: 'sub', text: have === 0 ? 'You have none'
+        : `You have ${have}` }),
+      el('span', { class: 'use-hint', text: lowest && sets === have
+        ? 'Take this one — it is holding a skeleton up'
+        : 'Take this one' })
+    ));
+  }
+
+  body.append(el('p', { class: 'hint', text: 'Nothing has been claimed yet, so you can '
+    + 'close this and come back to it. The part counts towards the "find a fossil part" '
+    + 'missions as well.' }));
+  openSheet('sheet');
 }
 
 /** Glow + count on the Missions tab when anything can be claimed. */
@@ -1865,10 +1927,11 @@ function renderInfo(tab = 'basics') {
             f.part ? `a <b>${itemName(f.part)}</b>` : '<b>a random one</b> of the four'}.`
         })),
         el('li', { html: 'Each roll belongs to a <b>threshold crossed</b>, not to the day, so a 3 km walk rolls three times and a 60 km walk rolls sixty. The counters are the same ones your daily missions read, so they <b>reset at midnight</b> — a half-finished kilometre does not carry over.' }),
+        el('li', { html: 'There is one part that is not a roll at all. The weekly mission <b>Catch a creature every day this week</b> pays a <b>part of your choosing</b>: claiming it shows how many of each of the four you are holding, and you take whichever one is holding a skeleton up. It is the only reward in the game you get to pick.' }),
         el('li', { html: 'A find is announced with <b>"Oh, it looks like you found something on the ground"</b> and you reveal what it is. The part is <b>yours the moment it is found</b> — the dialogue is only the reveal, so one that has to wait for you to finish a battle can never cost you the item.' }),
         el('li', { html: `Reviving is done by someone who knows bones. Take a full set to a real <b>${FOSSIL_POI_VALUES.join(' or ')}</b> — they show on your map as <b>white crosses</b> — and hand it over. You need to be within the usual <b>${RULES.CAPTURE_RANGE_M} m</b> to talk to the assistant, though you can <b>see</b> the crosses from anywhere in your <b>${RULES.SCAN_RADIUS_M} m</b> scan radius so you know where to walk.` }),
         el('li', { html: 'You can hand in <b>as many complete sets as you are holding</b> in one visit, and the parts go the moment you do. Leftover parts of an incomplete set stay in your Items waiting for the missing bone.' }),
-        el('li', { html: `Then it takes <b>${Math.round(FOSSIL_REVIVE_MS / 3_600_000)} hours</b>, and you have to <b>come back to the same place</b>. Your fossils sit on the map with a countdown on them the whole time — nothing expires, so being a week late costs you nothing.` }),
+        el('li', { html: `Then it takes <b>${Math.round(FOSSIL_REVIVE_MS / 3_600_000)} hours</b>, and you have to <b>come back to the same place</b>. Your fossils sit on the map the whole time with the wait counting down on them in <b>hours and minutes</b> — nothing expires, so being a week late costs you nothing.` }),
         el('li', { html: 'When they are ready you get a <b>notification</b> and the same <b>flickering rainbow arrow</b> Essence Harvesting uses, pointing at where you left them. A ready fossil takes priority over an essence, since the essence will expire and the fossil will not.' }),
         el('li', { html: `Collecting plays the full <b>capture animation</b>, one creature at a time. They arrive at <b>level ${FOSSIL_REVIVE_LEVEL}</b> with <b>+${FOSSIL_REVIVE_BONUS_CANDY} candy</b>, like a raid catch, and no disc is needed — it is already yours.` }),
         el('li', { html: `<b>Which</b> creature it is, is decided when you <b>collect</b> it, not when you hand the parts in, so there is nothing to look up early. The <b>shiny odds are a flat ${pct(FOSSIL_SHINY_ODDS)}</b> and <b>nothing moves them</b> — not a <b>Shiny Bonanza</b>, not a <b>Shiny Incense</b>. A fossil is assembled rather than caught, so it should be worth the same whenever you happen to hand it in.` }),
@@ -1916,7 +1979,8 @@ function renderInfo(tab = 'basics') {
         el('li', { html: 'A walking mission can finish mid-stride — you get a nudge as soon as it does, and the Missions tab lights up.' }),
         el('li', { html: 'Lifetime missions also track <b>how many creatures you have raised</b> to level 5, level 7 and level 10. They count everything at or above that level, so taking one creature to 10 credits the level 5 and level 7 missions too.' }),
         el('li', { html: 'Those level missions are counted from your storage as it stands, so <b>releasing</b> a levelled creature takes it back off the total.' }),
-        el('li', { html: 'Whichever tab has something waiting turns <b>green and carries a count</b>, so you can see where to look without opening them all.' })
+        el('li', { html: 'Whichever tab has something waiting turns <b>green and carries a count</b>, so you can see where to look without opening them all.' }),
+        el('li', { html: 'Most rewards are simply handed over. One is not: the weekly <b>Catch a creature every day this week</b> pays a <b>fossil part you choose</b>, so claiming it asks which one first and shows how many of each you already hold. Nothing is paid until you answer, so you can back out and come to it later.' })
       ),
       el('h4', { text: 'Pages' }),
       el('p', { html: `Once you hold more than <b>${PAGE_SIZE}</b> creatures, Storage, the battle team picker and the breeding picker all split into pages of ${PAGE_SIZE}. Swipe the grid left or right, or use the arrows: <b>‹</b> and <b>›</b> step one page, <b>«</b> and <b>»</b> jump straight to the first and last page. Sorting always reorders your <b>whole</b> collection first and then re-cuts the pages, so page 1 is always the true top of the order.` }),

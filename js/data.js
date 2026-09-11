@@ -3593,6 +3593,11 @@ export const WEEKLY_MISSIONS = [
   {
     id: 'weekDaily', kind: 'daysCaughtThisWeek', target: 7, xp: 50, dust: 300, discs: 2,
     items: { rare_incense: 1 },
+    /* The one reward the player picks rather than is given: a fossil part, so a
+       week of playing every day can be spent on whichever bone is holding a
+       skeleton up. `claimMission` refuses the claim until one is chosen, so the
+       XP is never banked without the part. */
+    fossilPart: 'choose',
     label: 'Catch a creature every day this week'
   },
   {

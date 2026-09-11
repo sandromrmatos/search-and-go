@@ -258,6 +258,20 @@ export function timeLeftLabel(ms) {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
+/**
+ * "11:59" / "00:07" from a millisecond gap — hours and minutes, zero padded.
+ *
+ * For anything longer than an hour, which `timeLeftLabel` cannot say usefully:
+ * it counts in minutes and seconds, so a 24-hour fossil revival reads as
+ * "1439:59" and a countdown to midnight as a four-digit minute count.
+ */
+export function hoursMinutesLabel(ms) {
+  const mins = Math.max(0, Math.ceil(ms / 60_000));
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
 export function rarityTag(rarity, names) {
   return el('span', { class: `tag r-${rarity}`, text: `${rarity} · ${names[rarity]}` });
 }

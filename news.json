@@ -374,5 +374,14 @@
       "**Fixed: a held item's description was squashed into one word per line.** The \"Not used yet, so it can come back\" note added with the last update was sharing a row with the item name, the artwork and the Take back button, and since it will not shrink, the description got what was left — which on a phone was almost nothing. The note now sits on its own line underneath.",
       "**Fixed: Essence Harvesting could offer a creature you had never met.** The harvest a **Daily Challenge** pays out was drawing from the whole database rather than from your registry, so it could hand you the essence of something you had never seen — including a **fossil**, which cannot be met any other way than by assembling one. It now draws only from creatures you have **registered**, the same as the essences that appear on the map have always done. If nothing you have registered fits the difficulty's rarities, the rarity gives way rather than the reward: you get a commoner creature instead of nothing at all."
     ]
+  },
+  {
+    "at": "2026-09-07 16:45",
+    "title": "A readable fossil countdown, and a fossil part you get to choose",
+    "body": [
+      "**The fossil wait now counts down in hours and minutes.** A 24-hour revival was being shown in minutes and seconds, so the pin on the map and the assistant's counter both read as a four-digit number of minutes. They now say **24:00** and count down from there.",
+      "**The weekly \"Catch a creature every day this week\" mission now pays a fossil part — and you pick which one.** Claiming it opens a chooser showing **how many of each of the four parts you are holding**, with the one you have fewest of marked, so you can put the week towards whichever bone is holding a skeleton up. It is the only reward in the game you choose rather than are given.",
+      "**Nothing is paid until you answer.** Backing out of the chooser leaves the mission sitting there still claimable, so it can wait until you have decided. The part counts towards the **\"find a fossil part\"** lifetime missions as well, exactly like one found on the ground."
+    ]
   }
 ]

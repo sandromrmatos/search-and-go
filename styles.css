@@ -954,6 +954,18 @@ body.overlay-open .essence-arrow-glyph {
 /* The one you can actually attempt. */
 .frontier-level.open { border-color: #ffc75f66; background: #ffc75f14; }
 
+/* ---- choosing which fossil part a mission pays ----
+   Full width like the ladder rows, and for the same reason: the screen exists so
+   the four counts can be compared, and a number is easier to compare down a
+   column than across a row of tiles. */
+.fossil-choice {
+  margin: 0 12px 6px; max-width: none; width: calc(100% - 24px);
+  text-align: left; align-items: flex-start;
+}
+/* The one you hold fewest of, which is usually the one worth taking. */
+.fossil-choice.low { border-color: #ffc75f66; background: #ffc75f14; }
+.fossil-choice .qty { background: #c9a066; color: #241a06; }
+
 /* ---- Research Lab ---- */
 .lab-recipe { margin: 0 12px; max-width: 220px; }
 /* The Exchange corner has no item picture of its own, so it gets a glyph in the
