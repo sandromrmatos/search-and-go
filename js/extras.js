@@ -51,7 +51,7 @@ import {
   FRONTIER_DAILY_LEVELS, frontierDailyModes,
   FOSSIL_SET_NAME, FOSSIL_PARTS, FOSSIL_FINDS, FOSSIL_FIND_CHANCE,
   FOSSIL_REVIVE_MS, FOSSIL_REVIVE_LEVEL, FOSSIL_REVIVE_BONUS_CANDY,
-  FOSSIL_SHINY_ODDS, FOSSIL_POI_VALUES,
+  FOSSIL_SHINY_ODDS, FOSSIL_POI_VALUES, fossilRevivePool,
   FEATHER_ITEM, FEATHER_POINTS_PER_DAY, FEATHER_MIN_M, FEATHER_MAX_M,
   FEATHERS_PER_DIAMOND, DIAMOND_ITEM, DIAMOND_STARDUST_COST, DIAMOND_POWER_BONUS,
   DIAMOND_WINS_NEEDED, DIAMOND_METRES_NEEDED
@@ -1934,6 +1934,7 @@ function renderInfo(tab = 'basics') {
         el('li', { html: `Then it takes <b>${Math.round(FOSSIL_REVIVE_MS / 3_600_000)} hours</b>, and you have to <b>come back to the same place</b>. Your fossils sit on the map the whole time with the wait counting down on them in <b>hours and minutes</b> — nothing expires, so being a week late costs you nothing.` }),
         el('li', { html: 'When they are ready you get a <b>notification</b> and the same <b>flickering rainbow arrow</b> Essence Harvesting uses, pointing at where you left them. A ready fossil takes priority over an essence, since the essence will expire and the fossil will not.' }),
         el('li', { html: `Collecting plays the full <b>capture animation</b>, one creature at a time. They arrive at <b>level ${FOSSIL_REVIVE_LEVEL}</b> with <b>+${FOSSIL_REVIVE_BONUS_CANDY} candy</b>, like a raid catch, and no disc is needed — it is already yours.` }),
+        el('li', { html: `A revival always gives a <b>Stage 1</b> fossil, and there are <b>${fossilRevivePool().length}</b> of those. Their <b>Stage 2</b> forms are reached by <b>evolving</b> them, exactly like every other creature in the game — the assistant rebuilds a skeleton, it does not age it.` }),
         el('li', { html: `<b>Which</b> creature it is, is decided when you <b>collect</b> it, not when you hand the parts in, so there is nothing to look up early. The <b>shiny odds are a flat ${pct(FOSSIL_SHINY_ODDS)}</b> and <b>nothing moves them</b> — not a <b>Shiny Bonanza</b>, not a <b>Shiny Incense</b>. A fossil is assembled rather than caught, so it should be worth the same whenever you happen to hand it in.` }),
         el('li', { html: `They register into the <b>${FOSSIL_SET_NAME}</b> tab of your Collection, after <b>${EXCLUSIVE_SET_NAME}</b>. Once revived they are ordinary creatures — they level, evolve, battle and hold items like anything else.` }),
         el('li', { html: 'There are <b>lifetime missions</b> for finding your first of each part and for reviving 1, 5, 10, 25 and 50 fossils. The part ones count <b>every part you have ever found</b>, so spending them on a revival does not un-complete a mission.' })

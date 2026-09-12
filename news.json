@@ -383,5 +383,13 @@
       "**The weekly \"Catch a creature every day this week\" mission now pays a fossil part — and you pick which one.** Claiming it opens a chooser showing **how many of each of the four parts you are holding**, with the one you have fewest of marked, so you can put the week towards whichever bone is holding a skeleton up. It is the only reward in the game you choose rather than are given.",
       "**Nothing is paid until you answer.** Backing out of the chooser leaves the mission sitting there still claimable, so it can wait until you have decided. The part counts towards the **\"find a fossil part\"** lifetime missions as well, exactly like one found on the ground."
     ]
+  },
+  {
+    "at": "2026-09-07 19:30",
+    "title": "Fixed: reviving a fossil could hand you a Stage 2",
+    "body": [
+      "**A revived fossil is always a Stage 1 now.** The Fossil collection holds ten creatures — five Stage 1 forms and the five Stage 2 forms they grow into — and the revival was picking from the whole list, so roughly **half of all revivals arrived already evolved**. That is not how anything else in the game works: you get the first form and you evolve it yourself. It now draws from the five Stage 1 fossils only, and their Stage 2 forms are reached by **evolving** them with candy like any other creature.",
+      "**Nothing has been taken away.** If you already collected a Stage 2 fossil this way, it is yours and it stays where it is — its family candy still works, and its Stage 1 form still counts as unregistered until you revive one."
+    ]
   }
 ]

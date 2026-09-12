@@ -1830,6 +1830,16 @@ export const FOSSIL_SHINY_ODDS = 0.02;
 /** Which POIs will take your fossils. */
 export const FOSSIL_POI_VALUES = ['pharmacy', 'hospital'];
 
+/**
+ * The fossils a revival can actually produce: the **Stage 1** forms only.
+ *
+ * `DB.fossil` is the whole set, Stage 2 forms included, because the Collection tab
+ * has to list them — and reviving used to pick from that, which handed out a
+ * Stage 2 about half the time. A revival follows the same rule as every other way
+ * into the game: you get the Stage 1 form and you evolve it yourself.
+ */
+export const fossilRevivePool = () => DB.fossil.filter(s => s.stage === 1);
+
 /* ---------------------------------------------------------------
    Precious Feathers and the Precious Diamond
 

@@ -43,6 +43,7 @@ import {
   FEATHER_ITEM, FEATHER_POINTS_PER_DAY, FEATHERS_PER_DIAMOND,
   FOSSIL_PARTS, FOSSIL_FIND_CHANCE, fossilFindFor, rollFossilPart,
   FOSSIL_REVIVE_MS, FOSSIL_REVIVE_LEVEL, FOSSIL_REVIVE_BONUS_CANDY, FOSSIL_SHINY_ODDS,
+  fossilRevivePool,
   DIAMOND_ITEM, DIAMOND_STARDUST_COST,
   DIAMOND_POWER_BONUS, DIAMOND_WINS_NEEDED, DIAMOND_METRES_NEEDED,
   SHOP_ITEMS, shopItem, COINS_PER_AD
@@ -3253,7 +3254,9 @@ class Store {
   canReviveFossils() {
     const sets = this.fossilSets;
     if (sets < 1) return { ok: false, reason: 'parts', sets, tally: this.fossilTally() };
-    if (!DB.fossil.length) return { ok: false, reason: 'noSpecies' };
+    // Same pool the collection will draw from, so the two can never disagree
+    // about whether there is anything to revive.
+    if (!fossilRevivePool().length) return { ok: false, reason: 'noSpecies' };
     return { ok: true, sets };
   }
 
@@ -3310,11 +3313,14 @@ class Store {
     const drop = this.fossilDrop(id);
     if (!drop) return { ok: false, reason: 'missing' };
     if (drop.readyAt > now) return { ok: false, reason: 'notReady', readyAt: drop.readyAt };
-    if (!DB.fossil.length) return { ok: false, reason: 'noSpecies' };
+    /* Stage 1 only — never the whole set. A revived fossil arrives the way every
+       other creature does, as the first form, and is evolved from there. */
+    const pool = fossilRevivePool();
+    if (!pool.length) return { ok: false, reason: 'noSpecies' };
 
     const results = [];
     for (let i = 0; i < drop.count; i++) {
-      const sp = DB.fossil[Math.floor(Math.random() * DB.fossil.length)];
+      const sp = pool[Math.floor(Math.random() * pool.length)];
       /* A flat 2%, rolled here rather than through `rollShiny`, so a Bonanza or a
          Shiny Incense cannot move it. A fossil is assembled rather than caught and
          the odds should not depend on when you happen to hand the parts in. */
