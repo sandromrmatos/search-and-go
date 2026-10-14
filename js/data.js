@@ -120,7 +120,7 @@ export const ITEM_DIR = 'items';
  * got heavy. A tighter circle scanned more often turned out to feel better than
  * a wide one scanned rarely, and it is much kinder on Overpass too.
  */
-const SCAN_RADIUS_M = 150;
+const SCAN_RADIUS_M = 250;
 
 export const RULES = {
   SCAN_RADIUS_M,                // POI search radius around the player
