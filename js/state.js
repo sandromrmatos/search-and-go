@@ -36,7 +36,7 @@ import {
   heldItemRaidChance, rollHeldItem,
   FRONTIER_CHALLENGES, FRONTIER_LEVELS, FRONTIER_MODES, FRONTIER_TEAM_SIZE,
   frontierChallenge, frontierMode, frontierModeAllows, frontierLevelRewards,
-  frontierTeam, frontierLevelsLoaded, frontierBoss, frontierGrandRaid,
+  frontierTeam, frontierLevelsLoaded, frontierBoss, frontierBossPool, frontierGrandRaid,
   FRONTIER_DAILY_LEVELS, frontierDailyLevel, frontierDailyFight,
   FRONTIER_GRAND_SHINY_ODDS,
   fullLearnset, movesForCreature, moveBoostFor,
@@ -626,6 +626,9 @@ export function migrate(raw) {
       if (bits.length !== 2) continue;
       if (!frontierChallenge(bits[0]) || !frontierMode(bits[1])) continue;
       out[key] = { shiny: val?.shiny === true, at: Number(val?.at) || Date.now() };
+      // A set challenge's drawn boss lives in the same record. Kept only while it
+      // is still a Frontier legendary, so a removed creature is simply redrawn.
+      if (val?.boss && DB.byId.get(val.boss)?.frontier) out[key].boss = val.boss;
     }
     s.frontierGrandShiny = out;
   }
@@ -2662,6 +2665,32 @@ class Store {
     return shiny;
   }
 
+  /**
+   * The Grand Raid boss for one challenge and mode.
+   *
+   * A type challenge always has its own. A set challenge's is drawn at random
+   * from the Frontier legendaries, once per mode, the moment the ladder is
+   * cleared — and written into the same record as the shiny decision, so
+   * backing out and walking in again cannot re-draw it. Until then it is null;
+   * pass `decide` to draw it.
+   */
+  frontierGrandBossFor(challengeId, modeId, { decide = false } = {}) {
+    const ch = frontierChallenge(challengeId);
+    if (!ch?.randomBoss) return frontierBoss(challengeId);
+    const key = this.frontierGrandKey(challengeId, modeId);
+    const stored = this.s.frontierGrandShiny[key]?.boss;
+    if (stored && species(stored)) return species(stored);
+    if (!decide) return null;
+
+    const pool = frontierBossPool();
+    if (!pool.length) return null;
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    this.frontierGrandShiny(challengeId, modeId);   // makes sure the record exists
+    this.s.frontierGrandShiny[key].boss = pick.id;
+    this.touch('frontier-grand-boss', { immediate: true });
+    return pick;
+  }
+
   hasFrontierGrandWin(challengeId, modeId) {
     return !!this.s.frontierGrand[this.frontierGrandKey(challengeId, modeId)];
   }
@@ -2709,7 +2738,10 @@ class Store {
     const allCleared = playable.length === FRONTIER_LEVELS
       && playable.every(l => l.cleared);
 
-    const boss = frontierBoss(challengeId);
+    const boss = this.frontierGrandBossFor(challengeId, modeId);
+    // A set challenge has a boss to come as long as the pool is not empty, even
+    // before it has been drawn.
+    const hasBoss = ch.randomBoss ? frontierBossPool().length > 0 : !!boss;
     return {
       challenge: ch, mode,
       levels,
@@ -2718,10 +2750,13 @@ class Store {
       loaded: playable.length,
       allCleared,
       boss,
+      hasBoss,
+      // Not drawn yet: the sheet shows a mystery boss rather than "none loaded".
+      bossHidden: hasBoss && !boss,
       grandWon: this.hasFrontierGrandWin(challengeId, modeId),
       // No boss file means no Grand Raid, and the sheet says so rather than
       // offering a button that cannot work.
-      grandAvailable: allCleared && !!boss && !this.hasFrontierGrandWin(challengeId, modeId),
+      grandAvailable: allCleared && hasBoss && !this.hasFrontierGrandWin(challengeId, modeId),
       eligible: this.frontierEligible(modeId).length
     };
   }
@@ -2796,7 +2831,11 @@ class Store {
     /* The win that finishes the ladder is the moment the Grand Raid boss exists,
        so it is the moment its shiny status is settled — before the player has ever
        looked at it, and once only. */
-    if (state?.grandAvailable) this.frontierGrandShiny(challengeId, modeId);
+    if (state?.grandAvailable) {
+      this.frontierGrandShiny(challengeId, modeId);
+      // And, for a set challenge, which legendary it is.
+      this.frontierGrandBossFor(challengeId, modeId, { decide: true });
+    }
 
     this.touch('frontier-win', { immediate: true });
     return {
@@ -2818,7 +2857,8 @@ class Store {
   frontierGrandFor(challengeId, modeId) {
     const state = this.frontierChallengeState(challengeId, modeId);
     if (!state?.grandAvailable) return null;
-    const raid = frontierGrandRaid(challengeId);
+    const boss = this.frontierGrandBossFor(challengeId, modeId, { decide: true });
+    const raid = boss ? frontierGrandRaid(challengeId, boss.id) : null;
     if (!raid) return null;
     // Decided once and stored, not rolled per visit — see frontierGrandShiny.
     return { ...raid, mode: modeId, shiny: this.frontierGrandShiny(challengeId, modeId) };

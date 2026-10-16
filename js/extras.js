@@ -19,7 +19,7 @@ import {
   heldItemName, heldItemsInOrder, heldItemRequirement, heldItemRaidChance, heldItem,
   HELD_ITEM_RAID_CHANCE, HELD_ITEM_CONSUMABLE_CHANCE, consumableHeldItems,
   STAT_BOOSTER_ITEM, MAX_STAT_BOOSTS, statBoosterCost, STAT_BOOSTER_CANDY_COST,
-  ITEM_EXCHANGES,
+  ITEM_EXCHANGES, EXCHANGE_FOSSIL_COST, EXCHANGE_FOSSIL_PAYOUT,
   SUPER_INCUBATOR, incubatorDiscount, ITEM_DROP_FULL_HEAL_CHANCE, WIN_FULL_HEAL_CHANCE,
   MAX_CREATURE_LEVEL, CREATURE_LEVEL_COST, POI_OUTCOMES, POI_OUTCOMES_WEEKEND, SHINY_ODDS,
   POI_OUTCOMES_RAID_INVASION, POI_OUTCOMES_TRAINING_DOJO,
@@ -46,6 +46,7 @@ import {
   SUPER_EFFECTIVE_MULTIPLIER, NOT_VERY_EFFECTIVE_MULTIPLIER, TYPE_RESISTANCE,
   FRONTIER_LEVELS, FRONTIER_MODES, FRONTIER_TEAM_SIZE, FRONTIER_GRAND_LABEL,
   FRONTIER_GRAND_LEVEL, FRONTIER_RAID_LEVEL, FRONTIER_CHALLENGES,
+  frontierChallengeRule, frontierChallengeTagClass, frontierBossPool,
   frontierTrainerImage, frontierLevelRewards,
   FRONTIER_DAILY_NAME, FRONTIER_DAILY_ART, frontierDailyResetIn, IMAGE_DIR,
   FRONTIER_DAILY_LEVELS, frontierDailyModes,
@@ -486,7 +487,9 @@ function renderResearchLab(inRange) {
     ),
     el('p', { class: 'hint', html: `Hand over a pile of one everyday item and take a few of another: ${
       ITEM_EXCHANGES.map(d => `<b>${d.cost} ${itemName(d.from)}${d.cost === 1 ? '' : 's'}</b>`).join(' · ')
-    }. The rate is always in the lab's favour, so it is a way to clear out what you never use rather than a way to print discs.` }),
+    }. The rate is always in the lab's favour, so it is a way to clear out what you never use rather than a way to print discs. `
+      + `Spare <b>fossil parts</b> trade here too: ${EXCHANGE_FOSSIL_COST} of one part for ${EXCHANGE_FOSSIL_PAYOUT} of any other, `
+      + `so doubles can finish a set.` }),
     el('h4', { class: 'sheet-h4', text: 'Feather trade' }),
     el('button', {
       class: 'cell item-cell tappable lab-recipe',
@@ -591,7 +594,7 @@ function renderBattleFrontier(inRange) {
         : null,
       el('img', { src: frontierTrainerImage(ch.id), alt: ch.trainerName }),
       el('span', { class: 'nm', text: `${ch.name} challenge` }),
-      el('span', { class: `sub t-${ch.type}`, text: ch.trainerName }),
+      el('span', { class: `sub ${frontierChallengeTagClass(ch)}`, text: ch.trainerName }),
       el('span', {
         class: 'use-hint',
         text: !playable ? 'Not in the sheet yet'
@@ -604,7 +607,8 @@ function renderBattleFrontier(inRange) {
     body.append(
       el('p', { class: 'hint', html:
         `Each challenge is <b>${FRONTIER_LEVELS}</b> levels, and every creature the trainer brings `
-        + 'is that challenge\'s type. A <b>mode</b> restricts what you may bring, and a level '
+        + 'is that challenge\'s type — or, for the three set challenges, from that set. '
+        + 'A <b>mode</b> restricts what you may bring, and a level '
         + `counts as beaten once <i>per mode</i> — so there are ${FRONTIER_MODES.length} ways `
         + 'through each ladder. Clear all ten on one mode and that challenge\'s '
         + `<b>${FRONTIER_GRAND_LABEL}</b> opens: an exclusive boss you cannot meet anywhere else.` })
@@ -775,7 +779,7 @@ function renderFrontierChallenge() {
   body.innerHTML = '';
   $('#frontier-challenge-title').textContent = `${ch.name} challenge`;
   $('#frontier-challenge-hint').textContent =
-    `${ch.trainerName} — every creature they bring is ${ch.name}.`;
+    `${ch.trainerName} — every creature they bring is ${frontierChallengeRule(ch)}.`;
 
   // ---- the mode picker ----
   const select = el('select', {
@@ -801,7 +805,7 @@ function renderFrontierChallenge() {
       el('div', { class: 'det-title' },
         el('h3', { text: ch.trainerName }),
         el('div', { class: 'det-tags' },
-          el('span', { class: `tag t-${ch.type}`, text: ch.type }),
+          el('span', { class: `tag ${frontierChallengeTagClass(ch)}`, text: ch.type || ch.set }),
           el('span', { class: 'tag', text: `${state.cleared}/${FRONTIER_LEVELS} beaten` })
         )
       )
@@ -829,7 +833,20 @@ function renderFrontierChallenge() {
 
   // ---- the Grand Raid at the top ----
   body.append(el('h4', { class: 'sheet-h4', text: FRONTIER_GRAND_LABEL }));
-  if (!state.boss) {
+  if (state.bossHidden) {
+    /* A set challenge before its boss is drawn: say what it could be, without
+       picking one early — the draw happens on the win that clears the ladder. */
+    body.append(el('div', { class: 'cell item-cell frontier-grand frontier-grand-mystery' },
+      el('span', { class: 'frontier-mystery-ico', text: '?' }),
+      el('span', { class: 'nm', text: 'A Frontier legendary' }),
+      el('span', { class: 'sub', text: `Level ${FRONTIER_RAID_LEVEL}` }),
+      el('span', { class: 'use-hint',
+        text: `Beat all ${FRONTIER_LEVELS} levels on this mode first (${state.cleared}/${FRONTIER_LEVELS})` })
+    ),
+    el('p', { class: 'hint', text: `The boss is one of the ${frontierBossPool().length} Frontier `
+      + `legendaries — ${frontierBossPool().map(s => s.name).join(', ')} — drawn at random when you `
+      + 'clear the ladder on this mode, and fixed from then on. Each mode draws its own.' }));
+  } else if (!state.boss) {
     body.append(el('p', { class: 'hint', style: { color: '#ffd9a8' },
       text: 'No boss is loaded for this challenge. "Exclusives3.csv" is missing, so there is '
         + 'nothing at the top of the ladder yet.' }));
@@ -2167,8 +2184,9 @@ function renderInfo(tab = 'basics') {
       el('h4', { text: 'The Battle Frontier' }),
       el('p', { html: `A building rather than a map point. Pin it like a Breeding Centre — you earn it from the lifetime mission <b>Reach level 9 and register 100 creatures</b> — and inside there is a trainer waiting at every level of every challenge. Nothing here is on a timer, so it is the one place you can battle whenever you like.` }),
       el('ul', {},
-        el('li', { html: `There are <b>${FRONTIER_CHALLENGES.length} challenges</b>, one per type: ${
-          FRONTIER_CHALLENGES.map(c => `<b>${c.name}</b>`).join(', ')}. Every creature the trainer brings is that type, so you know the matchup before you walk in.` }),
+        el('li', { html: `There are <b>${FRONTIER_CHALLENGES.length} challenges</b>. One per type — ${
+          FRONTIER_CHALLENGES.filter(c => c.type).map(c => `<b>${c.name}</b>`).join(', ')} — where every creature the trainer brings is that type, so you know the matchup before you walk in. And one per set — ${
+          FRONTIER_CHALLENGES.filter(c => c.set).map(c => `<b>${c.name}</b>`).join(', ')} — where the trainer brings any type, but only creatures from that set.` }),
         el('li', { html: `Each challenge is <b>${FRONTIER_LEVELS} levels</b>, fought in order. Level 1 is three level 3 creatures with modest stats; by level ${FRONTIER_LEVELS} it is three level 9 creatures with over 320 total base stats, all <b>${MAX_STAT_BOOSTS} boost points</b> spent and all holding an item — as strong as a team you could field yourself.` }),
         el('li', { html: `A <b>mode</b> is a restriction on what <i>you</i> may bring, and there are <b>${FRONTIER_MODES.length}</b> of them: one per type, one per rarity, one per set, <b>Only Exclusives</b>, and <b>No restriction</b>. The team picker shows only the creatures that qualify and says how many that is.` }),
         el('li', { html: 'A level counts as beaten <b>once per mode</b>. Beat level 1 on <b>No restriction</b> and you can beat it again on <b>Only Rarity 3</b> for the reward a second time — but never twice on the same mode.' }),
@@ -2176,7 +2194,7 @@ function renderInfo(tab = 'basics') {
           Object.entries(frontierLevelRewards(1).items).map(([id, n]) => `${n} ${itemName(id, n)}`).join(', ')
         }</b>. From <b>level 4</b> add a <b>random held item</b>, from <b>level 6</b> a <b>Stat Booster</b>, and from <b>level 8</b> a <b>Strength Re-roll Stone</b> and a <b>Mysterious Incense</b>.` }),
         el('li', { html: `Clear all ${FRONTIER_LEVELS} levels on one mode and that challenge's <b>${FRONTIER_GRAND_LABEL}</b> opens — effectively a level ${FRONTIER_GRAND_LEVEL}. It is a <b>level ${FRONTIER_RAID_LEVEL}</b> boss with full <b>Exclusive Raid</b> strength, fought under the <b>same restriction</b>, and you catch it with an <b>Ultra Capture Disc</b> on the usual raid shiny odds.` }),
-        el('li', { html: `The Grand Raid boss joins your <b>${EXCLUSIVE_SET_NAME}</b> collection and exists <b>nowhere else in the game</b> — no raid, no egg, no incense can produce one. Each challenge has its own, and it is the <b>same boss on every mode</b>, so clearing the same ladder under a different restriction is a chance to catch it again.` }),
+        el('li', { html: `The Grand Raid boss joins your <b>${EXCLUSIVE_SET_NAME}</b> collection and exists <b>nowhere else in the game</b> — no raid, no egg, no incense can produce one. Each type challenge has its own, and it is the <b>same boss on every mode</b>, so clearing the same ladder under a different restriction is a chance to catch it again. A <b>set challenge</b> has no boss of its own: clearing it on a mode draws one of the type challenges' legendaries at random, and that draw is fixed for that mode.` }),
         el('li', { html: 'Progress lives in your save rather than in the building, so <b>Move Battle Frontier</b> re-pins it anywhere without costing you a single clear.' })
       ),
       el('h4', { text: `The ${FRONTIER_DAILY_NAME}` }),
@@ -2232,6 +2250,7 @@ function renderInfo(tab = 'basics') {
           html: `<b>${d.cost} ${itemName(d.from, d.cost)}</b> → ${
             d.to.map(t => `${t.qty} ${itemName(t.item, t.qty)}`).join(' or ')}`
         })),
+        el('li', { html: `<b>Fossil parts</b> only trade for other fossil parts: ${EXCHANGE_FOSSIL_COST} of one for ${EXCHANGE_FOSSIL_PAYOUT} of any other, say ${EXCHANGE_FOSSIL_COST} tails for a head. A traded part does not count towards the "collect a fossil part" missions — those are for finding them.` }),
         el('li', { html: 'The rate is <b>always in the lab\'s favour</b> — six or three in, one or two out. That is the point: it clears a shelf you are never going to use, it does not manufacture discs.' }),
         el('li', { html: 'Trades are <b>all or nothing</b>. If you cannot cover the full amount the button will not let you, so you never hand items over for a part payment.' })
       ),

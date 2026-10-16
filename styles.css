@@ -943,6 +943,12 @@ body.overlay-open .essence-arrow-glyph {
    ladder rows are full width, because ten of them in a column reads as a ladder
    and a grid of ten does not. */
 .frontier-card, .frontier-grand { margin: 0 12px 8px; max-width: 220px; }
+/* A set challenge's boss before it is drawn: a question mark where the art goes. */
+.frontier-mystery-ico {
+  width: 100%; aspect-ratio: 1; display: grid; place-items: center;
+  font-size: 54px; font-weight: 800; color: var(--accent2);
+  background: radial-gradient(circle, #ffd16626 0%, transparent 70%);
+}
 .frontier-level {
   margin: 0 12px 6px; max-width: none; width: calc(100% - 24px);
   text-align: left; align-items: flex-start;

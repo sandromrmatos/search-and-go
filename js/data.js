@@ -477,6 +477,15 @@ export const EXCHANGE_EVERYDAY_ITEMS = ['potion', 'revive', 'capture_disc', 'ful
 /** The scarcer pair: three of one buys two everyday items, or one of the other. */
 export const EXCHANGE_SCARCE_ITEMS = ['ultra_disc', 'single_use_incubator'];
 
+/**
+ * Fossil parts trade only among themselves: three of one part for one of any
+ * other. Written out as ids rather than FOSSIL_PARTS because that list is
+ * declared further down the file, after this table is built. Same order.
+ */
+export const EXCHANGE_FOSSIL_PARTS = ['fossil_head', 'fossil_spine', 'fossil_tail', 'fossil_hand'];
+export const EXCHANGE_FOSSIL_COST = 3;
+export const EXCHANGE_FOSSIL_PAYOUT = 1;
+
 export const EXCHANGE_EVERYDAY_COST = 6;
 export const EXCHANGE_SCARCE_COST = 3;
 export const EXCHANGE_EVERYDAY_PAYOUT = 2;
@@ -500,6 +509,18 @@ function buildItemExchanges() {
           .map(item => ({ item, qty: EXCHANGE_EVERYDAY_PAYOUT })),
         ...EXCHANGE_SCARCE_ITEMS.map(item => ({ item, qty: EXCHANGE_SCARCE_PAYOUT }))
       ]
+    });
+  }
+
+  // A spare part is never swapped for a Potion: only for another part, so the
+  // one you are short of for a full set can be made up from the doubles.
+  for (const from of EXCHANGE_FOSSIL_PARTS) {
+    out.push({
+      from,
+      cost: EXCHANGE_FOSSIL_COST,
+      to: EXCHANGE_FOSSIL_PARTS
+        .filter(id => id !== from)
+        .map(item => ({ item, qty: EXCHANGE_FOSSIL_PAYOUT }))
     });
   }
 
@@ -1973,8 +1994,14 @@ export const FRONTIER_RAID_LEVEL = 8;
 export const FRONTIER_TEAM_SIZE = 3;
 
 /**
- * One challenge per type. `name` has to match the "Challenge name" column in
- * Battle Frontier.csv, and `trainer` the artwork shipped in `images/`.
+ * One challenge per type, then one per set. `name` has to match the "Challenge
+ * name" column in Battle Frontier.csv, and `trainer` the artwork shipped in
+ * `images/`.
+ *
+ * The types run in the Collection's order. A set challenge has `set` instead of
+ * `type`: its trainer brings any type, but only from that set. It also has no
+ * boss of its own — `randomBoss` means its Grand Raid is one of the Frontier
+ * legendaries, drawn once per mode when the ladder is cleared.
  */
 export const FRONTIER_CHALLENGES = [
   {
@@ -1983,9 +2010,9 @@ export const FRONTIER_CHALLENGES = [
     phrase: 'I already know how this ends. Show me I am wrong.'
   },
   {
-    id: 'celestial', name: 'Celestial', type: 'Celestial',
-    trainer: 'challenge celestial.png', trainerName: 'Warden Lyrae',
-    phrase: 'Every light in the sky is watching. Do not disappoint them.'
+    id: 'wind', name: 'Wind', type: 'Wind',
+    trainer: 'challenge wind.png', trainerName: 'Gale Rider Isa',
+    phrase: 'If you can keep up with my team, you have earned the win.'
   },
   {
     id: 'neutral', name: 'Neutral', type: 'Neutral',
@@ -1993,16 +2020,38 @@ export const FRONTIER_CHALLENGES = [
     phrase: 'No tricks, no advantages. Just which of us trained harder.'
   },
   {
-    id: 'wind', name: 'Wind', type: 'Wind',
-    trainer: 'challenge wind.png', trainerName: 'Gale Rider Isa',
-    phrase: 'If you can keep up with my team, you have earned the win.'
+    id: 'celestial', name: 'Celestial', type: 'Celestial',
+    trainer: 'challenge celestial.png', trainerName: 'Warden Lyrae',
+    phrase: 'Every light in the sky is watching. Do not disappoint them.'
   },
   {
     id: 'mechanic', name: 'Mechanic', type: 'Mechanic',
     trainer: 'challenge mechanic.png', trainerName: 'Engineer Kovak',
     phrase: 'My machines do not get tired, and they do not get nervous.'
+  },
+  {
+    id: 'elemental', name: SET_NAME, set: SET_NAME, type: null, randomBoss: true,
+    trainer: 'challenge elemental awakening.png', trainerName: 'Elementalist Oryn',
+    phrase: 'Every element answered someone first. Today they answer to me.'
+  },
+  {
+    id: 'galactic', name: GALACTIC_SET_NAME, set: GALACTIC_SET_NAME, type: null, randomBoss: true,
+    trainer: 'challenge galactic adventures.png', trainerName: 'Navigator Sela',
+    phrase: 'I charted a course past every star out there. You are the last stop.'
+  },
+  {
+    id: 'temporal', name: TEMPORAL_SET_NAME, set: TEMPORAL_SET_NAME, type: null, randomBoss: true,
+    trainer: 'challenge temporal rift.png', trainerName: 'Chronicler Vex',
+    phrase: 'I have seen this battle a hundred times. You lose in most of them.'
   }
 ];
+
+/** "every creature they bring is Mystic" / "… is from Temporal Rift". */
+export const frontierChallengeRule = ch =>
+  ch?.set ? `from ${ch.set}` : (ch?.type || ch?.name || '');
+
+/** The Collection type colour for a type challenge, nothing for a set one. */
+export const frontierChallengeTagClass = ch => (ch?.type ? `t-${ch.type}` : '');
 
 /* ---------------------------------------------------------------
    The Daily Challenge
@@ -2483,8 +2532,10 @@ export function rebuildFrontierBosses() {
   if (!pool.length) return 0;
 
   const taken = new Set();
+  // Set challenges draw their boss at random from the whole pool instead.
+  const typed = FRONTIER_CHALLENGES.filter(ch => !ch.randomBoss && ch.type);
   // Pass one: the boss whose own type is the challenge's type.
-  for (const ch of FRONTIER_CHALLENGES) {
+  for (const ch of typed) {
     const hit = pool.find(sp =>
       !taken.has(sp.id) && String(sp.type).toLowerCase() === ch.type.toLowerCase());
     if (hit) {
@@ -2497,7 +2548,7 @@ export function rebuildFrontierBosses() {
      cell is wrong, and pairing a Mystic ladder with a Wind boss is exactly the
      sort of thing that should be said out loud rather than shipped quietly. */
   const spare = pool.filter(sp => !taken.has(sp.id));
-  for (const ch of FRONTIER_CHALLENGES) {
+  for (const ch of typed) {
     if (DB.frontierBossByChallenge.has(ch.id)) continue;
     const next = spare.shift();
     if (!next) {
@@ -2514,17 +2565,24 @@ export function rebuildFrontierBosses() {
   return DB.frontierBossByChallenge.size;
 }
 
-/** The Grand Raid boss species for a challenge, or null if the file is absent. */
+/**
+ * The Grand Raid boss species for a type challenge, or null if the file is
+ * absent. Set challenges have no fixed boss: see `frontierBossPool`.
+ */
 export const frontierBoss = challengeId =>
   species(DB.frontierBossByChallenge?.get(challengeId)) || null;
+
+/** Every Frontier legendary, which is what a set challenge's boss is drawn from. */
+export const frontierBossPool = () => DB.exclusive.filter(s => s.frontier);
 
 /**
  * The Grand Raid, in the shape the raid machinery already understands: an
  * exclusive raid at a fixed level, so it gets the tougher boss modifiers, raid
  * shiny odds and the Ultra Disc catch without any of that code changing.
  */
-export function frontierGrandRaid(challengeId) {
-  const sp = frontierBoss(challengeId);
+export function frontierGrandRaid(challengeId, bossId = null) {
+  // A set challenge passes the boss it drew; a type challenge has its own.
+  const sp = (bossId && species(bossId)) || frontierBoss(challengeId);
   if (!sp) return null;
   const rarity = sp.rarity >= 3 && sp.rarity <= 5 ? sp.rarity : 5;
   const tier = RAID_TIERS[rarity];

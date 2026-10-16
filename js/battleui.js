@@ -476,7 +476,7 @@ function renderFrontierPreview(body) {
       el('img', { src: frontierTrainerImage(challengeId), alt: ch.trainerName }),
       el('h3', { text: ch.trainerName }),
       el('div', { class: 'reveal-tags' },
-        el('span', { class: `tag t-${ch.type}`, text: `${ch.name} only` }),
+        el('span', { class: `tag ${ch.type ? 't-' + ch.type : ''}`, text: `${ch.name} only` }),
         el('span', { class: 'tag', text: `Level ${level} of ${FRONTIER_LEVELS}` }),
         el('span', { class: 'tag', text: state.mode.label })
       )
@@ -518,7 +518,7 @@ function renderFrontierPreview(body) {
           : null
       ),
     // The prize at the top of the ladder, and how close it is.
-    state.boss
+    state.hasBoss
       ? el('p', { class: 'hint', text: state.grandWon
         ? `You have already won the ${FRONTIER_GRAND_LABEL} on ${state.mode.label}.`
         : `Clear all ${FRONTIER_LEVELS} levels on ${state.mode.label} to unlock the `

@@ -49,3 +49,33 @@ Mechanic,7,Exclusive_19,Mechabeyle,7,,,Elemental Awakening_79,Poltergnet,8,,"Att
 Mechanic,8,Temporal Rift_70,Desklerk,8,,,Galactic Adventures_71,Steelspirit,8,Mechanic Shield,"Attack: 2, Defence: 4, Speed: 3, HP: 1",Elemental Awakening_73,Equinox,8,Mechanic Gem,"Attack: 5, Defence: 2, Speed: 2, HP: 7"
 Mechanic,9,Temporal Rift_69,Granigrit,8,,"Attack: 2, Defence: 1, Speed: 4, HP: 1",Exclusive_44,Tinkursuh,9,Miracle Coin,"Attack: 2, Defence: 4, Speed: 2, HP: 6",Exclusive_17,Chargorb Rusty,9,Strength Sigil,"Attack: 3, Defence: 9, Speed: 2, HP: 6"
 Mechanic,10,Elemental Awakening_68,Envoye,9,Mechanic Shield,"Attack: 6, Defence: 9, Speed: 2, HP: 3",Galactic Adventures_75,Metalmagma,9,Miracle Coin,"Attack: 3, Defence: 9, Speed: 2, HP: 6",Temporal Rift_71,Sanctuarch,9,Strength Sigil,"Attack: 3, Defence: 9, Speed: 2, HP: 6"
+Elemental Awakening,1,Elemental Awakening_12,Spiritfoil,3,,,Elemental Awakening_40,Babybara,3,,,Elemental Awakening_30,Blushbat,3,,
+Elemental Awakening,2,Elemental Awakening_75,Aeglet,3,,,Elemental Awakening_49,Floonleef,4,,,Elemental Awakening_28,Batakaze,4,,
+Elemental Awakening,3,Elemental Awakening_71,Ponimetal,4,,,Elemental Awakening_25,Aeroquatic,4,,,Elemental Awakening_13,Nebulicorn,5,,
+Elemental Awakening,4,Elemental Awakening_57,Aloeflora,5,,,Elemental Awakening_23,Dodrift,5,,,Elemental Awakening_72,Equinix,6,,
+Elemental Awakening,5,Elemental Awakening_64,Voltveil,6,,,Elemental Awakening_21,Blossomgale,6,,,Elemental Awakening_35,Galaktikreme,7,,
+Elemental Awakening,6,Elemental Awakening_67,Toxiforge,7,,,Elemental Awakening_32,Flutterwing,7,,,Elemental Awakening_60,Lizaflora,7,Growth Crystal,"Attack: 4, Speed: 2, HP: 1, Defence: 1"
+Elemental Awakening,7,Elemental Awakening_11,Mystikeon,7,,,Elemental Awakening_52,Rosalia,8,,"HP: 3, Attack: 2, Defence: 1",Elemental Awakening_79,Poltergnet,8,Mechanic Shield,"HP: 5, Defence: 4, Attack: 2, Speed: 1"
+Elemental Awakening,8,Elemental Awakening_63,Orbitmelon,8,,,Elemental Awakening_73,Equinox,8,Mechanic Gem,"HP: 5, Attack: 3, Defence: 2",Elemental Awakening_24,Dodoryphon,8,Miracle Coin,"Speed: 7, HP: 5, Attack: 2, Defence: 2"
+Elemental Awakening,9,Elemental Awakening_48,Lumbertail,8,,"Defence: 4, Attack: 2, Speed: 1, HP: 1",Elemental Awakening_17,Psydrake,9,Mystic Cog,"HP: 6, Attack: 4, Defence: 2, Speed: 2",Elemental Awakening_58,Aloetide,9,Celestial Gem,"HP: 9, Attack: 6, Speed: 3, Defence: 2"
+Elemental Awakening,10,Elemental Awakening_09,Pheonyx,9,Mystic Shield,"HP: 9, Defence: 6, Speed: 3, Attack: 2",Elemental Awakening_27,Pyrosora,9,Wind Gem,"Attack: 9, Speed: 6, HP: 3, Defence: 2",Elemental Awakening_68,Envoye,9,Strength Sigil,"Defence: 9, Attack: 6, HP: 3, Speed: 2"
+Galactic Adventures,1,Galactic Adventures_62,Laugherry,3,,,Galactic Adventures_21,Cockeriel,3,,,Galactic Adventures_36,Mousuck,3,,
+Galactic Adventures,2,Galactic Adventures_64,Steellamb,3,,,Galactic Adventures_04,Astralin,4,,,Galactic Adventures_51,Lumifloris,4,,
+Galactic Adventures,3,Galactic Adventures_17,Skybee,4,,,Galactic Adventures_72,Auregear,4,,,Galactic Adventures_55,Crocasprout,5,,
+Galactic Adventures,4,Galactic Adventures_76,Gadgetrix,5,,,Galactic Adventures_22,Cockatrike,5,,,Galactic Adventures_08,Olympis,6,,
+Galactic Adventures,5,Galactic Adventures_27,Quirkquack,6,,,Galactic Adventures_52,Photosynthra,6,,,Galactic Adventures_65,Pigmoat,7,,
+Galactic Adventures,6,Galactic Adventures_63,Gigglewood,7,,,Galactic Adventures_12,Ectomango,7,,,Galactic Adventures_38,Mousucklord,7,Neutral Gem,"Attack: 4, Speed: 2, HP: 1, Defence: 1"
+Galactic Adventures,7,Galactic Adventures_70,Gearstrike,7,,,Galactic Adventures_10,Mummira,8,,"Attack: 3, HP: 2, Speed: 1",Galactic Adventures_16,Breezebuzz,8,Strength Sigil,"Speed: 5, Attack: 4, Defence: 2, HP: 1"
+Galactic Adventures,8,Galactic Adventures_30,Antaray,8,,,Galactic Adventures_71,Steelspirit,8,Mechanic Shield,"Defence: 5, Speed: 3, Attack: 2",Galactic Adventures_02,Fuschioria,8,Growth Crystal,"HP: 7, Attack: 5, Defence: 2, Speed: 2"
+Galactic Adventures,9,Galactic Adventures_50,Planterdon,8,,"HP: 4, Defence: 2, Attack: 1, Speed: 1",Galactic Adventures_06,Mystaeon,9,Mystic Cog,"Speed: 6, Attack: 4, HP: 2, Defence: 2",Galactic Adventures_19,Hoatzion,9,Wind Gem,"HP: 9, Attack: 6, Defence: 3, Speed: 2"
+Galactic Adventures,10,Galactic Adventures_20,Electrogriff,9,Miracle Coin,"Attack: 9, HP: 6, Defence: 3, Speed: 2",Galactic Adventures_13,Pantheraura,9,Mystic Cog,"Speed: 9, Attack: 6, Defence: 3, HP: 2",Galactic Adventures_61,Astrollus,9,Celestial Shield,"Speed: 9, Defence: 6, HP: 3, Attack: 2"
+Temporal Rift,1,Temporal Rift_20,Loonaqua,3,,,Temporal Rift_49,Florinelle,3,,,Temporal Rift_10,Umbropplet,3,,
+Temporal Rift,2,Temporal Rift_32,Flakette,3,,,Temporal Rift_01,Toxikin,4,,,Temporal Rift_53,Noonette,4,,
+Temporal Rift,3,Temporal Rift_06,Echolet,4,,,Temporal Rift_21,Aqualoon,4,,,Temporal Rift_72,Frymite,5,,
+Temporal Rift,4,Temporal Rift_66,Lemirron,5,,,Temporal Rift_47,Petitelo,5,,,Temporal Rift_25,Eskiddo,6,,
+Temporal Rift,5,Temporal Rift_48,Pomelune,6,,,Temporal Rift_17,Faygoal Mystic,6,,,Temporal Rift_36,Anukara,7,,
+Temporal Rift,6,Temporal Rift_65,Ignivault,7,,,Temporal Rift_56,Craggit,7,,,Temporal Rift_26,Cryobbit,7,Growth Crystal,"Speed: 4, Defence: 2, Attack: 1, HP: 1"
+Temporal Rift,7,Temporal Rift_43,Earloam,7,,,Temporal Rift_67,Smeldern,8,,"HP: 3, Defence: 2, Attack: 1",Temporal Rift_05,Wraithrift,8,Strength Sigil,"Attack: 5, Speed: 4, HP: 2, Defence: 1"
+Temporal Rift,8,Temporal Rift_28,Snickurl,8,,,Temporal Rift_07,Serenewt,8,Mystic Shield,"HP: 5, Defence: 3, Attack: 2",Temporal Rift_59,Myceloroot,8,Miracle Coin,"HP: 7, Defence: 5, Speed: 2, Attack: 2"
+Temporal Rift,9,Temporal Rift_24,Cycloblaze,8,,"Attack: 4, Speed: 2, HP: 1, Defence: 1",Temporal Rift_69,Granigrit,9,Mechanic Cog,"Speed: 6, Attack: 4, HP: 2, Defence: 2",Temporal Rift_40,Yawnshire,9,Neutral Shield,"Defence: 9, HP: 6, Attack: 3, Speed: 2"
+Temporal Rift,10,Temporal Rift_46,Solyssa,9,Celestial Gem,"Attack: 9, Defence: 6, HP: 3, Speed: 2",Temporal Rift_44,Gazorilla,9,Strength Sigil,"HP: 9, Defence: 6, Attack: 3, Speed: 2",Temporal Rift_62,Dynaspanner,9,Mechanic Shield,"Defence: 9, Attack: 6, Speed: 3, HP: 2"
