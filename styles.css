@@ -2375,3 +2375,11 @@ a.ad-link:active { transform: scale(.98); }
 .ach-missions { padding: 8px 0 4px; }
 /* A finished mission stays easy to read, unlike a claimed one in Missions. */
 .mission.ach-done { opacity: .75; }
+
+/* ---- Set Incense: one row per unlocked set ---- */
+.set-incense-list { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 4px; }
+.set-incense-opt {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  width: 100%; text-align: left; padding: 10px 12px;
+}
+.set-incense-opt b { font-size: 14px; }

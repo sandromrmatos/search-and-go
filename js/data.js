@@ -399,7 +399,7 @@ export const boostsLeft = boosts => Math.max(0, MAX_STAT_BOOSTS - totalBoosts(bo
 
 /** The types the damage missions are listed in, in the order they are shown. */
 export const ACHIEVEMENT_DAMAGE_TYPES = ['Mystic', 'Wind', 'Neutral', 'Celestial', 'Mechanic'];
-export const ACHIEVEMENT_DAMAGE_TARGET = 2500;
+export const ACHIEVEMENT_DAMAGE_TARGET = 3500;
 
 /**
  * `kind` is what the store reads progress from. Battle wins only count when
@@ -2080,17 +2080,17 @@ export const FRONTIER_DAILY_LEVELS = [
   {
     id: 'easy', label: 'Easy', order: 1,
     creatureLevel: 5, minTotal: 250, maxTotal: 299, boosts: 0, held: false,
-    essenceRarities: [1, 2, 3], featherChance: 0.01
+    essenceRarities: [1, 2, 3], featherChance: 0.01, setIncenseChance: 0.03
   },
   {
     id: 'medium', label: 'Medium', order: 2,
     creatureLevel: 7, minTotal: 300, maxTotal: 329, boosts: 10, held: true,
-    essenceRarities: [3, 4], featherChance: 0.02
+    essenceRarities: [3, 4], featherChance: 0.02, setIncenseChance: 0.05
   },
   {
     id: 'hard', label: 'Hard', order: 3,
     creatureLevel: 9, minTotal: 330, maxTotal: Infinity, boosts: 20, held: true,
-    essenceRarities: [4, 5], featherChance: 0.03
+    essenceRarities: [4, 5], featherChance: 0.03, setIncenseChance: 0.15
   }
 ];
 
@@ -2665,6 +2665,61 @@ export const MYSTERIOUS_INCENSE_RAID_CHANCE = {
 
 export const mysteriousIncenseRaidChance = rarity =>
   MYSTERIOUS_INCENSE_RAID_CHANCE[rarity] ?? MYSTERIOUS_INCENSE_RAID_CHANCE[1];
+
+/* ---------------------------------------------------------------
+   Set Incense
+
+   An ordinary Incense — same length, same rhythm, same wild rarity odds — but
+   you pick one of the sets you have unlocked when you light it, and every spawn
+   comes from that set. "Unlocked" means at least one of its rarities is in
+   circulation: Elemental Awakening always is, the other two once their first
+   Set mission has been claimed. A partly unlocked set only summons the rarities
+   it has opened, exactly like the wild spawns do.
+   --------------------------------------------------------------- */
+export const SET_INCENSE_ITEM = 'set_incense';
+
+/** The spawnable creatures of one set, as rarity buckets, honouring restrictions. */
+function setSpawnBuckets(setName, now = new Date()) {
+  const buckets = { 1: [], 2: [], 3: [], 4: [], 5: [] };
+  for (const r of [1, 2, 3, 4, 5]) {
+    buckets[r] = (DB.byRarity[r] || []).filter(sp => sp.set === setName && canSpawnNow(sp, now));
+  }
+  return buckets;
+}
+
+/**
+ * The sets a Set Incense can be pointed at right now, in Collection order:
+ * { name, rarities } for every set with at least one creature in the spawn pool.
+ */
+export function setIncenseOptions() {
+  const out = [];
+  for (const set of SETS) {
+    if (!set.available || set.exclusive || set.fossil || set.mythical) continue;
+    const rarities = [1, 2, 3, 4, 5].filter(r =>
+      (DB.byRarity[r] || []).some(sp => sp.set === set.setName));
+    if (rarities.length) out.push({ name: set.setName, title: set.title, rarities });
+  }
+  return out;
+}
+
+export const isSetIncenseOption = setName =>
+  setIncenseOptions().some(o => o.name === setName);
+
+/**
+ * One Set Incense spawn. Rolls the wild rarity odds against that set's buckets;
+ * a rarity the set has nothing in (locked, or out of season) is simply rolled
+ * again, and a set with nothing at all in season falls back to null so the
+ * caller can use a normal roll rather than spawn nothing.
+ */
+export function rollSetIncenseSpecies(setName, weights = RARITY_WEIGHTS, now = new Date()) {
+  const buckets = setSpawnBuckets(setName, now);
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const pool = buckets[rollRarityWith(weights)];
+    if (pool?.length) return pool[Math.floor(Math.random() * pool.length)];
+  }
+  const flat = Object.values(buckets).flat();
+  return flat.length ? flat[Math.floor(Math.random() * flat.length)] : null;
+}
 
 /** Shiny Bonanza Hour: local 17:30–18:30. */
 export const BONANZA_HOUR_START = 17.5;  // 17:30
@@ -3327,7 +3382,9 @@ export const SHOP_ITEMS = [
      a run of ads, not something you stock up on. */
   { id: 'shop_rare_incense',      item: 'rare_incense',       qty: 1, coins: 10, limit: 1 },
   { id: 'shop_shiny_incense',     item: 'shiny_incense',      qty: 1, coins: 50, limit: 1 },
-  { id: 'shop_mysterious_incense', item: 'mysterious_incense', qty: 1, coins: 50, limit: 1 }
+  { id: 'shop_mysterious_incense', item: 'mysterious_incense', qty: 1, coins: 50, limit: 1 },
+  // Narrower than a Mysterious one (a set, not a creature), so half its price.
+  { id: 'shop_set_incense',       item: 'set_incense',        qty: 1, coins: 25, limit: 1 }
 ];
 
 export const shopItem = id => SHOP_ITEMS.find(s => s.id === id) || null;

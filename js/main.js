@@ -1469,7 +1469,7 @@ function initDebugPanel() {
     if (what === 'discs') { store.addItem('capture_disc', 10); toast('+10 Capturing Discs', 'good'); }
     if (what === 'items') {
       for (const id of ['capture_disc', 'ultra_disc', 'potion', 'revive',
-                        'incense', 'stardust_magnet', 'breeding_center']) store.addItem(id, 5);
+                        'incense', 'set_incense', 'stardust_magnet', 'breeding_center']) store.addItem(id, 5);
       toast('+5 of every item', 'good');
     }
     store.touch('debug-give', { immediate: true });

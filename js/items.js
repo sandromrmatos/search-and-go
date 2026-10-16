@@ -120,6 +120,18 @@ export const ITEMS = {
     pickSpecies: true,
     blurb: `You choose the creature, and every single spawn is that creature — one every 2 minutes, each lasting 1 min 30 s, like an ordinary Incense. Only Stage 1 creatures you have already registered can be picked, and never an Exclusive or Mythical one. How long it burns depends on the rarity you choose: ${mysteriousDurationLine()}.`
   },
+  set_incense: {
+    id: 'set_incense',
+    name: 'Set Incense',
+    plural: 'Set Incenses',
+    image: 'set incense.png',
+    use: 'timed',
+    order: 5.9,
+    durationMs: RULES.INCENSE_DURATION_MS,
+    // `pickSet` is what makes the Items tab ask which set before lighting it.
+    pickSet: true,
+    blurb: 'Works like an Incense — 20 minutes, a creature every 2 minutes lasting 1 min 30 s, on the usual wild odds — but you choose one of the sets you have unlocked when you light it, and every creature it summons comes from that set. A set you have only partly unlocked summons only the rarities you have opened.'
+  },
   stardust_magnet: {
     id: 'stardust_magnet',
     name: 'Stardust Magnet',
@@ -300,10 +312,13 @@ export const ITEM_IDS = Object.keys(ITEMS);
  * Every incense variant. They all share the single incense effect slot, so
  * only one can burn at a time — no stacking a Shiny on top of a Rare.
  */
-export const INCENSE_ITEMS = ['incense', 'rare_incense', 'shiny_incense', 'mysterious_incense'];
+export const INCENSE_ITEMS = ['incense', 'rare_incense', 'shiny_incense', 'mysterious_incense', 'set_incense'];
 
 /** Timed items that need a creature chosen before they can be lit. */
 export const needsSpeciesChoice = itemId => !!ITEMS[itemId]?.pickSpecies;
+
+/** Timed items that need a set chosen before they can be lit. */
+export const needsSetChoice = itemId => !!ITEMS[itemId]?.pickSet;
 
 /**
  * Which effect slot a `use: 'timed'` item runs in. Every incense shares one

@@ -47,6 +47,7 @@ import {
   DIAMOND_ITEM, DIAMOND_STARDUST_COST,
   DIAMOND_POWER_BONUS, DIAMOND_WINS_NEEDED, DIAMOND_METRES_NEEDED,
   SHOP_ITEMS, shopItem, COINS_PER_AD,
+  SET_INCENSE_ITEM, isSetIncenseOption,
   ACHIEVEMENT_MISSIONS, ACHIEVEMENT_TIERS, ACHIEVEMENT_DAMAGE_TYPES,
   achievementCandy, achievementTierFor
 } from './data.js';
@@ -319,7 +320,9 @@ function blankState() {
       /** Whether that search widens to the whole evolution line. */
       storageFamilyAll: false,
       /** Which set the Achievements screen is showing. */
-      achSetIndex: 0
+      achSetIndex: 0,
+      /** The uids of the last team taken into a battle, in battle order. */
+      lastBattleTeam: []
     }
   };
 }
@@ -1775,6 +1778,11 @@ class Store {
       .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
   }
 
+  /** The set a Set Incense is pointed at, or null. */
+  incenseSet(now = Date.now()) {
+    return this.effect('incense', now)?.setName || null;
+  }
+
   /** The shiny-odds options for a roll made right now. */
   shinyOpts(now = Date.now()) { return { shinyIncense: this.isShinyIncense(now) }; }
 
@@ -1783,7 +1791,7 @@ class Store {
    * incense types share the slot, so Rare Incense cannot stack with a plain
    * one. `useItemId` chooses which incense is burned.
    */
-  startEffect(kind, now = Date.now(), useItemId = null, { speciesId = null } = {}) {
+  startEffect(kind, now = Date.now(), useItemId = null, { speciesId = null, setName = null } = {}) {
     const slot = EFFECT_SLOTS[kind];
     if (!slot) return { ok: false, reason: 'unknown' };
     const itemId = useItemId || slot.defaultItem;
@@ -1804,6 +1812,10 @@ class Store {
       }
     }
 
+    // A Set Incense cannot be lit without a set, and only one that is unlocked.
+    const setIncense = itemId === SET_INCENSE_ITEM;
+    if (setIncense && !isSetIncenseOption(setName)) return { ok: false, reason: 'noSet' };
+
     const rarity = pinned ? (pinned.rarity || familyRarity(pinned.id) || 1) : 0;
     const duration = mysterious ? mysteriousIncenseDurationMs(rarity) : slot.durationMs;
 
@@ -1816,7 +1828,9 @@ class Store {
       rare: itemId === 'rare_incense',
       shiny: itemId === 'shiny_incense',
       // Only ever set for a Mysterious Incense. Every spawn is this creature.
-      speciesId: pinned ? pinned.id : null
+      speciesId: pinned ? pinned.id : null,
+      // Only ever set for a Set Incense. Every spawn comes from this set.
+      setName: setIncense ? setName : null
     };
     this.touch('effect', { immediate: true });
     return {
@@ -2928,6 +2942,13 @@ class Store {
       feather = true;
     }
 
+    // A Set Incense, on its own independent roll, so one win can pay both.
+    let setIncense = false;
+    if (chance(def.setIncenseChance || 0)) {
+      this.addItem(SET_INCENSE_ITEM, 1);
+      setIncense = true;
+    }
+
     /* And the creature the harvest will run against: one you have **registered**,
        and inside this difficulty's rarity band.
 
@@ -2946,7 +2967,7 @@ class Store {
     const sp = pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
 
     this.touch('daily-challenge', { immediate: true });
-    return { ok: true, level: def, feather, essenceSpecies: sp };
+    return { ok: true, level: def, feather, setIncense, essenceSpecies: sp };
   }
 
   /** Marks a Grand Raid as won. A loss writes nothing, so it can be retried. */

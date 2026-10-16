@@ -329,7 +329,11 @@ function renderDailyPreview(body) {
         el('span', { class: 'reward' },
           el('img', { src: itemImage('precious_feather'), alt: '',
             style: { width: '18px', height: '18px', objectFit: 'contain' } }),
-          el('span', { text: `${Math.round(level.featherChance * 100)}% a Precious Feather` }))
+          el('span', { text: `${Math.round(level.featherChance * 100)}% a Precious Feather` })),
+        el('span', { class: 'reward' },
+          el('img', { src: itemImage('set_incense'), alt: '',
+            style: { width: '18px', height: '18px', objectFit: 'contain' } }),
+          el('span', { text: `${Math.round((level.setIncenseChance || 0) * 100)}% a ${itemName('set_incense')}` }))
       ),
     el('p', { class: 'hint', text: 'Lose as many times as you like — the team and the restriction '
       + 'stay the same until midnight, so you can come back with a better answer.' })
@@ -777,13 +781,25 @@ function renderPicker() {
   const list = pageSlice(all, pickPage);
 
   const ready = ctx.picked.length === BATTLE_TEAM_SIZE;
+  const last = lastTeamState(usable);
   renderPickerTools(() => { pickPage = 0; renderPicker(); }, {
     host: '#bt-pick-tools',
     total: usable.length,
     shown: all.length,
     extraSorts: BATTLE_EXTRA_SORTS,
-    extra: el('span', { id: 'bt-pick-count', class: 'muted',
-      text: `${ctx.picked.length} of ${BATTLE_TEAM_SIZE} chosen` })
+    extra: [
+      el('span', { id: 'bt-pick-count', class: 'muted',
+        text: `${ctx.picked.length} of ${BATTLE_TEAM_SIZE} chosen` }),
+      // The exact three from the last battle, in the same order. Disabled, with
+      // the reason on hover, when any of them cannot come this time.
+      el('button', {
+        class: 'mini-btn',
+        disabled: !last.ok,
+        title: last.ok ? `Pick ${last.names}, in that order` : last.why,
+        'aria-label': last.ok ? `Use last team: ${last.names}` : `Last team unavailable: ${last.why}`,
+        onclick: () => { ctx.picked = [...last.uids]; renderPicker(); }
+      }, '↺ Last team')
+    ]
   });
   $('#bt-fight').disabled = !ready;
   // The floating bar means you never have to scroll to start.
@@ -989,6 +1005,30 @@ function togglePick(uid) {
    Step 3: the fight
    --------------------------------------------------------------- */
 
+/**
+ * Whether the team from the last battle can be picked again here: every one
+ * still owned, battle-ready, and allowed by this fight's mode. `usable` is the
+ * roster the picker is offering, which already applies all three rules.
+ */
+function lastTeamState(usable) {
+  const uids = Array.isArray(store.s.ui.lastBattleTeam) ? store.s.ui.lastBattleTeam : [];
+  if (uids.length !== BATTLE_TEAM_SIZE) return { ok: false, why: 'No previous team yet', uids };
+  const allowed = new Set(usable.map(c => c.uid));
+  const creatures = uids.map(uid => store.creature(uid));
+  const names = creatures.map(c => (c ? species(c.speciesId)?.name || '?' : '?')).join(', ');
+  if (creatures.some(c => !c)) return { ok: false, why: 'One of your last team is no longer in storage', uids };
+  const out = creatures.filter(c => !allowed.has(c.uid));
+  if (out.length) {
+    const who = out.map(c => species(c.speciesId)?.name || '?').join(', ');
+    const why = out.some(c => isFainted(c)) ? 'has fainted'
+      : out.some(c => c.breeding != null) ? 'is breeding'
+      : ctx.restrict ? 'is not allowed on this mode'
+      : 'cannot battle right now';
+    return { ok: false, why: `${who} ${why}`, uids };
+  }
+  return { ok: true, uids, names };
+}
+
 function startFight() {
   const team = ctx.picked.map(uid => store.creature(uid)).filter(Boolean);
   if (team.length !== BATTLE_TEAM_SIZE) { toast('Pick three creatures', 'bad'); return; }
@@ -1008,6 +1048,9 @@ function startFight() {
       return;
     }
   }
+
+  // Remembered for the picker's "Last team" button, whatever kind of fight is next.
+  store.setUI({ lastBattleTeam: [...ctx.picked] });
 
   ctx.battle = ctx.kind === 'raid'
     ? buildRaidBattle(team, ctx.raid)
@@ -1453,6 +1496,13 @@ function renderResult() {
           el('span', { text: dailyWin.feather
             ? `A ${itemName(FEATHER_ITEM)}!`
             : `No ${itemName(FEATHER_ITEM)} this time — it was a ${pctFeather}% chance` })),
+        // Only mentioned when it drops: a miss on a small bonus roll is noise.
+        dailyWin.setIncense
+          ? el('span', { class: 'reward' },
+            el('img', { src: itemImage('set_incense'), alt: '',
+              style: { width: '18px', height: '18px', objectFit: 'contain' } }),
+            el('span', { text: `A ${itemName('set_incense')}!` }))
+          : null,
         el('span', { class: 'reward' },
           el('span', { text: '✨' }),
           el('span', { text: dailyWin.essenceSpecies

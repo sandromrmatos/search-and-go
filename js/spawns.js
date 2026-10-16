@@ -23,7 +23,7 @@
 import {
   RULES, randInt, rollSpawnSpecies, rollPOIOutcome, rollDiscDrop, rollItemDrop,
   rollRaid, rollExclusiveRaid, rollShiny, species, gruntLevelRange, GRUNT_CHARACTERS, GRUNT_PHRASES,
-  BATTLE_TEAM_SIZE, DB, chance, RARE_INCENSE_WEIGHTS, RARITY_WEIGHTS,
+  BATTLE_TEAM_SIZE, DB, chance, RARE_INCENSE_WEIGHTS, RARITY_WEIGHTS, rollSetIncenseSpecies,
   isRaidInvasion, applyRaidInvasionBonus,
   rollWildSpecies, isCreatureSpotlight, spotlightSpecies, dueSpotlightSpawn, familyRarity,
   canSpawnNow,
@@ -402,7 +402,13 @@ export function tickIncense(pos, now = Date.now()) {
   // the pinned creature has somehow gone from the data, it falls back to a
   // normal roll rather than spawning nothing for the rest of the burn.
   const pinned = fx.speciesId ? species(fx.speciesId) : null;
-  const sp = pinned
+  // A Set Incense rolls the wild odds inside its one set, ignoring any takeover
+  // or spotlight. Null only if nothing in that set is in season right now, in
+  // which case it falls through to a normal roll rather than spawning nothing.
+  const fromSet = !pinned && fx.setName
+    ? rollSetIncenseSpecies(fx.setName, RARITY_WEIGHTS, new Date(now))
+    : null;
+  const sp = pinned || fromSet
     || rollWildSpecies(fx.rare ? RARE_INCENSE_WEIGHTS : RARITY_WEIGHTS, new Date(now));
   const itemId = fx.itemId || 'incense';
   const point = {

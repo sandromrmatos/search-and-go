@@ -2067,7 +2067,8 @@ function renderInfo(tab = 'basics') {
           [1, 2, 3, 4, 5].map(r => `<b>${RARITY_NAMES[r]}</b> ${pct(MYSTERIOUS_INCENSE_RAID_CHANCE[r])}`).join(' · ')
         }.` }),
         el('li', { html: `A <b>${itemName('strength_reroll')}</b> draws one creature's <b>stat modifier</b> again — the stat that is 10% up and the stat that is 10% down. The new pair is <b>guaranteed to differ</b> from the old one on both counts: whatever was going up will not be going up, and whatever was going down will not be going down. You do not get to pick what it becomes, so it is a way out of a bad roll rather than a way to build a perfect creature. It is applied to the base stats, so every figure moves at once, and a creature on <b>full HP stays on full</b> even if its maximum changes. Handed out from <b>level ${levelUpTiers().at(-1)?.from ?? MAX_PLAYER_LEVEL} onwards</b> on every level-up.` }),
-        el('li', { html: `Only one incense and one Stardust Magnet can run at a time. <b>Rare</b>, <b>Shiny</b> and <b>${itemName('mysterious_incense')}</b> all share the single incense slot, so no two incenses can ever stack.` }),
+        el('li', { html: `Only one incense and one Stardust Magnet can run at a time. <b>Rare</b>, <b>Shiny</b>, <b>${itemName('mysterious_incense')}</b> and <b>${itemName('set_incense')}</b> all share the single incense slot, so no two incenses can ever stack.` }),
+        el('li', { html: `A <b>${itemName('set_incense')}</b> is an ordinary Incense with one difference: when you light it you choose one of the sets you have unlocked, and every creature it summons comes from that set, on the usual wild odds. A set you have only partly unlocked only summons the rarities you have opened. It ignores the weekly Take Overs, since you have already picked the set. It is in the <b>Shop</b>, one a day, and can drop from a <b>${FRONTIER_DAILY_NAME}</b> win.` }),
         el('li', { html: `<b>Rare Incense</b> spawns on the same 2-minute rhythm but with far better odds: ${rareIncenseLine()}. Compare that to a wild spawn at ${wildOddsLine()}.` }),
         el('li', { html: `<b>Incubators</b> let you hatch eggs by walking. The plain <b>Incubator</b> is reusable — it ties up until the egg hatches, then you can use it again. A <b>Single Use Incubator</b> is consumed the moment you start it. You get a plain incubator at player level 5, and single use incubators from raid wins (${pct(RAID_REWARD.incubatorChance)}, or <b>guaranteed</b> from a rarity ${RAID_BONUS_RARITIES.join(' or ')} boss) and several missions.` }),
         el('li', { html: `The <b>Research Lab</b> is a building rather than a consumable. Pin it to the map, like a Breeding Centre, then visit it to trade spare candy for <b>Stat Boosters</b> or use the <b>Exchange corner</b> to swap items you are sitting on for ones you need. <b>Move lab</b> picks it back up if you want it elsewhere. You earn it from the lifetime mission <b>Reach level 7 and register 70 creatures</b>.` }),
@@ -2217,7 +2218,10 @@ function renderInfo(tab = 'basics') {
         el('li', { html: 'It is always a creature you have <b>registered</b>, exactly like the essences that turn up on the map — a harvest should never be your first sight of something. If nothing you have registered fits the difficulty\'s rarities, the <b>rarity gives way rather than the reward</b>: you get a commoner creature instead of nothing.' }),
         el('li', { html: `On top of that there is a chance of a <b>${itemName(FEATHER_ITEM)}</b> — ${
           FRONTIER_DAILY_LEVELS.map(l => `<b>${l.label}</b> ${pct(l.featherChance)}`).join(' · ')
-        }. That is the only way to get one without walking to a feather point, so the hard fight is worth taking on.` })
+        }. That is the only way to get one without walking to a feather point, so the hard fight is worth taking on.` }),
+        el('li', { html: `And a separate chance of a <b>${itemName('set_incense')}</b> — ${
+          FRONTIER_DAILY_LEVELS.map(l => `<b>${l.label}</b> ${pct(l.setIncenseChance || 0)}`).join(' · ')
+        }. It is rolled on its own, so one win can pay a feather and an incense.` })
       )
     );
   }

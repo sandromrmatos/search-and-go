@@ -25,7 +25,8 @@ import {
   moveEffectText, moveSummaryText,
   GALACTIC_SET_NAME, MYTHICAL_RARITY, unlockedGalacticRarities,
   TEMPORAL_SET_NAME, unlockedTemporalRarities,
-  discoverableSpeciesCount, shinyObtainableSpeciesCount
+  discoverableSpeciesCount, shinyObtainableSpeciesCount,
+  setIncenseOptions
 } from './data.js';
 import { renderEggs, renderEggTabBadge, openEggPickerFor } from './eggs.js';
 import { renderProfileTitle, renderAchievementBadge, renderAchievements } from './achievements.js';
@@ -36,7 +37,7 @@ import { cloudStatus } from './cloud.js';
 import { playEvolution } from './anim.js';
 import {
   ITEMS, itemImage, itemName, itemsInOrder, INCENSE_ITEMS, effectSlotForItem,
-  needsSpeciesChoice
+  needsSpeciesChoice, needsSetChoice
 } from './items.js';
 import { Weather, temperatureLabel, weatherRows, conditionOf } from './weather.js';
 import { placeLabel } from './place.js';
@@ -1293,17 +1294,24 @@ export function openItemSheet(itemId) {
     // there is nothing to choose from until something is registered.
     const picks = needsSpeciesChoice(itemId);
     const candidates = picks ? store.mysteriousIncenseCandidates().length : 0;
+    // A Set Incense asks which set instead, and Elemental Awakening is always
+    // one of the answers, so it is never blocked for want of a choice.
+    const picksSet = needsSetChoice(itemId);
     actions.push(el('button', {
       class: 'btn primary',
       disabled: qty < 1 || !!active || (picks && candidates < 1),
       onclick: () => (picks
         ? (closeSheet('sheet'), openIncenseSpeciesPicker(itemId))
-        : useTimedItem(kind, def))
+        : picksSet
+          ? openSetIncensePicker(itemId)
+          : useTimedItem(kind, def))
     }, active
       ? `Already running · ${timeLeftLabel(active.endsAt - Date.now())}`
       : picks
         ? (candidates < 1 ? 'Nothing registered yet' : 'Choose a creature')
-        : `Use one now`));
+        : picksSet
+          ? 'Choose a set'
+          : `Use one now`));
   }
   if (INCUBATOR_ITEMS.includes(itemId)) {
     const free = store.freeIncubators()[itemId] || 0;
@@ -1409,6 +1417,63 @@ function lightMysteriousIncense(def, s, rarity) {
   }
   closeSheet('picker');
   toast(`${s.name} will appear every 2 minutes for ${mins} minutes`, 'good', 3600);
+  refreshAll();
+  onEffectsChanged?.();
+}
+
+/**
+ * Step one of a Set Incense: which set every spawn comes from. Drawn into the
+ * item sheet itself — there are at most three answers, so a whole picker would
+ * be more chrome than choice. Each row says which rarities that set will give.
+ */
+function openSetIncensePicker(itemId) {
+  const def = ITEMS[itemId];
+  const options = setIncenseOptions();
+  const body = $('#sheet-body');
+  body.innerHTML = '';
+  const mins = Math.round(def.durationMs / 60_000);
+
+  appendAll(body,
+    el('div', { class: 'det-head' },
+      el('img', { src: itemImage(itemId), alt: def.name }),
+      el('div', { class: 'det-title' },
+        el('h3', { text: 'Which set should it summon?' }),
+        el('div', { class: 'det-tags' },
+          el('span', { class: 'tag', text: `${mins} min` }),
+          el('span', { class: 'tag', text: 'one every 2 min' })))
+    ),
+    el('p', { class: 'hint', text: 'Every creature this incense summons will come from the set you '
+      + 'choose, on the usual wild odds. Only sets you have unlocked are offered.' }),
+    el('div', { class: 'set-incense-list' },
+      ...options.map(o => el('button', {
+        class: 'btn ghost set-incense-opt',
+        onclick: () => lightSetIncense(def, o)
+      },
+        el('b', { text: o.title }),
+        el('span', { class: 'muted small', text: o.rarities.length === 5
+          ? 'Every rarity'
+          : `Rarities: ${o.rarities.map(r => RARITY_NAMES[r]).join(', ')}` })
+      ))
+    ),
+    el('div', { class: 'btn-row' },
+      el('button', { class: 'btn ghost', onclick: () => closeSheet('sheet') }, 'Cancel'))
+  );
+  openSheet('sheet');
+}
+
+function lightSetIncense(def, option) {
+  const mins = Math.round(def.durationMs / 60_000);
+  if (!confirm(`Light a ${def.name} for ${option.title}? It runs for ${mins} minutes and `
+    + 'cannot be stopped early or changed once lit.')) return;
+  const r = store.startEffect('incense', Date.now(), def.id, { setName: option.name });
+  if (!r.ok) {
+    toast(r.reason === 'active' ? 'An incense is already running'
+      : r.reason === 'noItem' ? `No ${def.name} left`
+      : `${option.title} is not unlocked yet`, 'bad');
+    return;
+  }
+  closeSheet('sheet');
+  toast(`${option.title} creatures every 2 minutes for ${mins} minutes`, 'good', 3600);
   refreshAll();
   onEffectsChanged?.();
 }
@@ -3290,8 +3355,10 @@ export function renderEffectChips(now = Date.now()) {
     // only thing worth the space.
     const id = b.kind === 'incense' ? (fx.itemId || b.id) : b.id;
     const pinned = b.kind === 'incense' ? store.incenseSpecies(now) : null;
+    // A Set Incense names its set, for the same reason.
+    const pinnedSet = b.kind === 'incense' ? store.incenseSet(now) : null;
     const label = b.kind === 'incense'
-      ? (pinned ? pinned.name : (itemName(id) || b.label))
+      ? (pinned ? pinned.name : pinnedSet || (itemName(id) || b.label))
       : b.label;
     host.append(el('div', { class: `fx-chip ${b.kind}` },
       el('img', { src: itemImage(id), alt: '' }),
