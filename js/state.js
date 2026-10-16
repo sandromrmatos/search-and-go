@@ -46,7 +46,9 @@ import {
   fossilRevivePool,
   DIAMOND_ITEM, DIAMOND_STARDUST_COST,
   DIAMOND_POWER_BONUS, DIAMOND_WINS_NEEDED, DIAMOND_METRES_NEEDED,
-  SHOP_ITEMS, shopItem, COINS_PER_AD
+  SHOP_ITEMS, shopItem, COINS_PER_AD,
+  ACHIEVEMENT_MISSIONS, ACHIEVEMENT_TIERS, ACHIEVEMENT_DAMAGE_TYPES,
+  achievementCandy, achievementTierFor
 } from './data.js';
 import { ITEMS, item as itemDef } from './items.js';
 import { elevationNow } from './weather.js';
@@ -218,6 +220,16 @@ function blankState() {
     nextEggId: 1,
 
     missions: {},       // missionId -> { claimedAt }
+    /**
+     * Per-family achievement progress and claims, keyed by the family's Stage 1
+     * id. `families[root]` is { grunt, raid, dmg: { type -> n }, metres, level,
+     * boosts }; `claimed[root]` is { bronze|silver|gold -> claimedAt }.
+     */
+    achievements: { families: {}, claimed: {} },
+    /** Family roots whose gold title has been won, in the order they were. */
+    titles: [],
+    /** The title shown next to the nickname: a family root id, or null. */
+    title: null,
     daily: blankDaily(),
     weekly: blankWeekly(),
 
@@ -305,10 +317,15 @@ function blankState() {
       pickerSort: '',
       pickerDir: 0,
       /** Whether that search widens to the whole evolution line. */
-      storageFamilyAll: false
+      storageFamilyAll: false,
+      /** Which set the Achievements screen is showing. */
+      achSetIndex: 0
     }
   };
 }
+
+/** A blank achievement record for one family. */
+const blankAchFamily = () => ({ grunt: 0, raid: 0, dmg: {}, metres: 0, level: 1, boosts: 0 });
 
 /* ---------------------------------------------------------------
    Creature helpers
@@ -703,6 +720,55 @@ export function migrate(raw) {
   }
   s.nextUid = Math.max(Number(s.nextUid) || 1, maxUid + 1);
 
+  /* ---- achievements ----
+     Keyed by family root, so a root that no longer exists is dropped. Every
+     number is clamped non-negative; the claim stamps only keep known tiers. */
+  {
+    const rawAch = (raw.achievements && typeof raw.achievements === 'object') ? raw.achievements : null;
+    const nonNeg = v => Math.max(0, Number(v) || 0);
+    const isRoot = id => DB.byId.has(id) && familyRoot(id) === id;
+    const families = {};
+    for (const [root, f] of Object.entries(rawAch?.families || {})) {
+      if (!isRoot(root) || !f || typeof f !== 'object') continue;
+      const dmg = {};
+      for (const t of ACHIEVEMENT_DAMAGE_TYPES) {
+        const n = nonNeg(f.dmg?.[t]);
+        if (n) dmg[t] = n;
+      }
+      families[root] = {
+        grunt: Math.floor(nonNeg(f.grunt)),
+        raid: Math.floor(nonNeg(f.raid)),
+        dmg,
+        metres: nonNeg(f.metres),
+        level: Math.min(MAX_CREATURE_LEVEL, Math.max(1, Math.floor(Number(f.level) || 1))),
+        boosts: Math.floor(nonNeg(f.boosts))
+      };
+    }
+    const tierIds = new Set(ACHIEVEMENT_TIERS.map(t => t.id));
+    const claimed = {};
+    for (const [root, c] of Object.entries(rawAch?.claimed || {})) {
+      if (!isRoot(root) || !c || typeof c !== 'object') continue;
+      const out = {};
+      for (const [tier, at] of Object.entries(c)) if (tierIds.has(tier)) out[tier] = Number(at) || Date.now();
+      if (Object.keys(out).length) claimed[root] = out;
+    }
+    const fam = root => families[root] || (families[root] = blankAchFamily());
+    // Levels are credited from storage every load: the highest level a family
+    // has ever held. Boosts only on the very first load with achievements, so
+    // they are not counted twice — after that each booster is counted as used.
+    for (const c of s.storage) {
+      const f = fam(familyRoot(c.speciesId));
+      f.level = Math.max(f.level, c.level);
+      if (!rawAch) f.boosts += totalBoosts(c.boosts);
+    }
+    s.achievements = { families, claimed };
+
+    // Titles: only gold families actually claimed, no repeats.
+    s.titles = [...new Set((Array.isArray(raw.titles) ? raw.titles : [])
+      .filter(id => isRoot(id) && claimed[id]?.gold))];
+    s.title = s.titles.includes(raw.title) ? raw.title : null;
+  }
+
   /* ---- backfill shinyCaught ----
      From storage first, for saves written before the registry existed. Then up
      each recorded shiny's ancestry: a Stage 2 or Stage 3 creature can only ever
@@ -1044,6 +1110,8 @@ class Store {
 
     const b = this.s.buddy;
     b.metres = (Number(b.metres) || 0) + metres;
+    // Lifetime, for the family's achievement — unlike `b.metres`, never spent.
+    if (metres > 0) this.achFamily(c.speciesId).metres += metres;
 
     // Re-read the distance each time round: a Candy Pouch is spent by the first
     // candy it helps earn, so the rest of a long walk is back to full price.
@@ -2034,6 +2102,7 @@ class Store {
     this.spendCandy(c.speciesId, check.cost.candy);
     c.level += 1;
     c.dustSpent += check.cost.stardust;
+    this.noteAchLevel(c);
 
     // A bigger HP pool should not silently heal or hurt: keep the same deficit.
     if (c.hp != null) c.hp = Math.max(0, hpBefore + (maxHpOf(c) - maxBefore));
@@ -2125,6 +2194,7 @@ class Store {
     // Whatever it was carrying comes off first, or releasing it would quietly
     // destroy the item too.
     const reclaimed = this._reclaimHeldItem(c);
+    this.noteAchLevel(c);
     this.s.storage.splice(i, 1);
     const sp = species(c.speciesId);
     const total = this.addCandy(c.speciesId, CANDY_ON_DELETE);
@@ -2171,6 +2241,7 @@ class Store {
       if (i === -1) continue;
       const back = this._reclaimHeldItem(c);
       if (back?.returned) reclaimed.push(back.item);
+      this.noteAchLevel(c);
       this.s.storage.splice(i, 1);
       this.addCandy(c.speciesId, CANDY_ON_DELETE);
       totalCandy += CANDY_ON_DELETE;
@@ -3147,6 +3218,7 @@ class Store {
     if (!c.boosts) c.boosts = emptyBoosts();
     c.boosts[stat] = (Number(c.boosts[stat]) || 0) + 1;
     this.spendItem(STAT_BOOSTER_ITEM);
+    this.achFamily(c.speciesId).boosts += 1;
 
     // A creature at full health stays at full when its max HP grows.
     if (stat === 'hp' && wasFull) c.hp = null;
@@ -3160,6 +3232,152 @@ class Store {
       used: this.boostsUsed(c),
       left: this.boostsLeftOn(c)
     };
+  }
+
+  /* ---------------- achievements ----------------
+     Ten missions per family, filed under the family's Stage 1. Everything here
+     is lifetime and per family: any member, any stage, counts. */
+
+  /** The record for the family `speciesId` belongs to, created on first use. */
+  achFamily(speciesId) {
+    const root = familyRoot(speciesId);
+    const fams = this.s.achievements.families;
+    return fams[root] || (fams[root] = blankAchFamily());
+  }
+
+  /** Remembers a creature's level for its family, so releasing it later loses nothing. */
+  noteAchLevel(c) {
+    if (!c) return;
+    const f = this.achFamily(c.speciesId);
+    f.level = Math.max(f.level, Number(c.level) || 1);
+  }
+
+  /**
+   * Credits one finished battle. `damageByUid` is the battle's ledger of HP each
+   * player creature took off the other side, by type. Damage always counts; the
+   * win counts once per family that dealt any damage, however many of that
+   * family were on the team. Frontier fights count as grunt battles.
+   */
+  recordBattleAchievements(kind, damageByUid = {}, won = false) {
+    const dealtBy = new Set();
+    for (const [uid, byType] of Object.entries(damageByUid)) {
+      const c = this.creature(uid);
+      if (!c) continue;
+      const f = this.achFamily(c.speciesId);
+      let total = 0;
+      for (const [type, n] of Object.entries(byType || {})) {
+        if (!(n > 0)) continue;
+        f.dmg[type] = (f.dmg[type] || 0) + n;
+        total += n;
+      }
+      if (total > 0) dealtBy.add(familyRoot(c.speciesId));
+    }
+    if (won) {
+      const key = kind === 'raid' ? 'raid' : 'grunt';
+      for (const root of dealtBy) this.achFamily(root)[key] += 1;
+    }
+    if (dealtBy.size) this.touch('achievements');
+  }
+
+  /** Highest level each family is holding right now: root -> level. */
+  liveFamilyLevels() {
+    const out = new Map();
+    for (const c of this.s.storage) {
+      const root = familyRoot(c.speciesId);
+      out.set(root, Math.max(out.get(root) || 0, Number(c.level) || 1));
+    }
+    return out;
+  }
+
+  /** Every family root in the game. */
+  get familyRoots() { return [...DB.familyMembers.keys()]; }
+
+  /** Has the player registered any member of this family? */
+  familyRegistered(rootId) {
+    return (DB.familyMembers.get(rootId) || [rootId]).some(id => this.isRegistered(id));
+  }
+
+  /**
+   * Full achievement state for one family: each mission's progress, how many
+   * are done, the tier reached, and which tiers are waiting to be claimed.
+   * `liveLevels` lets a caller looping over every family build it once.
+   */
+  achievementState(rootId, liveLevels = null) {
+    const f = this.s.achievements.families[rootId] || blankAchFamily();
+    const live = (liveLevels || this.liveFamilyLevels()).get(rootId) || 0;
+    const progressOf = m => {
+      switch (m.kind) {
+        case 'gruntWins': return f.grunt;
+        case 'raidWins': return f.raid;
+        case 'damage': return f.dmg[m.type] || 0;
+        case 'buddyMetres': return f.metres;
+        case 'level': return Math.max(f.level, live);
+        case 'boosts': return f.boosts;
+        default: return 0;
+      }
+    };
+    const missions = ACHIEVEMENT_MISSIONS.map(m => {
+      const progress = progressOf(m);
+      return { def: m, progress: Math.min(progress, m.target), target: m.target, done: progress >= m.target };
+    });
+    const done = missions.filter(m => m.done).length;
+    const tier = achievementTierFor(done);
+    const claimedRec = this.s.achievements.claimed[rootId] || {};
+    const tiers = ACHIEVEMENT_TIERS.map(t => ({
+      ...t,
+      reached: done >= t.missions,
+      claimed: !!claimedRec[t.id],
+      claimable: done >= t.missions && !claimedRec[t.id]
+    }));
+    return {
+      rootId, missions, done, total: missions.length,
+      tier: tier?.id || null, tiers,
+      claimable: tiers.filter(t => t.claimable).length
+    };
+  }
+
+  /** Tiers reached but not yet claimed, across every family. */
+  get claimableAchievementCount() {
+    const live = this.liveFamilyLevels();
+    let n = 0;
+    for (const root of this.familyRoots) n += this.achievementState(root, live).claimable;
+    return n;
+  }
+
+  /**
+   * Pays out one tier. Bronze and silver are family candy by rarity; gold is
+   * the family's "Expert" title, which is worn straight away if no title is.
+   */
+  claimAchievementTier(rootId, tierId) {
+    const st = this.achievementState(rootId);
+    const tier = st.tiers.find(t => t.id === tierId);
+    if (!tier) return { ok: false, reason: 'missing' };
+    if (tier.claimed) return { ok: false, reason: 'claimed' };
+    if (!tier.reached) return { ok: false, reason: 'incomplete' };
+
+    const rec = this.s.achievements.claimed[rootId] || (this.s.achievements.claimed[rootId] = {});
+    rec[tierId] = Date.now();
+
+    let candy = 0;
+    let title = null;
+    if (tierId === 'gold') {
+      if (!this.s.titles.includes(rootId)) this.s.titles.push(rootId);
+      if (!this.s.title) this.s.title = rootId;
+      title = rootId;
+    } else {
+      candy = achievementCandy(familyRarity(rootId), tierId);
+      if (candy) this.addCandy(rootId, candy);
+    }
+    this.touch('achievement-claim', { immediate: true });
+    return { ok: true, tier: tierId, candy, title };
+  }
+
+  /** Wears one of the titles you have won, or none with null. */
+  setTitle(rootId) {
+    if (rootId != null && !this.s.titles.includes(rootId)) return false;
+    this.s.title = rootId ?? null;
+    this.touch('title', { immediate: true });
+    return true;
   }
 
   /* ---------------- fossils ----------------

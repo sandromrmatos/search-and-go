@@ -28,6 +28,7 @@ import {
   discoverableSpeciesCount, shinyObtainableSpeciesCount
 } from './data.js';
 import { renderEggs, renderEggTabBadge, openEggPickerFor } from './eggs.js';
+import { renderProfileTitle, renderAchievementBadge, renderAchievements } from './achievements.js';
 import { store, creatureStats, maxHpOf, hpOf, isFainted, isHurt } from './state.js';
 
 import { Persist } from './persist.js';
@@ -3151,6 +3152,9 @@ export function renderProfile() {
   renderBuddy();
   const p = store.progress;
   $('#p-nickname').textContent = store.nickname || 'Nameless hunter';
+  renderProfileTitle();
+  // Lights the Achievements button when the Profile badge brought you here.
+  renderAchievementBadge();
   $('#p-level').textContent = p.level;
   $('#p-xp').textContent = num(store.s.xp);
   $('#p-xp-fill').style.width = p.pct + '%';
@@ -3377,6 +3381,7 @@ export function refreshAll() {
   if (active === 'view-storage') renderStorage();
   if (active === 'view-collection') renderCollection();
   if (active === 'view-profile') renderProfile();
+  if (active === 'view-achievements') renderAchievements();
   if (active === 'view-missions') missionsRenderer?.();
   if (active === 'view-shop') shopRenderer?.();
 }

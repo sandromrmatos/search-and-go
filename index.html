@@ -293,14 +293,29 @@
           <div class="profile-meta">
             <div class="nick-row">
               <b id="p-nickname">—</b>
+              <span id="p-title" class="p-title hidden"></span>
               <button id="btn-edit-nick" class="mini-btn" title="Change nickname">✎</button>
             </div>
+            <label class="sel title-sel">
+              <span>Title</span>
+              <select id="p-title-select"></select>
+            </label>
             <div class="p-row"><b id="p-xp">0</b> total XP</div>
             <div class="xp-bar tall"><i id="p-xp-fill"></i></div>
             <div class="muted" id="p-next">25 XP to level 2</div>
           </div>
         </div>
       </div>
+
+      <!-- ACHIEVEMENTS ENTRY -->
+      <button id="btn-achievements" class="card ach-entry">
+        <span class="ach-entry-ico">🏆</span>
+        <span class="ach-entry-main">
+          <b>Achievements</b>
+          <span class="muted small" id="ach-entry-sub">Missions for every creature family</span>
+        </span>
+        <span class="ach-entry-go">›</span>
+      </button>
 
       <!-- BUDDY -->
       <div class="card" id="buddy-card">
@@ -368,6 +383,26 @@
       </p>
     </section>
 
+    <!-- ACHIEVEMENTS VIEW (opened from Profile, so it has no nav button) -->
+    <section class="view view-achievements" id="view-achievements">
+      <div class="view-head">
+        <button id="ach-back" class="mini-btn" aria-label="Back to profile">‹ Profile</button>
+        <h2>Achievements</h2>
+        <div class="view-head-right"><span id="ach-count" class="muted"></span></div>
+      </div>
+      <div class="set-nav">
+        <button id="ach-set-prev" class="arrow-btn" aria-label="Previous set">‹</button>
+        <h2 id="ach-set-title">Elemental Awakening</h2>
+        <button id="ach-set-next" class="arrow-btn" aria-label="Next set">›</button>
+      </div>
+      <p class="hint ach-legend">
+        <span class="ach-chip ach-bronze">Bronze</span> 5 missions ·
+        <span class="ach-chip ach-silver">Silver</span> 8 ·
+        <span class="ach-chip ach-gold">Gold</span> all 10
+      </p>
+      <div id="ach-grid" class="grid"></div>
+    </section>
+
   </main>
 
   <!-- ---- BOTTOM NAV ---- -->
@@ -378,7 +413,7 @@
     <button class="nav-btn" data-view="missions" id="nav-missions"><span>🎯</span>Missions</button>
     <button class="nav-btn" data-view="shop" id="nav-shop"><span>🛒</span>Shop</button>
     <button class="nav-btn" data-view="news" id="nav-news"><span>📰</span>News</button>
-    <button class="nav-btn" data-view="profile"><span>👤</span>Profile</button>
+    <button class="nav-btn" data-view="profile" id="nav-profile"><span>👤</span>Profile</button>
   </nav>
 </div>
 

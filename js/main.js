@@ -27,6 +27,7 @@ import {
   openFossilAssistant, openFossilDrop
 } from './fossils.js';
 import { initEssence, openEssence, abandonEssence } from './essence.js';
+import { initAchievements, renderAchievementBadge } from './achievements.js';
 import { GameMap } from './map.js';
 import { playCapture } from './anim.js';
 import { initBattleUI, openBattle, isBattleOpen } from './battleui.js';
@@ -80,8 +81,12 @@ let scanCooldownUntil = 0; // backs off automatic retries after a failed lookup
 let scanFailures = 0;      // consecutive failures, for an escalating backoff
 let lastScanError = null;  // shown on the chip so a failure is not silent
 
-/** 15 s, 30 s, 60 s, then 2 min. A blip recovers fast; an outage is not hammered. */
-const scanBackoffMs = n => Math.min(15_000 * 2 ** Math.max(0, n - 1), 120_000);
+/**
+ * 10 s, 20 s, then 30 s. Kept short on purpose: osm.js already rests each
+ * mirror between attempts, so a long backoff here only stacked on top of that
+ * and left the map empty for minutes after the servers had recovered.
+ */
+const scanBackoffMs = n => Math.min(10_000 * n, 30_000);
 
 /* ===============================================================
    Debug log
@@ -278,6 +283,7 @@ async function boot() {
 
     refreshAll();
     renderMissionBadge();
+    renderAchievementBadge();
     syncMap();
     startLoop();
 
@@ -1085,6 +1091,7 @@ function initUI() {
     onMapChange: () => syncMap()
   });
   initShop({ onChange: () => { refreshAll(); renderMissionBadge(); } });
+  initAchievements({ onChange: () => refreshAll() });
 
   initFossils({
     onChange: () => { refreshAll(); renderMissionBadge(); },
@@ -1307,6 +1314,7 @@ function initUI() {
   store.subscribe((_s, reason) => {
     renderHUD();
     renderMissionBadge();
+    renderAchievementBadge();
     syncDebugButton();
     if (reason === 'save-blocked') warnSaveBlocked();
   });

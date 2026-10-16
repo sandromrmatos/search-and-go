@@ -290,6 +290,23 @@ export class Battle {
 
     /** Damage each side has taken so far *this turn*, for Reflect damage. */
     this.turnDamage = { player: 0, enemy: 0 };
+
+    /**
+     * Achievements ledger: HP each of the player's creatures actually took off
+     * the opposition, by the opponent's type — uid -> { type -> amount }.
+     * Overkill is not counted, so a 300-damage hit on a creature with 12 HP
+     * left is worth 12.
+     */
+    this.damageByUid = {};
+  }
+
+  /** Credits a hit to the player's creature that landed it, if it was one. */
+  creditDamage(attacker, target, hpBefore) {
+    if (!attacker?.uid || !target || target.uid) return;
+    const amount = Math.max(0, hpBefore - target.hp);
+    if (!amount) return;
+    const row = this.damageByUid[attacker.uid] || (this.damageByUid[attacker.uid] = {});
+    row[target.type] = (row[target.type] || 0) + amount;
   }
 
   /**
@@ -651,6 +668,7 @@ export class Battle {
       }
       const hpBefore = target.hp;
       target.takeDamage(dealt);
+      this.creditDamage(actor, target, hpBefore);
       // Reflected damage counts as damage taken for the other side's own reflect.
       this.turnDamage[otherSide] = (this.turnDamage[otherSide] || 0) + dealt;
       const events = [{
@@ -794,6 +812,7 @@ export class Battle {
     }
 
     target.takeDamage(dealt);
+    this.creditDamage(actor, target, hpBefore);
     /* Banked for Reflect damage, which pays back a share of what its user took
        *this turn*. Keyed by the side that was hit. */
     const hitSide = side === 'player' ? 'enemy' : 'player';
@@ -860,6 +879,8 @@ export class Battle {
 
     const hpBefore = attacker.hp;
     attacker.takeDamage(dealt);
+    // A player's creature going down can still land this last hit.
+    this.creditDamage(fallen, attacker, hpBefore);
 
     const events = [{
       type: 'partingShot',

@@ -389,6 +389,74 @@ export const totalBoosts = boosts =>
 export const boostsLeft = boosts => Math.max(0, MAX_STAT_BOOSTS - totalBoosts(boosts));
 
 /* ---------------------------------------------------------------
+   Achievements
+
+   One entry per creature family, filed under its Stage 1 creature. Every
+   member of the family — any stage, any branch, any individual — counts
+   towards the same ten missions. Progress is lifetime: releasing a creature
+   never takes anything back.
+   --------------------------------------------------------------- */
+
+/** The types the damage missions are listed in, in the order they are shown. */
+export const ACHIEVEMENT_DAMAGE_TYPES = ['Mystic', 'Wind', 'Neutral', 'Celestial', 'Mechanic'];
+export const ACHIEVEMENT_DAMAGE_TARGET = 2500;
+
+/**
+ * `kind` is what the store reads progress from. Battle wins only count when
+ * the family actually dealt damage in that battle, and only once per battle
+ * however many of the family were on the team.
+ */
+export const ACHIEVEMENT_MISSIONS = [
+  { id: 'grunt', kind: 'gruntWins', target: 50, icon: '🥋',
+    label: 'Win 50 grunt battles while dealing damage' },
+  { id: 'raid', kind: 'raidWins', target: 50, icon: '🔥',
+    label: 'Win 50 raid battles while dealing damage' },
+  ...ACHIEVEMENT_DAMAGE_TYPES.map(type => ({
+    id: `dmg-${type}`, kind: 'damage', type, target: ACHIEVEMENT_DAMAGE_TARGET, icon: '⚔️',
+    label: `Deal a total of ${ACHIEVEMENT_DAMAGE_TARGET} damage to ${type} creatures`
+  })),
+  { id: 'walk', kind: 'buddyMetres', target: 10_000, icon: '👣',
+    label: 'Walk 10 km with it as your buddy' },
+  { id: 'level', kind: 'level', target: MAX_CREATURE_LEVEL, icon: '⭐',
+    label: `Level it to level ${MAX_CREATURE_LEVEL}` },
+  { id: 'boost', kind: 'boosts', target: 20, icon: '💪',
+    label: 'Boost 20 stat points' }
+];
+
+/**
+ * Tiers by share of missions complete: half for bronze, 80% for silver, the
+ * lot for gold. Worked out from the list so a later mission keeps the ratios.
+ */
+export const ACHIEVEMENT_TIERS = [
+  { id: 'bronze', label: 'Bronze', share: 0.5 },
+  { id: 'silver', label: 'Silver', share: 0.8 },
+  { id: 'gold', label: 'Gold', share: 1 }
+].map(t => ({ ...t, missions: Math.ceil(ACHIEVEMENT_MISSIONS.length * t.share) }));
+
+/** Family candy for the bronze and silver tiers, by the family's rarity. Gold pays a title. */
+export const ACHIEVEMENT_CANDY = {
+  1: { bronze: 20, silver: 30 },
+  2: { bronze: 25, silver: 35 },
+  3: { bronze: 30, silver: 40 },
+  4: { bronze: 35, silver: 45 },
+  5: { bronze: 40, silver: 50 },
+  6: { bronze: 50, silver: 60 }
+};
+
+export const achievementCandy = (rarity, tierId) =>
+  (ACHIEVEMENT_CANDY[rarity] ?? ACHIEVEMENT_CANDY[1])[tierId] || 0;
+
+/** "Babybara Expert" — the title a gold family pays, named after its Stage 1. */
+export const achievementTitle = rootId => `${species(rootId)?.name || '?'} Expert`;
+
+/** Which tier `done` completed missions reach, or null. */
+export function achievementTierFor(done) {
+  let tier = null;
+  for (const t of ACHIEVEMENT_TIERS) if (done >= t.missions) tier = t;
+  return tier;
+}
+
+/* ---------------------------------------------------------------
    Exchange Corner
 
    The Research Lab's second counter: hand over a pile of one everyday item and

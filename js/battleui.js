@@ -1347,6 +1347,11 @@ async function finishBattle() {
   // Damage always carries out of the battle.
   store.applyBattleDamage(b.playerResults());
 
+  /* Achievements: damage counts win or lose, the win only for the families that
+     dealt some. A Grand Raid is a raid; every Frontier trainer fight, the Daily
+     Challenge included, counts as a grunt battle. */
+  store.recordBattleAchievements(ctx.kind === 'raid' ? 'raid' : 'grunt', b.damageByUid, won);
+
   let rewards = null;
   /** Set when a Frontier level was won that had already been won on this mode. */
   let repeat = false;

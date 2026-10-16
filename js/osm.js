@@ -14,41 +14,114 @@
 
 import { distance } from './geo.js';
 
+/*
+ * Why this file is built the way it is (October 2026)
+ * ---------------------------------------------------
+ * The public Overpass servers got much less forgiving during 2026. The main
+ * instance (overpass-api.de) is overloaded and now enforces its usage policy:
+ * requests must identify the app (a browser's Referer does that), must not run
+ * in parallel, and after a 429/406 the client is expected to pause ~30 s. For an
+ * app it also asks for a small daily total *summed over every player*. The other
+ * mirrors are frequently down (500/502/504) or hang.
+ *
+ * The old approach — a fresh 150 m query every 90 s scan, reused only within
+ * 30 m, cached in memory only — sent far more requests than that, so the game
+ * kept hitting rate limits and failed on all mirrors at once. Now:
+ *
+ *   1. One lookup covers a wide circle (MIN_FETCH_RADIUS_M) and every scan
+ *      inside it is served locally, so walking about makes a request roughly
+ *      every couple of hundred metres instead of every 90 s.
+ *   2. POIs do not move, so a lookup stays good for hours, and the cache is kept
+ *      in localStorage so a page reload does not throw it away.
+ *   3. Only one request is ever in flight, and a mirror that refuses is left
+ *      alone for a while (longer after a 429/406) instead of being retried.
+ */
+
+/**
+ * NextGIS's keyed instance. It states no request limits for signed-up users,
+ * and in October 2026 it kept answering in about a second while every free
+ * server below was returning 500/502/504. The key travels in the URL, so it is
+ * visible to anyone who opens the page; it is tied to this game's NextGIS
+ * account, and can be rotated there if it is ever abused.
+ */
+const NEXTGIS_KEY = 'my-ojxCS96ehXlOMHv7XctvcB8k1d6WBs9Y';
+
+/**
+ * The keyed server first, then the free public instances (per the OSM wiki) as
+ * a fallback for when it is down.
+ *
+ * overpass.kumi.systems used to be listed separately, but it is the old name of
+ * private.coffee — the same servers — so trying it straight after private.coffee
+ * failed only spent more of the budget on a machine that had just said no.
+ */
 const ENDPOINTS = [
+  `https://overpass.nextgis.com/${NEXTGIS_KEY}/api/interpreter`,
+  'https://overpass.private.coffee/api/interpreter',
   'https://overpass-api.de/api/interpreter',
-  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
-  'https://overpass.kumi.systems/api/interpreter',
-  'https://overpass.private.coffee/api/interpreter'
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
 ];
 
-/** The mirror that answered most recently, tried first on the next scan. */
+/** The mirror that answered most recently, tried first on the next lookup. */
 let preferredEndpoint = null;
 
+/** Mirrors sometimes accept a connection and then never answer, so cap each try. */
+const PER_REQUEST_TIMEOUT_MS = 15_000;
 /**
- * Mirrors sometimes accept a connection and then never answer, so cap each try.
- * Kept low enough that all four mirrors fit inside TOTAL_TIMEOUT_MS — at 12 s
- * the budget ran out after three, so the last mirror was never reached.
+ * Total time we are willing to spend for one lookup, including waiting out a
+ * mirror's cool-down. Mirrors fail in short bursts, so it is worth waiting a
+ * little for one to come back rather than giving up after a single pass.
  */
-const PER_REQUEST_TIMEOUT_MS = 9_000;
-/** Total time we are willing to spend across all mirrors for one scan. */
-const TOTAL_TIMEOUT_MS = 40_000;
+const TOTAL_TIMEOUT_MS = 45_000;
 
-/** Cache POI results so repeated scans from the same spot are cheap. */
-const CACHE_TTL_MS = 30 * 60_000;
 /**
- * Reuse a cached result if the player has drifted less than this from the point
- * it was fetched at. Keeps the 5-minute rescans from hammering Overpass while
- * standing still or wandering a few paces.
+ * How long a mirror is left alone after it fails.
+ *
+ * Rate-limit answers (429/406) get the 30 s the main instance's policy asks for,
+ * doubling to a minute if they keep coming. An outage (5xx, timeout, or the
+ * "CORS" error a browser reports when a 500/502 page arrives without CORS
+ * headers) gets a short flat wait: those failures come back in well under a
+ * second, cost the server almost nothing, and the mirrors tend to recover in
+ * seconds. Doubling these to minutes is what once kept the map empty for five
+ * minutes after the servers were already answering again.
  */
-const CACHE_REUSE_M = 30;
+const COOLDOWN_RATE_LIMITED_MS = 30_000;
+const COOLDOWN_RATE_LIMITED_MAX_MS = 60_000;
+const COOLDOWN_FAILED_MS = 8_000;
+const COOLDOWN_FAILED_MAX_MS = 20_000;
+const cooling = new Map(); // url -> { until, strikes }
+
 /**
- * Last-resort reuse distance, used only when every mirror has failed. Far more
- * generous than CACHE_REUSE_M and it ignores the TTL: shops and bus stops do
- * not move, so spawning from POIs fetched a few streets back is much better
- * than telling the player the scan failed and leaving the map empty.
+ * Every lookup asks for at least this radius, even when the caller wants less.
+ * A 150 m scan is then served from it locally until the player has walked
+ * MIN_FETCH_RADIUS_M - 150 = 250 m from where it was fetched. The extra area
+ * costs the server little; the extra requests it saves are what keep us inside
+ * the rate limits.
+ */
+const MIN_FETCH_RADIUS_M = 400;
+
+/**
+ * How long a lookup is used without asking again. Shops and bus stops do not
+ * move; the 90 s scan re-rolls spawns, it does not need fresh map data.
+ */
+const CACHE_TTL_MS = 12 * 60 * 60_000;
+/**
+ * A forced scan (tapping the timer, debug) still reuses a lookup this young.
+ * Tapping retry over and over used to send a request per tap.
+ */
+const FORCE_REFETCH_AGE_MS = 10 * 60_000;
+/**
+ * Last-resort reuse, only when every mirror has failed: how far the scan circle
+ * may be shifted towards a cached area. It ignores the TTL — spawning from POIs
+ * fetched a few streets back beats an empty map and a "scan failed" toast.
  */
 const STALE_FALLBACK_M = 600;
+/** Cached areas older than this are not even used as a last resort. */
+const STALE_MAX_AGE_MS = 14 * 24 * 60 * 60_000;
 const MAX_CACHE_ENTRIES = 40;
+/** How many areas survive a reload. Each one is a few dozen KB in a city. */
+const MAX_PERSISTED_ENTRIES = 8;
+const STORAGE_KEY = 'sng.poiCache.v2';
+
 const cache = new Map(); // key -> { at, pois, centre, radius }
 
 /**
@@ -62,38 +135,121 @@ function cacheKey(lat, lng, radius) {
   return `${lat.toFixed(4)},${lng.toFixed(4)},${radius}`;
 }
 
-/** Newest still-valid cache entry taken close enough to `lat,lng` to reuse. */
-function findReusable(lat, lng, radius) {
+/**
+ * Freshest cached area that wholly contains the circle (lat, lng, radius) and
+ * is younger than maxAgeMs. Contained means: every point the caller could be
+ * given was inside the area that was fetched.
+ */
+function findCovering(lat, lng, radius, maxAgeMs) {
   const now = Date.now();
-  let best = null, bestDist = Infinity;
+  let best = null;
   for (const entry of cache.values()) {
-    if (entry.radius !== radius) continue;
-    if (now - entry.at >= CACHE_TTL_MS) continue;
+    if (now - entry.at >= maxAgeMs) continue;
     const d = distance({ lat, lng }, entry.centre);
-    if (d <= CACHE_REUSE_M && d < bestDist) { best = entry; bestDist = d; }
+    if (d + radius > entry.radius) continue;
+    if (!best || entry.at > best.at) best = entry;
   }
   return best;
 }
 
 /**
- * Nearest cached result of any age, for the every-mirror-failed path. Ordered
- * by distance so the player gets the most relevant list available.
+ * Cached area of any age (up to STALE_MAX_AGE_MS) the scan circle can be slid
+ * into with the smallest shift, for the every-mirror-failed path.
  */
 function findStale(lat, lng, radius) {
-  let best = null, bestDist = Infinity;
+  const now = Date.now();
+  let best = null, bestShift = Infinity;
   for (const entry of cache.values()) {
-    if (entry.radius !== radius) continue;
-    if (!entry.pois?.length) continue;
-    const d = distance({ lat, lng }, entry.centre);
-    if (d <= STALE_FALLBACK_M && d < bestDist) { best = entry; bestDist = d; }
+    if (entry.radius < radius || !entry.pois?.length) continue;
+    if (now - entry.at >= STALE_MAX_AGE_MS) continue;
+    const shift = Math.max(0, distance({ lat, lng }, entry.centre) - (entry.radius - radius));
+    if (shift <= STALE_FALLBACK_M && shift < bestShift) { best = entry; bestShift = shift; }
   }
   return best;
 }
 
-function remember(key, lat, lng, radius, pois) {
-  cache.set(key, { at: Date.now(), pois, centre: { lat, lng }, radius });
+function remember(lat, lng, radius, pois) {
+  const entry = { at: Date.now(), pois, centre: { lat, lng }, radius };
+  const key = cacheKey(lat, lng, radius);
+  cache.delete(key); // re-insert so it counts as newest
+  cache.set(key, entry);
   // Drop the oldest entries if the map grows too far (Map preserves insertion order).
   while (cache.size > MAX_CACHE_ENTRIES) cache.delete(cache.keys().next().value);
+  persistCache();
+  return entry;
+}
+
+/* ---- surviving a reload ----
+   Only the newest few areas are written. If the browser refuses for space, try
+   again with fewer: losing the oldest area is fine, losing them all is not. */
+function persistCache() {
+  try {
+    const entries = [...cache.values()].slice(-MAX_PERSISTED_ENTRIES);
+    for (let n = entries.length; n > 0; n--) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(entries.slice(-n)));
+        return;
+      } catch { /* over quota: drop the oldest and retry */ }
+    }
+    localStorage.removeItem(STORAGE_KEY);
+  } catch { /* no localStorage (private mode etc.): memory-only, as before */ }
+}
+
+function loadPersistedCache() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const now = Date.now();
+    for (const e of JSON.parse(raw)) {
+      if (!e || !Array.isArray(e.pois) || !e.centre || !(e.radius > 0)) continue;
+      if (!(now - e.at < STALE_MAX_AGE_MS)) continue;
+      // Stored before TREES_ENABLED was switched off? Drop the trees on the way in.
+      const pois = TREES_ENABLED ? e.pois : e.pois.filter(p => p.kind !== 'nature');
+      cache.set(cacheKey(e.centre.lat, e.centre.lng, e.radius), { ...e, pois });
+    }
+  } catch { /* corrupt or unavailable: start empty */ }
+}
+
+/**
+ * The POIs of a cached area that fall in the circle (lat, lng, radius), nearest
+ * first, each with its distance from the caller. Points use their centre; green
+ * space uses its bounding box, so a big park the player is standing in still
+ * counts even though its middle is far away — the same thing Overpass's own
+ * `around` match did when every scan was its own query.
+ */
+function view(entry, lat, lng, radius, distanceFrom = { lat, lng }) {
+  const origin = { lat, lng };
+  const out = [];
+  for (const p of entry.pois) {
+    const reach = p.isPark && p.bounds ? distanceToBounds(origin, p.bounds) : distance(origin, p);
+    if (reach > radius) continue;
+    const { bounds, ...poi } = p;
+    out.push({ ...poi, distance: distance(distanceFrom, p) });
+  }
+  out.sort((a, b) => a.distance - b.distance);
+  return out;
+}
+
+/**
+ * Like view, but for a cached area the circle does not fit inside: the circle
+ * is slid towards the area's centre until it fits, giving the nearest stretch
+ * of map we know. Distances are still measured from the player.
+ */
+function staleView(entry, lat, lng, radius) {
+  const d = distance({ lat, lng }, entry.centre);
+  const room = Math.max(0, entry.radius - radius);
+  if (d <= room) return view(entry, lat, lng, radius);
+  const t = room / d; // fraction of the way from the centre to the player
+  const sLat = entry.centre.lat + (lat - entry.centre.lat) * t;
+  const sLng = entry.centre.lng + (lng - entry.centre.lng) * t;
+  return view(entry, sLat, sLng, radius, { lat, lng });
+}
+
+/** Metres from a point to the nearest edge of a bounding box (0 inside it). */
+function distanceToBounds(pt, b) {
+  const lat = Math.min(Math.max(pt.lat, b.minlat), b.maxlat);
+  const lng = Math.min(Math.max(pt.lng, b.minlon), b.maxlon);
+  return distance(pt, { lat, lng });
 }
 
 function buildQuery(lat, lng, radius) {
@@ -121,11 +277,21 @@ function buildQuery(lat, lng, radius) {
   nwr["building"="service"](around:${radius},${la},${ln});
   nwr["landuse"="grass"](around:${radius},${la},${ln});
 );
-out tags center;`;
+out tags bb;`;
 }
 
+/*
+ * `out tags bb` rather than `out tags center`: nodes still come with lat/lon,
+ * and ways and relations come with their bounding box instead of its centre.
+ * The centre is worked out here (Overpass's `center` is that same bbox centre),
+ * and parks keep the box so a cached lookup can still tell whether the player
+ * is inside or beside a park whose middle is far away.
+ */
 function elementPoint(el) {
   if (typeof el.lat === 'number' && typeof el.lon === 'number') return { lat: el.lat, lng: el.lon };
+  if (el.bounds) {
+    return { lat: (el.bounds.minlat + el.bounds.maxlat) / 2, lng: (el.bounds.minlon + el.bounds.maxlon) / 2 };
+  }
   if (el.center) return { lat: el.center.lat, lng: el.center.lon };
   return null;
 }
@@ -160,68 +326,173 @@ function prettify(v) {
  * @returns {Promise<Array<{id,lat,lng,name,kind,kindValue}>>}
  */
 export async function fetchPOIs(lat, lng, radius = 250, { force = false, signal } = {}) {
-  const key = cacheKey(lat, lng, radius);
   lastStale = null;
-  const hit = force ? null : findReusable(lat, lng, radius);
-  if (hit) return hit.pois;
+  const maxAge = force ? FORCE_REFETCH_AGE_MS : CACHE_TTL_MS;
+  const hit = findCovering(lat, lng, radius, maxAge);
+  if (hit) return view(hit, lat, lng, radius);
 
-  const body = 'data=' + encodeURIComponent(buildQuery(lat, lng, radius));
+  // Past its freshness window but still covering this spot — typically the
+  // game reopened the next day where it was last played. Spawn from it now and
+  // refresh behind the scenes, rather than leaving the map empty while the
+  // servers are slow. The places themselves almost never change.
+  const old = findCovering(lat, lng, radius, STALE_MAX_AGE_MS);
+  if (old) {
+    refreshInBackground(lat, lng, radius);
+    return view(old, lat, lng, radius);
+  }
+
+  return lookUp(lat, lng, radius, maxAge, signal);
+}
+
+/** One background refresh at a time; later requests while it runs are dropped. */
+let refreshing = false;
+function refreshInBackground(lat, lng, radius) {
+  if (refreshing) return;
+  refreshing = true;
+  lookUp(lat, lng, radius, CACHE_TTL_MS, undefined, { fallback: false })
+    .catch(() => { /* the cached copy is still there; the next scan tries again */ })
+    .finally(() => { refreshing = false; });
+}
+
+/** Cache miss: queue a request, falling back to the nearest stale area. */
+function lookUp(lat, lng, radius, maxAge, signal, { fallback = true } = {}) {
+  return oneAtATime(async () => {
+    // Another lookup may have landed while this one waited its turn — the scan
+    // and the daily feather lookup both fire on start-up — and covered us.
+    const landed = findCovering(lat, lng, radius, maxAge);
+    if (landed) return view(landed, lat, lng, radius);
+
+    const fetchRadius = Math.max(radius, MIN_FETCH_RADIUS_M);
+    try {
+      const json = await queryOverpass(buildQuery(lat, lng, fetchRadius), signal);
+      const entry = remember(lat, lng, fetchRadius, normalise(json, { lat, lng }, fetchRadius));
+      return view(entry, lat, lng, radius);
+    } catch (err) {
+      // A background refresh already has its cached copy on screen, and must
+      // not touch lastStale, which belongs to whichever scan reads it next.
+      if (signal?.aborted || !fallback) throw err;
+      // Every mirror failed. Rather than dead-end the scan, reuse the nearest
+      // POIs we have at any age, from this session or an earlier one.
+      const stale = findStale(lat, lng, radius);
+      if (!stale) throw err;
+      lastStale = {
+        ageMs: Date.now() - stale.at,
+        metresAway: Math.round(Math.max(0, distance({ lat, lng }, stale.centre) - (stale.radius - radius))),
+        reason: err?.message || 'Overpass unreachable'
+      };
+      return staleView(stale, lat, lng, radius);
+    }
+  });
+}
+
+/* ---- one request at a time ----
+   The main instance's policy forbids parallel requests from one client, and
+   the scan and the daily feather lookup used to race each other on start-up. */
+let queueTail = Promise.resolve();
+function oneAtATime(task) {
+  const run = queueTail.then(task, task);
+  queueTail = run.catch(() => {});
+  return run;
+}
+
+/**
+ * Sends one query, trying the mirrors best-known first and waiting out their
+ * cool-downs while the budget allows.
+ * @returns the parsed Overpass JSON
+ */
+async function queryOverpass(query, signal) {
+  const body = 'data=' + encodeURIComponent(query);
   const giveUpAt = Date.now() + TOTAL_TIMEOUT_MS;
   let lastErr = null;
 
-  // Whichever mirror answered last time goes first: they fail in streaks, and
-  // a working one is far more likely to work again than a fixed running order.
-  for (const url of endpointsByPreference()) {
-    if (Date.now() >= giveUpAt) {
-      lastErr = lastErr || new Error('Overpass lookup timed out');
-      break;
+  while (Date.now() < giveUpAt) {
+    const now = Date.now();
+    const ready = endpointsByPreference().filter(u => coolingUntil(u) <= now);
+    if (!ready.length) {
+      // Everyone is resting. Wait for the first to come back, if it does in time.
+      const next = Math.min(...ENDPOINTS.map(coolingUntil));
+      if (next >= giveUpAt) break;
+      await sleep(next - now, signal);
+      continue;
     }
 
-    const controller = new AbortController();
-    const budget = Math.min(PER_REQUEST_TIMEOUT_MS, giveUpAt - Date.now());
-    const timer = setTimeout(() => controller.abort(), budget);
-    // Let a caller-supplied signal cancel us too.
-    const onOuterAbort = () => controller.abort();
-    signal?.addEventListener('abort', onOuterAbort, { once: true });
-
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body,
-        signal: controller.signal
-      });
-      if (!res.ok) { lastErr = new Error(`Overpass ${res.status} at ${hostOf(url)}`); continue; }
-      const json = await res.json();
-      const pois = normalise(json, { lat, lng }, radius);
-      remember(key, lat, lng, radius, pois);
-      preferredEndpoint = url;
-      return pois;
-    } catch (e) {
-      // An outer cancellation is fatal; our own timeout just means "try the next mirror".
-      if (signal?.aborted) throw Object.assign(new Error('Scan cancelled'), { name: 'AbortError' });
-      lastErr = e?.name === 'AbortError'
-        ? new Error(`${hostOf(url)} did not respond in ${Math.round(budget / 1000)} s`)
-        : e;
-    } finally {
-      clearTimeout(timer);
-      signal?.removeEventListener('abort', onOuterAbort);
+    for (const url of ready) {
+      const budget = Math.min(PER_REQUEST_TIMEOUT_MS, giveUpAt - Date.now());
+      if (budget < 1000) break;
+      try {
+        const json = await postOnce(url, body, budget, signal);
+        cooling.delete(url);
+        preferredEndpoint = url;
+        return json;
+      } catch (e) {
+        if (signal?.aborted) throw abortError();
+        lastErr = e;
+        coolDown(url, e.status);
+      }
     }
   }
+  throw lastErr || new Error('Overpass lookup timed out');
+}
 
-  // Every mirror failed. Rather than dead-end the scan, reuse the nearest POIs
-  // we have at any age — this used to require an exact cache-key match, which
-  // while walking almost never hit, so a mirror outage meant no spawns at all.
-  const stale = cache.get(key) || findStale(lat, lng, radius);
-  if (stale) {
-    lastStale = {
-      ageMs: Date.now() - stale.at,
-      metresAway: Math.round(distance({ lat, lng }, stale.centre)),
-      reason: lastErr?.message || 'Overpass unreachable'
-    };
-    return stale.pois;
+async function postOnce(url, body, budget, signal) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), budget);
+  // Let a caller-supplied signal cancel us too.
+  const onOuterAbort = () => controller.abort();
+  signal?.addEventListener('abort', onOuterAbort, { once: true });
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+      // The default, spelt out: Overpass identifies browser apps by the Referer,
+      // and a request without one is refused on the main instance.
+      referrerPolicy: 'strict-origin-when-cross-origin',
+      signal: controller.signal
+    });
+    if (!res.ok) {
+      throw Object.assign(new Error(`Overpass ${res.status} at ${hostOf(url)}`), { status: res.status });
+    }
+    const json = await res.json();
+    // An overloaded server can answer 200 with a runtime error and a partial
+    // list. Caching that would hide places for hours, so treat it as a failure.
+    if (typeof json?.remark === 'string' && /runtime error|timed out|out of memory/i.test(json.remark)) {
+      throw Object.assign(new Error(`Overpass busy at ${hostOf(url)}`), { status: 504 });
+    }
+    return json;
+  } catch (e) {
+    if (e?.name === 'AbortError' && !signal?.aborted) {
+      throw new Error(`${hostOf(url)} did not respond in ${Math.round(budget / 1000)} s`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', onOuterAbort);
   }
-  throw lastErr || new Error('Could not reach any Overpass server');
+}
+
+function coolDown(url, status) {
+  const strikes = (cooling.get(url)?.strikes || 0) + 1;
+  const limited = status === 429 || status === 406;
+  const ms = limited
+    ? Math.min(COOLDOWN_RATE_LIMITED_MS * 2 ** (strikes - 1), COOLDOWN_RATE_LIMITED_MAX_MS)
+    : Math.min(COOLDOWN_FAILED_MS * strikes, COOLDOWN_FAILED_MAX_MS);
+  cooling.set(url, { until: Date.now() + ms, strikes });
+}
+
+function coolingUntil(url) { return cooling.get(url)?.until || 0; }
+
+function sleep(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) { reject(abortError()); return; }
+    const onAbort = () => { clearTimeout(t); reject(abortError()); };
+    const t = setTimeout(() => { signal?.removeEventListener('abort', onAbort); resolve(); }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+function abortError() {
+  return Object.assign(new Error('Scan cancelled'), { name: 'AbortError' });
 }
 
 /** Mirrors, best-known first. */
@@ -335,6 +606,8 @@ function normalise(json, origin, radius) {
       isGarden: !!info.isGarden,
       // And so is a grass verge, on its own rate again.
       isGrass: !!info.isGrass,
+      // Green space only: lets view() test the park's extent, not its middle.
+      ...(isPark && el.bounds ? { bounds: el.bounds } : {}),
       distance: d
     });
   }
@@ -350,4 +623,10 @@ export function splitPOIs(pois) {
   };
 }
 
-export function clearPOICache() { cache.clear(); }
+export function clearPOICache() {
+  cache.clear();
+  try { localStorage.removeItem(STORAGE_KEY); } catch { /* unavailable */ }
+}
+
+// Last, so TREES_ENABLED and the rest are initialised before it runs.
+loadPersistedCache();

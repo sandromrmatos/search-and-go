@@ -2260,3 +2260,112 @@ a.ad-link:active { transform: scale(.98); }
   background: linear-gradient(90deg, #ffd16633, #ff8ec733);
   border-color: #ffd16666; color: #ffe9a8;
 }
+
+/* ============================================================
+   ACHIEVEMENTS
+   ============================================================ */
+:root {
+  --ach-bronze: #cd7f32;
+  --ach-silver: #c9d1e0;
+  --ach-gold: #ffcc4d;
+}
+
+/* The Profile entry: a card that is a button. */
+.ach-entry {
+  position: relative;
+  display: flex; align-items: center; gap: 12px;
+  width: calc(100% - 24px); text-align: left; color: var(--txt); font: inherit;
+  cursor: pointer;
+}
+.ach-entry-ico { font-size: 26px; }
+.ach-entry-main { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.ach-entry-main b { font-size: 15px; }
+.ach-entry-go { font-size: 22px; color: var(--muted); }
+.ach-entry .claim-dot {
+  position: absolute; top: -6px; right: -4px;
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 99px;
+  display: grid; place-items: center; font-size: 10.5px; font-weight: 800;
+  background: var(--accent2); color: #241c00; border: 2px solid #101736;
+}
+/* Lit when the Profile badge has something waiting, so it is the obvious next tap. */
+.ach-entry.claimable {
+  border-color: #ffd16699;
+  background: linear-gradient(135deg, #ffd1661f, var(--panel-solid));
+  animation: achPulse 1.6s ease-in-out infinite;
+}
+@keyframes achPulse {
+  0%, 100% { box-shadow: 0 0 0 0 #ffd16633; }
+  50% { box-shadow: 0 0 16px 3px #ffd16655; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ach-entry.claimable { animation: none; box-shadow: 0 0 12px #ffd16655; }
+}
+
+/* The worn title, beside the nickname. */
+.p-title {
+  font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 99px;
+  color: #241c00; background: linear-gradient(135deg, #ffe08a, var(--ach-gold));
+}
+.title-sel { margin: 4px 0 6px; max-width: 220px; }
+
+.view-achievements .view-head { align-items: center; gap: 8px; }
+.view-achievements .view-head h2 { flex: 1; }
+.ach-legend { padding: 0 14px 8px; margin: 0; }
+
+/* Tier chips, used in the legend and the family sheet. */
+.ach-chip {
+  display: inline-block; font-size: 10.5px; font-weight: 800; letter-spacing: .3px;
+  padding: 1px 8px; border-radius: 99px; color: #1a1408;
+}
+.ach-chip.ach-bronze { background: var(--ach-bronze); color: #fff3e6; }
+.ach-chip.ach-silver { background: var(--ach-silver); }
+.ach-chip.ach-gold { background: var(--ach-gold); }
+
+/* The tile border is the tier. */
+.cell.ach-cell { border-width: 2px; }
+.cell.ach-bronze { border-color: var(--ach-bronze); box-shadow: 0 0 10px #cd7f3244; }
+.cell.ach-silver { border-color: var(--ach-silver); box-shadow: 0 0 10px #c9d1e055; }
+.cell.ach-gold {
+  border-color: var(--ach-gold); box-shadow: 0 0 14px #ffcc4d66;
+  background: linear-gradient(160deg, #ffcc4d1c, var(--panel-solid));
+}
+.cell .ach-dot {
+  position: absolute; top: -6px; left: -4px; z-index: 1;
+  min-width: 16px; height: 16px; padding: 0 4px; border-radius: 99px;
+  display: grid; place-items: center; font-size: 10px; font-weight: 800;
+  background: var(--accent2); color: #241c00; border: 2px solid #101736;
+}
+
+/* ---- family sheet ---- */
+.ach-head { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+.ach-head-art {
+  width: 92px; height: 92px; flex: 0 0 auto; border-radius: 16px; padding: 6px;
+  border: 2px solid var(--line); background: var(--panel-solid);
+}
+.ach-head-art img { width: 100%; height: 100%; object-fit: contain; }
+.ach-head-art.ach-bronze { border-color: var(--ach-bronze); }
+.ach-head-art.ach-silver { border-color: var(--ach-silver); }
+.ach-head-art.ach-gold { border-color: var(--ach-gold); box-shadow: 0 0 14px #ffcc4d66; }
+.ach-head-meta { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.ach-head-meta h3 { margin: 0; }
+
+.ach-family { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 2px; }
+.ach-member { display: flex; flex-direction: column; align-items: center; width: 64px; font-size: 10.5px; text-align: center; }
+.ach-member img { width: 48px; height: 48px; object-fit: contain; }
+.ach-member.locked img { filter: brightness(0) contrast(0); opacity: .5; }
+.ach-member.locked { color: var(--muted); }
+
+.ach-tiers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0 4px; }
+.ach-tier {
+  display: flex; flex-direction: column; align-items: center; gap: 5px; text-align: center;
+  padding: 10px 6px; border-radius: 12px; border: 2px solid var(--line);
+  background: var(--panel-solid); opacity: .7;
+}
+.ach-tier.reached { opacity: 1; }
+.ach-tier.ach-bronze.reached { border-color: var(--ach-bronze); }
+.ach-tier.ach-silver.reached { border-color: var(--ach-silver); }
+.ach-tier.ach-gold.reached { border-color: var(--ach-gold); }
+.ach-tier .btn { padding: 6px 12px; font-size: 12px; }
+.ach-missions { padding: 8px 0 4px; }
+/* A finished mission stays easy to read, unlike a claimed one in Missions. */
+.mission.ach-done { opacity: .75; }
