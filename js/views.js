@@ -24,7 +24,7 @@ import {
   abilityText, clauseConditionText, clauseEffectText, buffMoveText,
   moveEffectText, moveSummaryText,
   GALACTIC_SET_NAME, MYTHICAL_RARITY, unlockedGalacticRarities,
-  TEMPORAL_SET_NAME, unlockedTemporalRarities,
+  TEMPORAL_SET_NAME, unlockedTemporalRarities, unlockedCrystalRarities,
   discoverableSpeciesCount, shinyObtainableSpeciesCount,
   setIncenseOptions
 } from './data.js';
@@ -2795,6 +2795,19 @@ export function renderCollection() {
             + `The rest arrive through the <b>Set</b> missions.`
           : `None unlocked yet. Fill in <b>${GALACTIC_SET_NAME}</b> and the <b>Set</b> missions open these up one rarity at a time.`
       ) + extra;
+    } else if (set.id === 'crystal-canopy') {
+      const got = unlockedCrystalRarities();
+      const restricted = setSpecies.filter(sp => sp.spawnRestriction).length;
+      const extra = restricted
+        ? ` <b>${restricted}</b> of these only appear under certain conditions. Open one to see what it needs.`
+        : '';
+      text = (got.length === 5
+        ? `Every rarity is unlocked — the whole set is in circulation.`
+        : got.length
+          ? `Unlocked so far: <b>${got.map(r => RARITY_NAMES[r]).join(', ')}</b>. `
+            + `The rest arrive through the <b>Set</b> missions.`
+          : `None unlocked yet. Fill in <b>${TEMPORAL_SET_NAME}</b> and the <b>Set</b> missions open these up one rarity at a time.`
+      ) + extra;
     } else if (set.id === 'mythical') {
       text = shinyMode
         ? `Mythicals have <b>no shiny form</b> — the eggs they come from never roll one, so there is nothing to complete here.`
@@ -3290,20 +3303,31 @@ export function renderProfile() {
 export function renderSaveStatus() {
   const st = Persist.status();
   const bits = [];
-  if (st.autoFileSave) bits.push(`Auto-saving to "${st.fileName}" on your device.`);
+  const time = t => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const when = t => {
+    const d = new Date(t);
+    return d.toDateString() === new Date().toDateString() ? time(t) : d.toLocaleString();
+  };
+  if (st.twoFiles) bits.push(`Auto-saving to "${st.fileName}" and "${st.fileNameB}" in turn.`);
+  else if (st.autoFileSave) bits.push(`Auto-saving to "${st.fileName}" on your device.`);
   else if (st.linked && st.filePermission !== 'granted') bits.push(`Save file "${st.fileName}" needs permission again — tap "Link save file" to re-grant.`);
   else if (st.supportsFS) bits.push('No device file linked yet. Progress is stored in the browser database only.');
   else bits.push('This browser cannot write device files directly — use "Download backup" to keep a copy.');
+  if (st.autoFileSave && st.lastFileWriteAt) bits.push(`File last written ${time(st.lastFileWriteAt)}.`);
+  if (st.lastFileError) bits.push(`⚠ Last file write failed: ${st.lastFileError}`);
   bits.push(st.persisted ? 'Browser storage is marked persistent.' : 'Browser storage is not persistent (may be evicted under pressure).');
-  if (store.lastSavedAt) bits.push(`Last saved ${new Date(store.lastSavedAt).toLocaleTimeString()}.`);
-  // The daily cloud copy. Deliberately last: it is a safety net, not the
-  // primary save, and saying so keeps expectations right.
+  if (store.lastSavedAt) bits.push(`Last saved ${time(store.lastSavedAt)}.`);
+  if (st.lastLocalBackupError) bits.push(`⚠ Browser backup copy failed: ${st.lastLocalBackupError}`);
+  // The cloud copy. Deliberately last: it is a safety net, not the primary
+  // save — but a failing one is said plainly, never hidden.
   const cloud = cloudStatus(store.s);
-  bits.push(cloud.backedUpToday
-    ? 'Backed up to the cloud today.'
-    : cloud.error
-      ? 'Cloud backup unavailable right now.'
-      : 'Cloud backup happens once a day.');
+  if (cloud.error) {
+    bits.push(`⚠ Cloud backup failed: ${cloud.error}${cloud.lastBackupAt ? ` Last good one ${when(cloud.lastBackupAt)}.` : ''}`);
+  } else if (cloud.lastBackupAt) {
+    bits.push(`Backed up to the cloud ${when(cloud.lastBackupAt)} (every 30 minutes of play).`);
+  } else {
+    bits.push('Not backed up to the cloud yet — it happens every 30 minutes of play.');
+  }
   $('#save-status').textContent = bits.join(' ');
 
   // Keep the red guard banner in step with the live state.
@@ -3329,6 +3353,13 @@ export function renderSaveStatus() {
     }
   }
   $('#btn-link-file').textContent = st.linked ? 'Re-link / change save file' : 'Link save file on device';
+  // Offered once the main file is working; re-offered if the second one lost
+  // its permission, so it can be picked again.
+  const linkB = $('#btn-link-file-b');
+  if (linkB) {
+    linkB.classList.toggle('hidden', !st.autoFileSave || st.twoFiles);
+    linkB.textContent = st.linkedB ? 'Re-link second save file' : 'Link a second save file (recommended)';
+  }
   $('#btn-link-file').disabled = !st.supportsFS;
   $('#btn-load-file').disabled = !st.supportsFS;
 }

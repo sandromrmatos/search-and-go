@@ -6,7 +6,7 @@ import {
   species, familyName, familyRarity, RARITY_NAMES, RULES,
   BREEDING_UNLOCK_LEVEL, BREEDING_CANDY_CAP, BREEDING_SLOTS_BY_LEVEL,
   SET_NAME, GALACTIC_SET_NAME, MYTHICAL_RARITY, MYTHICAL_EGG_TYPE, SET_MISSIONS,
-  TEMPORAL_SET_NAME, CHROMARION_EGG_TYPE, restrictedSpecies,
+  TEMPORAL_SET_NAME, CHROMARION_EGG_TYPE, restrictedSpecies, CRYSTAL_SET_NAME,
   scanIntervalLabel,
   SHOP_ITEMS, COIN_ICON, shopFullSweepCoins,
   SPOTLIGHT_LABEL, SPOTLIGHT_DAY, SPOTLIGHT_START, SPOTLIGHT_END,
@@ -55,7 +55,7 @@ import {
   FOSSIL_SHINY_ODDS, FOSSIL_POI_VALUES, fossilRevivePool,
   FEATHER_ITEM, FEATHER_POINTS_PER_DAY, FEATHER_MIN_M, FEATHER_MAX_M,
   FEATHERS_PER_DIAMOND, DIAMOND_ITEM, DIAMOND_STARDUST_COST, DIAMOND_POWER_BONUS,
-  DIAMOND_WINS_NEEDED, DIAMOND_METRES_NEEDED
+  DIAMOND_WINS_NEEDED, DIAMOND_METRES_NEEDED, STATUS_CONDITIONS
 } from './data.js';
 import { store, maxHpOf, hpOf, isFainted } from './state.js';
 import { itemImage, itemName, ITEMS, itemsInOrder } from './items.js';
@@ -201,9 +201,12 @@ export function renderMissions() {
       : `Fill in <b>${from}</b> to unlock <b>${label}</b>, one rarity at a time.`;
     const galactic = store.galacticUnlocked;
     const temporal = store.temporalUnlocked;
-    timer.innerHTML = galactic.length === 5 || temporal.length
-      ? line(TEMPORAL_SET_NAME, temporal, GALACTIC_SET_NAME)
-      : line(GALACTIC_SET_NAME, galactic, SET_NAME);
+    const crystal = store.crystalUnlocked;
+    timer.innerHTML = temporal.length === 5 || crystal.length
+      ? line(CRYSTAL_SET_NAME, crystal, TEMPORAL_SET_NAME)
+      : galactic.length === 5 || temporal.length
+        ? line(TEMPORAL_SET_NAME, temporal, GALACTIC_SET_NAME)
+        : line(GALACTIC_SET_NAME, galactic, SET_NAME);
   } else {
     timer.classList.add('hidden');
   }
@@ -270,6 +273,12 @@ function missionRow(m) {
               text: `⏳ Unlocks ${TEMPORAL_SET_NAME} rarity ${m.def.unlockTemporalRarity} (${RARITY_NAMES[m.def.unlockTemporalRarity]})`
             })
           : null,
+        m.def.unlockCrystalRarity
+          ? el('span', {
+              class: 'r reward-unlock',
+              text: `💎 Unlocks ${CRYSTAL_SET_NAME} rarity ${m.def.unlockCrystalRarity} (${RARITY_NAMES[m.def.unlockCrystalRarity]})`
+            })
+          : null,
         m.def.unlockExclusiveSet
           ? el('span', {
               class: 'r reward-unlock',
@@ -325,6 +334,10 @@ function claim(id, opts = {}) {
   }
   if (r.unlockedTemporalRarity) {
     toast(`${RARITY_NAMES[r.unlockedTemporalRarity]} ${TEMPORAL_SET_NAME} creatures can now appear!`,
+      'good', 5000);
+  }
+  if (r.unlockedCrystalRarity) {
+    toast(`${RARITY_NAMES[r.unlockedCrystalRarity]} ${CRYSTAL_SET_NAME} creatures can now appear!`,
       'good', 5000);
   }
   if (r.egg) toast(`A ${eggLabel(r.egg.type)} was added to your Eggs`, 'good', 4200);
@@ -1544,7 +1557,13 @@ function renderBreedPicker() {
   $('#breed-picker-hint').textContent =
     `Two of the same creature generate that family's candy, twice as fast if both `
     + `are holding a ${heldItemName('breeding_amulet')} — the ◈ badge shows who is.`;
-  $('#breed-picker-empty').classList.toggle('hidden', all.length > 0);
+  // Empty because of the search, or empty for real: say which, since only the
+  // first is fixed by tapping Clear in the toolbar.
+  const empty = $('#breed-picker-empty');
+  empty.classList.toggle('hidden', all.length > 0);
+  empty.textContent = usable.length > 0 && all.length === 0
+    ? 'Nothing matches your search. Tap Clear next to the Find box to see all your creatures.'
+    : 'You need two of the same creature that are not already breeding.';
   // The same toolbar as every other picker, with the pair counter alongside it.
   renderPickerTools(() => { breedPage = 0; renderBreedPicker(); }, {
     host: '#breed-picker-tools',
@@ -1657,13 +1676,15 @@ function confirmBreedPair() {
 }
 
 /**
- * Species the player owns two or more usable copies of. Built from the same
- * candidate list the picker shows, so the slot button can never say a pair is
- * available when the picker cannot offer one (or the other way round).
+ * Species the player owns two or more usable copies of. Counted before the
+ * picker's Find box narrows anything: that search is shared and remembered, so
+ * a name typed to find the last pair would otherwise hide every other creature
+ * and lock the slot button with "No pairs available" — with no way into the
+ * picker to clear it.
  */
 function eligiblePairs() {
   const bySpecies = new Map();
-  for (const c of breedCandidates()) {
+  for (const c of breedEligible()) {
     if (!bySpecies.has(c.speciesId)) bySpecies.set(c.speciesId, []);
     bySpecies.get(c.speciesId).push(c.uid);
   }
@@ -1814,6 +1835,7 @@ function renderInfo(tab = 'basics') {
         el('li', { html: `<b>${SET_NAME}</b> — the ${DB.species.filter(s => s.set === SET_NAME).length} creatures you start the game with. These are what spawn on the map from the very first scan.` }),
         el('li', { html: `<b>${GALACTIC_SET_NAME}</b> — ${DB.galactic.length} more creatures, <b>locked to begin with</b>. You open them one rarity at a time through the <b>Set</b> missions, and each rarity you open joins the ordinary pools for good: wild spawns, incense, eggs, raids and grunt teams alike. See Set missions below.` }),
         el('li', { html: `<b>${TEMPORAL_SET_NAME}</b> — ${DB.temporal.length} more again, opened the same way but off the back of <b>${GALACTIC_SET_NAME}</b> rather than the first set. Two things are new here: some of these creatures have <b>more than one possible evolution</b> and you choose which one you want, and <b>${restrictedSpecies().length}</b> of them only appear under <b>certain conditions</b>. See below.` }),
+        el('li', { html: `<b>${CRYSTAL_SET_NAME}</b> — ${DB.crystal.length} more, opened off the back of <b>${TEMPORAL_SET_NAME}</b>. This set brings <b>status conditions</b>: some moves and abilities leave the opponent hallucinating, locked, rusted and more. See the Battles tab.` }),
         el('li', { html: `<b>${EXCLUSIVE_SET_NAME}</b> — <b>${DB.exclusiveInPlay.length} creatures</b> that never appear in the wild, from an incense, or from a normal egg. <b>Exclusive Raids</b> and the <b>15 km eggs</b> they drop are the only way to get them, and they only come in rarities <b>3, 4 and 5</b>.${
           store.exclusive2Unlocked || !DB.exclusive2.length ? ''
             : ` A <b>second wave</b> is waiting behind a <b>Set</b> mission — register all ${DB.exclusiveInPlay.length} of these and it opens.`
@@ -1830,11 +1852,16 @@ function renderInfo(tab = 'basics') {
               ? `opens <b>rarity ${m.unlockGalacticRarity}</b> ${GALACTIC_SET_NAME} creatures`
               : m.unlockTemporalRarity
                 ? `opens <b>rarity ${m.unlockTemporalRarity}</b> ${TEMPORAL_SET_NAME} creatures`
+                : m.unlockCrystalRarity
+                ? `opens <b>rarity ${m.unlockCrystalRarity}</b> ${CRYSTAL_SET_NAME} creatures`
+                : m.grantEgg
+                ? `pays an <b>${eggLabel(m.grantEgg)}</b>`
                 : m.unlockExclusiveSet
                   ? `opens <b>${DB.exclusive2.length} more ${EXCLUSIVE_SET_NAME}</b> creatures`
                   : 'pays XP and stardust'
           }${m.id === 'ga5' ? ', plus a <b>Breeding Centre</b> and a <b>50 km egg</b>' : ''}${
-            m.id === 'tr5' ? ', plus a <b>Mysterious Incense</b> and a <b>Chromarion 50 km egg</b>' : ''}.`
+            m.id === 'tr5' ? ', plus a <b>Mysterious Incense</b> and a <b>Chromarion 50 km egg</b>' : ''}${
+            m.id === 'cc5' ? ', plus a <b>Set Incense</b>' : ''}.`
         })),
         el('li', { html: 'The bar fills as you register creatures, but the <b>Claim</b> button waits for the XP as well — the row tells you how much you still need.' }),
         el('li', { html: 'Nothing appears until you actually <b>claim</b> the mission. Completing it is not enough.' }),
@@ -1860,7 +1887,8 @@ function renderInfo(tab = 'basics') {
       el('p', { html: `<b>${RARITY_NAMES[MYTHICAL_RARITY]}</b> creatures are rarity ${MYTHICAL_RARITY} and sit outside all the usual pools — they never spawn, never appear in a raid, and never hatch from an ordinary egg. Each one has a single specific way of being obtained, and its <b>own egg</b>, so a new one can never dilute the odds of an old one.` }),
       el('ul', {},
         el('li', { html: `<b>Astralyon</b> comes from the <b>50 km egg</b> paid out by the last <b>${GALACTIC_SET_NAME}</b> Set mission.` }),
-        el('li', { html: `<b>Chromarion</b> comes from the <b>Chromarion 50 km egg</b> paid out by the last <b>${TEMPORAL_SET_NAME}</b> Set mission.` })
+        el('li', { html: `<b>Chromarion</b> comes from the <b>Chromarion 50 km egg</b> paid out by the last <b>${TEMPORAL_SET_NAME}</b> Set mission.` }),
+        el('li', { html: `<b>Aetherave</b> comes from the <b>Aetherave 50 km egg</b>, paid for registering <b>every</b> ${TEMPORAL_SET_NAME} creature.` })
       ),
       el('p', { html: `Their <b>multi-stat move</b> is what sets them apart: instead of touching one stat it moves <b>several at once</b>, and the battle log names each one. Astralyon's raises its own <b>Attack, Defence and Speed</b>; Chromarion's does the opposite to its opponent, dropping all three.` }),
       el('h4', { text: 'The map' }),
@@ -2126,6 +2154,14 @@ function renderInfo(tab = 'basics') {
         el('li', { html: '<b>Neutral</b> is not resisted by anything.' })
       ),
       el('p', { html: 'The two charts are separate — being strong against something does not mean it is weak back. <b>Mechanic</b> hits Neutral hardest but is resisted by the other three, so it is the biggest gamble in the game.' }),
+      el('h4', { text: 'Status conditions' }),
+      el('p', { html: `Some moves and abilities — most of them from <b>${CRYSTAL_SET_NAME}</b> — leave the opponent with a <b>status condition</b>. A move shows its chance of causing one, and a creature carrying one shows it as a purple tag beside its HP. Each one lasts until that creature faints, apart from <b>Loop</b> and <b>Iced</b>, which wear off. A creature can have several different ones at once.` }),
+      el('ul', {},
+        ...Object.entries(STATUS_CONDITIONS).map(([name, def]) =>
+          el('li', { html: `${def.icon} <b>${name}</b> — ${def.blurb}` })),
+        el('li', { html: 'When Loop lands before the creature has moved that turn, it is held to the move it used last time straight away, and that counts as the first of the three turns.' }),
+        el('li', { html: 'If a status takes away every move a creature has, it waits out the turn.' })
+      ),
       el('h4', { text: 'Held items' }),
       el('p', { html: `A creature can carry <b>one held item</b>. They live in their own <b>Held items</b> tab in your Storage, and most only suit part of your roster — the tab and the creature's own slot both say why something is greyed out.` }),
       el('ul', {},

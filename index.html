@@ -357,15 +357,20 @@
           <button id="btn-load-file" class="btn ghost">Restore from file…</button>
         </div>
         <div class="btn-row">
+          <button id="btn-link-file-b" class="btn ghost hidden">Link a second save file</button>
+        </div>
+        <div class="btn-row">
           <button id="btn-export" class="btn ghost">Download backup</button>
           <label class="btn ghost file-label">
             Import backup…
-            <input id="input-import" type="file" accept="application/json,.json" hidden />
+            <input id="input-import" type="file" accept="application/json,.json,text/plain,.txt" hidden />
           </label>
         </div>
         <p class="muted small">
           Linking a save file writes your progress straight to your device storage (e.g. Documents),
-          so it survives clearing browser data. Keep this game installed to your home screen for best results.
+          so it survives clearing browser data. Link a second file as well and saves take turns between
+          the two, so a phone switching off mid-save can only ever damage one of them.
+          Keep this game installed to your home screen for best results.
         </p>
         <div class="btn-row">
           <button id="btn-wipe" class="btn danger">Reset all progress</button>

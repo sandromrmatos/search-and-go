@@ -105,14 +105,15 @@ function hideStage() {
 /* ---------------------------------------------------------------
    Reveal card
    --------------------------------------------------------------- */
-function showReveal({ sp, isNew, rewards, title, imageSrc, shiny }) {
+function showReveal({ sp, isNew, rewards, title, imageSrc, shiny, newShiny }) {
   $('#stage-anim').classList.add('hidden');
   const reveal = $('#reveal');
   reveal.classList.remove('hidden');
 
   const banner = $('#reveal-new');
   if (shiny) {
-    banner.textContent = '★ SHINY ★';
+    // First shiny of this creature ever, or one you already have.
+    banner.textContent = newShiny ? '★ NEW SHINY ★' : '★ SHINY ★';
     banner.className = 'new-banner shiny-banner';
     banner.classList.remove('hidden');
   } else {
@@ -247,7 +248,7 @@ function waitForDismiss() {
 /* ---------------------------------------------------------------
    Capture: sparkles grow → shake → explode → creature revealed
    --------------------------------------------------------------- */
-export async function playCapture({ sp, isNew, rewards, imageSrc, shiny }) {
+export async function playCapture({ sp, isNew, rewards, imageSrc, shiny, newShiny }) {
   resetStage();
   const total = RULES.CAPTURE_ANIM_MS;
   const growMs = Math.max(1200, total - 700);
@@ -270,7 +271,7 @@ export async function playCapture({ sp, isNew, rewards, imageSrc, shiny }) {
   await sleep(revealAt - growMs);
   await ready;
 
-  showReveal({ sp, isNew, rewards, imageSrc: src, shiny });
+  showReveal({ sp, isNew, rewards, imageSrc: src, shiny, newShiny });
   await waitForDismiss();
 }
 

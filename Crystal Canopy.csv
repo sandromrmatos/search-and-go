@@ -1,0 +1,74 @@
+id_output,Name,Note for moves or abilities,Stage,Type,image,Rarity,Spawn Restriction,Evolves to,Evolution candy,HP,Attack,Defence,Speed,Total,Move1 Name,Move1 Power,Move1 Level,Move1 Effect,Move1 Effect number,Move2 Name,Move2 Power,Move2 Level,Move2 Effect,Move2 Effect number,Move3 Name,Move3 Power,Move3 Level,Move3 Effect,Move3 Effect number,Move4 Name,Move4 Power,Move4 Level,Move4 Effect,Move4 Effect number
+Crystal Canopy_01,Ubruma,,Stage 1,Mystic,Ubruma.png,1,,Tubshade,25,50,45,48,62,205,Shade Tap,24,1,,,Gloom Splash,42,3,,,,,,,,,,,,
+Crystal Canopy_02,Tubshade,,Stage 2,Mystic,Tubshade.png,,,Nyamroot,50,68,66,62,80,276,Shade Tap,24,1,,,Gloom Splash,42,3,,,Murk Veil,0,5,Buff self defence,35%,,,,,
+Crystal Canopy_03,Nyamroot,4th move power 65 has 50% chance of causing Hallucination,Stage 3,Mystic,Nyamroot.png,,,,,82,88,74,90,334,Shade Tap,24,1,,,Gloom Splash,42,3,,,Murk Veil,0,5,Buff self defence,35%,Root Delirium,65,8,Hallucination,50%
+Crystal Canopy_04,Toxflare,"average/low stats, but 3rd move is a 0 power, guaranteed hallucination",Stage 1,Mystic,Toxflare.png,4,,,,70,70,70,75,285,Toxic Flick,34,1,,,Venom Flare,52,3,,,Fever Haze,0,6,Hallucination,100%,Toxic Bloom,74,9,,
+Crystal Canopy_05,Vulphex,,Stage 1,Mystic,Vulphex.png,2,,Neurobane,30,54,62,46,66,228,Hex Nip,28,1,,,Fox Fire,44,3,,,Cunning Glare,0,6,Debuff opponent attack,30%,,,,,
+Crystal Canopy_06,Neurobane,"4th move, causes disorient",Stage 2,Mystic,Neurobane.png,,,,,78,92,70,86,326,Hex Nip,28,1,,,Fox Fire,44,3,,,Cunning Glare,0,6,Debuff opponent attack,30%,Neural Static,70,9,Disorient,100%
+Crystal Canopy_07,Twignome,,Stage 1,Mystic,Twignome.png,2,,Sylvickie,30,60,52,62,48,222,Twig Poke,26,1,,,Gnome Gust,40,4,,,,,,,,,,,,
+Crystal Canopy_08,Sylvickie,"move 3: 49 power, 50% chance of causing loop",Stage 2,Mystic,Sylvickie.png,,,,,86,80,88,66,320,Twig Poke,26,1,,,Gnome Gust,40,4,,,Sylvan Spiral,49,6,Loop,50%,Woodland Wrath,72,9,,
+Crystal Canopy_09,Yamourn,,Stage 1,Mystic,Yamourn.png,1,,Shadegeist,25,55,58,45,52,210,Mourn Swipe,25,1,,,Sorrow Sting,43,3,,,,,,,,,,,,
+Crystal Canopy_10,Shadegeist,"abillity: when damaged by an opponent, there's a 50% chance of causing hallucination",Stage 2,Mystic,Shadegeist.png,,,,,80,90,62,78,310,Mourn Swipe,25,1,,,Sorrow Sting,43,3,,,Haunt Boost,0,6,Buff self attack,35%,Spectral Rend,68,8,,
+Crystal Canopy_11,Gemnocus,,Stage 1,Mystic,Gemnocus.png,3,,Oculara,30,58,60,66,56,240,Gem Glint,27,1,,,Prism Pulse,45,3,,,Facet Guard,0,6,Buff self defence,35%,,,,,
+Crystal Canopy_12,Oculara,"stat swap attack, speed",Stage 2,Mystic,Oculara.png,,,,,84,96,72,78,330,Gem Glint,27,1,,,Prism Pulse,45,3,,,Facet Guard,0,6,Buff self defence,35%,Eye Swap,55,9,"Stat swap attack, speed",100%
+Crystal Canopy_13,Donnama Spring,,Stage 1,Mystic,Donnama Spring.png,4,"Month = March, April, May",,,75,75,75,75,300,Seasonal Tap,33,1,,,Petal Cycle,50,3,,,Equinox Glow,0,6,Buff self attack,35%,Spring Daze,0,9,Hallucination,100%
+Crystal Canopy_14,Donnama Summer,,Stage 1,Mystic,Donnama Summer.png,4,"Month = June, July, August",,,75,75,75,75,300,Seasonal Tap,33,1,,,Petal Cycle,50,3,,,Equinox Glow,0,6,Buff self attack,35%,Heat Shimmer,0,9,Flux,100%
+Crystal Canopy_15,Donnama Autumn,,Stage 1,Mystic,Donnama Autumn.png,4,"Month = September, October, November",,,75,75,75,75,300,Seasonal Tap,33,1,,,Petal Cycle,50,3,,,Equinox Glow,0,6,Buff self attack,35%,Autumn Decay,0,9,Rust,100%
+Crystal Canopy_16,Donnama Winter,,Stage 1,Mystic,Donnama Winter.png,4,"Month = December, January, February",,,75,75,75,75,300,Seasonal Tap,33,1,,,Petal Cycle,50,3,,,Equinox Glow,0,6,Buff self attack,35%,Winter Freeze,0,9,Iced,100%
+Crystal Canopy_17,Peckaroo,,Stage 1,Wind,Peckaroo.png,1,,Cluckster,25,40,52,35,80,207,Peck Hop,24,1,,,Kick Gust,42,3,,,,,,,,,,,,
+Crystal Canopy_18,Cluckster,,Stage 2,Wind,Cluckster.png,,,Combino,50,55,72,48,98,273,Peck Hop,24,1,,,Kick Gust,42,3,,,,,,,,,,,,
+Crystal Canopy_19,Combino,"move 3 takes 50% of your remaning hp, but attack and speed increase both 100%",Stage 3,Wind,Combino.png,,,,,70,95,55,115,335,Peck Hop,24,1,,,Kick Gust,42,3,,,All-In Strut,0,7,"Buff self attack, speed & lose 50% HP",100%,Combo Kick,76,9,,
+Crystal Canopy_20,Crimorae,,Stage 1,Wind,Crimorae.png,2,,Soarossa,25,45,55,40,78,218,Crimson Flit,26,1,,,Thorn Draft,43,4,,,,,,,,,,,,
+Crystal Canopy_21,Soarossa,,Stage 2,Wind,Soarossa.png,,,Tendrivale,50,58,74,52,96,280,Crimson Flit,26,1,,,Thorn Draft,43,4,,,Rose Updraft,0,6,Buff self speed,30%,,,,,
+Crystal Canopy_22,Tendrivale,ability: deals 50% more damage to exclusive creatures,Stage 3,Wind,Tendrivale.png,,,,,72,98,62,110,342,Crimson Flit,26,1,,,Thorn Draft,43,4,,,Rose Updraft,0,6,Buff self speed,30%,Tendril Tempest,74,9,,
+Crystal Canopy_23,Rayvora,"ability: after it faints, attack and defence of opponsing creature is bebuffed 40% each",Stage 1,Wind,Rayvora.png,5,,,,82,100,70,108,360,Ray Dive,38,1,,,Manta Glide,50,3,,,Abyss Current,70,6,,,Stingray Storm,60,9,Debuff opponent defence,30%
+Crystal Canopy_24,Owblush,,Stage 1,Wind,Owblush.png,2,,Cryostralis,30,50,52,44,76,222,Blush Hoot,25,1,,,Frost Feather,44,3,,,,,,,,,,,,
+Crystal Canopy_25,Cryostralis,3rd move 0 power guarantees Iced,Stage 2,Wind,Cryostralis.png,,,,,70,84,62,104,320,Blush Hoot,25,1,,,Frost Feather,44,3,,,Deep Freeze,0,6,Iced,100%,Aurora Dive,72,9,,
+Crystal Canopy_26,Legopeck,"ability: when damaged at full HP, only take 1 damage instead of the total damage it would take.",Stage 1,Wind,Legopeck.png,4,,,,60,82,58,105,305,Brick Peck,34,1,,,Block Drop,50,3,,,Snap Together,0,6,Buff self attack,40%,Tower Topple,85,9,Debuff self defence,40%
+Crystal Canopy_27,Breezeba,,Stage 1,Wind,Breezeba.png,1,wind > 10,Twistulip,25,45,48,40,78,211,Breeze Bop,24,1,,,Spiral Pollen,41,3,,,,,,,,,,,,
+Crystal Canopy_28,Twistulip,,Stage 2,Wind,Twistulip.png,,,,,68,78,60,104,310,Breeze Bop,24,1,,,Spiral Pollen,41,3,,,Twister Bloom,58,6,,,Cyclone Petal,70,9,Buff self speed,20%
+Crystal Canopy_29,Vioflate,,Stage 1,Wind,Vioflate.png,2,,Ballure,25,48,46,50,70,214,Puff Bump,23,1,,,Violet Gust,42,4,,,,,,,,,,,,
+Crystal Canopy_30,Ballure,,Stage 2,Wind,Ballure.png,,,Heliboo,50,62,64,66,90,282,Puff Bump,23,1,,,Violet Gust,42,4,,,Float Up,0,5,Buff self speed,30%,,,,,
+Crystal Canopy_31,Heliboo,"ability: at the end of each turn, its speed, attack and defence all increase by 10%",Stage 3,Wind,Heliboo.png,,,,,74,86,76,104,340,Puff Bump,23,1,,,Violet Gust,42,4,,,Float Up,0,5,Buff self speed,30%,Skyward Burst,72,9,,
+Crystal Canopy_32,Berlimini,,Stage 1,Neutral,Berlimini.png,2,,Berlimacho,25,58,56,58,40,212,Bun Bump,27,1,,,Crumb Slam,44,3,,,,,,,,,,,,
+Crystal Canopy_33,Berlimacho,,Stage 2,Neutral,Berlimacho.png,,,Berlimperador,50,78,74,78,52,282,Bun Bump,27,1,,,Crumb Slam,44,3,,,,,,,,,,,,
+Crystal Canopy_34,Calfluff,,Stage 1,Neutral,Calfluff.png,2,,Bovraze,25,62,54,58,46,220,Fluff Butt,27,1,,,Calf Charge,45,3,,,,,,,,,,,,
+Crystal Canopy_35,Bovraze,,Stage 2,Neutral,Bovraze.png,,,Highbrahm,50,82,76,76,50,284,Fluff Butt,27,1,,,Calf Charge,45,3,,,,,,,,,,,,
+Crystal Canopy_36,Elaroo,,Stage 1,Neutral,Elaroo.png,3,,,,85,78,80,72,315,Hop Jab,30,1,,,Pouch Punch,48,3,,,Bounding Kick,62,6,,,Outback Slam,72,9,Debuff self speed,25%
+Crystal Canopy_37,Lapindle,,Stage 1,Neutral,Lapindle.png,1,,Florhind,25,52,50,48,60,210,Ear Flick,24,1,,,Spindle Hop,43,3,,,,,,,,,,,,
+Crystal Canopy_38,Florhind,ability Santa Helper: Deals 70% more damage in December,Stage 2,Neutral,Florhind.png,,,,,80,82,74,80,316,Ear Flick,24,1,,,Spindle Hop,43,3,,,Festive Dash,0,6,Buff self speed,30%,Wreath Wallop,68,9,,
+Crystal Canopy_39,Stroopa,,Stage 1,Neutral,Stroopa.png,1,,Waflair,25,55,48,55,46,204,Syrup Splat,24,1,,,Waffle Press,42,3,,,,,,,,,,,,
+Crystal Canopy_40,Waflair,,Stage 2,Neutral,Waflair.png,,,Syruprex,50,75,66,75,58,274,Syrup Splat,24,1,,,Waffle Press,42,3,,,,,,,,,,,,
+Crystal Canopy_41,Syruprex,"move 3 takes 50% of your remaning hp, but defence and speed increase both 100%",Stage 3,Neutral,Syruprex.png,,,,,96,80,98,62,336,Syrup Splat,24,1,,,Waffle Press,42,3,,,Sticky Sacrifice,0,7,"Buff self defence, speed & lose 50% HP",100%,Caramel Crash,74,9,,
+Crystal Canopy_42,Chipfin,,Stage 1,Neutral,Chipfin.png,2,,Crispnash,25,52,60,52,50,214,Chip Nibble,26,1,,,Crunch Fin,44,3,,,,,,,,,,,,
+Crystal Canopy_43,Crispnash,,Stage 2,Neutral,Crispnash.png,,,Spudrake,50,70,80,70,62,282,Chip Nibble,26,1,,,Crunch Fin,44,3,,,,,,,,,,,,
+Crystal Canopy_44,Spudrake,"move 3 takes 50% of your remaning hp, but attack and defence increase both 100%",Stage 3,Neutral,Spudrake.png,,,,,88,100,92,58,338,Chip Nibble,26,1,,,Crunch Fin,44,3,,,Deep Fry,0,7,"Buff self attack, defence & lose 50% HP",100%,Mash Quake,76,9,,
+Crystal Canopy_45,Fillwrapp,,Stage 1,Neutral,Fillwrapp.png,1,POI = restaurant,Crispisoy,25,56,52,56,48,212,Wrap Slap,25,1,,,Filling Fling,43,3,,,,,,,,,,,,
+Crystal Canopy_46,Crispisoy,,Stage 2,Neutral,Crispisoy.png,,,,,84,80,82,62,308,Wrap Slap,25,1,,,Filling Fling,43,3,,,Soy Splash,58,6,,,Golden Crunch,70,9,,
+Crystal Canopy_47,Gyenyameon,"ability: when hit by a damaging move, the opponent gets hallucination",Stage 1,Neutral,Gyenyameon.png,5,,,,100,90,100,70,360,Spirit Tap,38,1,,,Ancestral Echo,52,3,,,Gentle Ward,0,6,Buff self defence,35%,Mirage Wave,72,9,,
+Crystal Canopy_48,Lithogrove,,Stage 1,Celestial,Lithogrove.png,1,,Terraflew,25,60,46,58,44,208,Pebble Sprout,24,1,,,Grove Toss,42,3,,,,,,,,,,,,
+Crystal Canopy_49,Terraflew,"3rd move, 30 power, causes lock",Stage 2,Celestial,Terraflew.png,,,,,90,74,86,62,312,Pebble Sprout,24,1,,,Grove Toss,42,3,,,Stone Bind,30,6,Lock,100%,Terra Bloom,68,9,Heal self,25
+Crystal Canopy_50,Anemora,,Stage 1,Celestial,Anemora.png,2,,Verdemone,30,62,50,54,52,218,Petal Sting,25,1,,,Tidal Bloom,44,4,,,,,,,,,,,,
+Crystal Canopy_51,Verdemone,"move 4: 0 damage, heals to full HP, but self defence is decreased 50%",Stage 2,Celestial,Verdemone.png,,,,,96,74,80,66,316,Petal Sting,25,1,,,Tidal Bloom,44,4,,,Coral Lash,60,6,,,Full Bloom,0,9,Heal self full & Debuff self defence,50%
+Crystal Canopy_52,Reeflet,,Stage 1,Celestial,Reeflet.png,2,,Corleon,25,64,48,60,46,218,Reef Nudge,25,1,,,Coral Pop,43,3,,,,,,,,,,,,
+Crystal Canopy_53,Corleon,ability: cant be affected by status conditions,Stage 2,Celestial,Corleon.png,,,,,96,78,88,58,320,Reef Nudge,25,1,,,Coral Pop,43,3,,,Reef Mend,0,6,Heal self,40,Lion's Coral,70,9,,
+Crystal Canopy_54,Coralith,,Stage 1,Celestial,Coralith.png,3,,Fizzelle,30,52,46,56,46,200,Fizz Tap,24,1,,,Bubble Burst,40,3,,,,,,,,,,,,
+Crystal Canopy_55,Fizzelle,total stats 260 ability: opponent can only use their moves 1 and 2 if Precipitation is > 0.1,Stage 2,Celestial,Fizzelle.png,,,,,70,56,64,70,260,Fizz Tap,24,1,,,Bubble Burst,40,3,,,Sparkle Mend,0,6,Heal self,35,Effervesce,60,9,,
+Crystal Canopy_56,Caulibelle,,Stage 1,Celestial,Caulibelle.png,1,,Faecrisp,25,58,44,56,50,208,Floret Tap,23,1,,,Cauli Toss,42,3,,,,,,,,,,,,
+Crystal Canopy_57,Faecrisp,,Stage 2,Celestial,Faecrisp.png,,,Caulithyme,50,76,62,72,64,274,Floret Tap,23,1,,,Cauli Toss,42,3,,,Herb Heal,0,5,Heal self,30,,,,,
+Crystal Canopy_58,Caulithyme,"stat swap defence, speed",Stage 3,Celestial,Caulithyme.png,,,,,96,78,92,68,334,Floret Tap,23,1,,,Cauli Toss,42,3,,,Herb Heal,0,5,Heal self,30,Thyme Twist,60,9,"Stat swap defence, speed",100%
+Crystal Canopy_59,Folivern,,Stage 1,Celestial,Folivern.png,2,,Brambleon,25,60,52,56,44,212,Leaf Nip,25,1,,,Vine Lash,44,3,,,,,,,,,,,,
+Crystal Canopy_60,Brambleon,,Stage 2,Celestial,Brambleon.png,,,Sylgroth,50,78,70,76,58,282,Leaf Nip,25,1,,,Vine Lash,44,3,,,,,,,,,,,,
+Crystal Canopy_61,Sylgroth,"3rd move, 50% disorient, 4th move 50% Lock",Stage 3,Celestial,Sylgroth.png,,,,,98,88,92,62,340,Leaf Nip,25,1,,,Vine Lash,44,3,,,Thorn Maze,45,6,Disorient,50%,Bramble Prison,68,9,Lock,50%
+Crystal Canopy_62,Swiftail,"ability: When hit by a move from a neutral creature, self heal 50HP",Stage 1,Celestial,Swiftail.png,4,,,,78,76,70,86,310,Tail Flick,33,1,,,Swift Spark,50,3,,,Starlit Mend,0,6,Heal self,45,Comet Tail,82,9,Debuff self speed,30%
+Crystal Canopy_63,Karrambola,"ability: when hit by a damaging move, the opponent gets Lock",Stage 1,Celestial,Karrambola.png,5,,,,92,88,96,84,360,Star Slice,38,1,,,Tangy Burst,52,3,,,Ripe Recovery,0,6,Heal self,50,Starfruit Storm,74,9,,
+Crystal Canopy_64,Berlimperador,"3rd move, 25 power, causes disorient",Stage 3,Mechanic,Berlimperador.png,,,,,96,84,104,56,340,Bun Bump,27,1,,,Crumb Slam,44,3,,,Imperial Glaze,25,6,Disorient,100%,Crown Crush,76,9,,
+Crystal Canopy_65,Highbrahm,"move 3 causes Rust, move 4 causes Flux",Stage 3,Mechanic,Highbrahm.png,,,,,100,86,104,48,338,Fluff Butt,27,1,,,Calf Charge,45,3,,,Corrode Horn,40,6,Rust,100%,Brahma Flux,62,9,Flux,100%
+Crystal Canopy_66,Fructopus,,Stage 1,Mechanic,Fructopus.png,2,,Arborctton,30,58,50,72,40,220,Tentacle Tap,26,1,,,Fruit Pump,44,3,,,Bark Armour,0,6,Buff self defence,30%,,,,,
+Crystal Canopy_67,Arborctton,,Stage 2,Mechanic,Arborctton.png,,,,,92,76,106,46,320,Tentacle Tap,26,1,,,Fruit Pump,44,3,,,Bark Armour,0,6,Buff self defence,30%,Timber Grip,70,9,,
+Crystal Canopy_68,Avokarn,,Stage 1,Mechanic,Avokarn.png,2,,Granocado,30,62,52,70,38,222,Pit Bonk,26,1,,,Husk Ram,44,4,,,,,,,,,,,,
+Crystal Canopy_69,Granocado,"3rd move, 37 power, causes Rust",Stage 2,Mechanic,Granocado.png,,,,,94,80,108,40,322,Pit Bonk,26,1,,,Husk Ram,44,4,,,Oxidise,37,6,Rust,100%,Guac Quake,72,9,,
+Crystal Canopy_70,Lavarocko,,Stage 1,Mechanic,Lavarocko.png,1,,Ignistone,25,58,52,68,30,208,Magma Tap,25,1,,,Rock Roll,43,3,,,,,,,,,,,,
+Crystal Canopy_71,Ignistone,,Stage 2,Mechanic,Ignistone.png,,,Ashquake,50,76,70,92,38,276,Magma Tap,25,1,,,Rock Roll,43,3,,,Heat Shell,0,5,Buff self defence,35%,,,,,
+Crystal Canopy_72,Ashquake,"stat swap defence, attack",Stage 3,Mechanic,Ashquake.png,,,,,96,84,118,42,340,Magma Tap,25,1,,,Rock Roll,43,3,,,Heat Shell,0,5,Buff self defence,35%,Ash Inversion,62,9,"Stat swap defence, attack",100%
+Crystal Canopy_73,Andegron,"ability: when hit by a damaging move, the opponent gets Rust",Stage 1,Mechanic,Andegron.png,5,,,,112,82,120,46,360,Ridge Bash,38,1,,,Granite Grip,50,3,,,Bedrock Brace,0,6,Buff self defence,30%,Andes Avalanche,76,9,Debuff self speed,30%

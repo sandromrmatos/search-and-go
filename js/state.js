@@ -10,7 +10,7 @@ import {
   playerProgress, playerLevelFor, statsFor, rollStatModifier, rerollStatModifier, rollMoveUnlock,
   rollShiny, chance, RULES, RAID_CAPTURE_LEVEL, RAID_CAPTURE_BONUS_CANDY,
   MISSIONS, DAILY_MISSIONS, WEEKLY_MISSIONS, SET_MISSIONS,
-  setGalacticUnlocked, setExclusive2Unlocked, setTemporalUnlocked,
+  setGalacticUnlocked, setExclusive2Unlocked, setTemporalUnlocked, setCrystalUnlocked,
   setSpawnConditions, canSpawnNow, evolutionTargets,
   isAnnualEvent, eventRewardBonus, eggsAreHalved, rollHolidayIncense,
   isMythicalEgg, eggCanBeShiny, MYTHICAL_EGG_TYPE,
@@ -212,10 +212,14 @@ function blankState() {
     galacticUnlocked: [],
     /** Temporal Rift rarities opened by the Set missions. Never resets. */
     temporalUnlocked: [],
+    /** Crystal Canopy rarities opened by the Set missions. Never resets. */
+    crystalUnlocked: [],
     /** True once the second wave of Exclusives has been unlocked. Never resets. */
     exclusive2Unlocked: false,
     /** The local day the save was last copied to the cloud, or null. */
     cloudBackupDay: null,
+    /** When the save was last copied to the cloud, as a timestamp. */
+    cloudBackupAt: 0,
     buddy: null,        // { uid, metres, candyEarned, since }
     eggs: [],           // { id, type, collectedAt, metres, incubator: itemId|null }
     nextEggId: 1,
@@ -583,6 +587,7 @@ export function migrate(raw) {
   )].sort((a, b) => a - b);
   s.galacticUnlocked = rarityList(raw.galacticUnlocked);
   s.temporalUnlocked = rarityList(raw.temporalUnlocked);
+  s.crystalUnlocked = rarityList(raw.crystalUnlocked);
 
   // ---- research lab: a pin with no slots, so coordinates are all it needs ----
   if (s.researchLab && (!isFinite(s.researchLab.lat) || !isFinite(s.researchLab.lng))) {
@@ -710,6 +715,7 @@ export function migrate(raw) {
 
   // ---- cloud backup stamp ----
   s.cloudBackupDay = typeof s.cloudBackupDay === 'string' ? s.cloudBackupDay : null;
+  s.cloudBackupAt = Math.max(0, Number(s.cloudBackupAt) || 0);
   if (s.weekly.week !== weekKey()) s.weekly = blankWeekly();
 
   // ---- grunt window stamp ----
@@ -903,6 +909,8 @@ class Store {
     this.loadReadFailed = false;
     /** A snapshot that could be restored, when the save went missing. */
     this.loadRecoverable = null;
+    /** True when the save marker remembers progress that nothing could load. */
+    this.loadMissing = false;
   }
 
   /* ---------------- plumbing ---------------- */
@@ -925,12 +933,19 @@ class Store {
    * changes the player asked for explicitly: Reset all progress, and importing
    * or restoring a save.
    */
-  async flush({ force = false } = {}) {
+  async flush({ force = false, urgent = false } = {}) {
     clearTimeout(this._saveTimer);
-    if (this._saving) { this._pendingFlush = true; return; }
+    if (this._saving) {
+      // Remember the strongest request, so a queued reset or "app going away"
+      // flush is not downgraded to an ordinary one.
+      this._pendingFlush = true;
+      this._pendingForce = this._pendingForce || force;
+      this._pendingUrgent = this._pendingUrgent || urgent;
+      return;
+    }
     this._saving = true;
     try {
-      const at = await Persist.writeNow(this.s, { force });
+      const at = await Persist.writeNow(this.s, { force, urgent });
       // null means the write was refused to protect existing progress.
       if (at == null) {
         this.saveBlocked = Persist.guardTripped;
@@ -943,7 +958,11 @@ class Store {
       console.error('[state] save failed', e);
     } finally {
       this._saving = false;
-      if (this._pendingFlush) { this._pendingFlush = false; this.flush({ force }); }
+      if (this._pendingFlush) {
+        const next = { force: !!this._pendingForce, urgent: !!this._pendingUrgent };
+        this._pendingFlush = this._pendingForce = this._pendingUrgent = false;
+        this.flush(next);
+      }
     }
   }
 
@@ -953,7 +972,7 @@ class Store {
    * to read.
    */
   async load() {
-    const { data, source, readFailed, recoverable } = await Persist.load();
+    const { data, source, readFailed, recoverable, missing } = await Persist.load();
     this.s = migrate(data);
     // The spawn pools depend on saved progress, so they have to be rebuilt
     // before anything can roll a creature.
@@ -961,6 +980,7 @@ class Store {
     this.loadedFrom = source;
     this.loadReadFailed = !!readFailed;
     this.loadRecoverable = recoverable || null;
+    this.loadMissing = !!missing;
     this.emit('load');
     return source;
   }
@@ -1935,6 +1955,8 @@ class Store {
     const levelUp = this.addXP(xp);
 
     this.s.caughtCount[sp.id] = (this.s.caughtCount[sp.id] || 0) + 1;
+    // Read before it is recorded below, so the reveal can say "NEW SHINY".
+    const newShiny = !!creature.shiny && !this.s.shinyCaught[sp.id];
     if (creature.shiny) {
       this.s.stats.shinies++;
       this.bumpDaily('shiniesToday');
@@ -1950,7 +1972,7 @@ class Store {
     this.touch('capture', { immediate: true });
     return {
       creature, sp, isNew, candy, dust: dustGained, xp, candyTotal, levelUp, rarity,
-      shiny: creature.shiny, magnet, origin, sunday: isStardustSunday(),
+      shiny: creature.shiny, newShiny, magnet, origin, sunday: isStardustSunday(),
       // True when the candy figure above has already been doubled, so the
       // reward screens can say why rather than just showing a bigger number.
       sweet
@@ -4154,6 +4176,17 @@ class Store {
       this.syncTemporalUnlocks();
     }
 
+    // And Crystal Canopy, off the back of Temporal Rift.
+    let unlockedCrystalRarity = null;
+    if (m.def.unlockCrystalRarity) {
+      unlockedCrystalRarity = m.def.unlockCrystalRarity;
+      if (!this.s.crystalUnlocked.includes(unlockedCrystalRarity)) {
+        this.s.crystalUnlocked.push(unlockedCrystalRarity);
+        this.s.crystalUnlocked.sort((a, b) => a - b);
+      }
+      this.syncCrystalUnlocks();
+    }
+
     // The exclusive ladder works the same way: claiming is what puts the second
     // wave into the Collection and into the exclusive raid and egg pools.
     let unlockedExclusiveSet = false;
@@ -4217,7 +4250,7 @@ class Store {
     return {
       ok: true, xp: m.def.xp, dust, levelUp, label: m.def.label,
       discs: bonusDiscs, items: bonusItems,
-      unlockedRarity, unlockedTemporalRarity, unlockedExclusiveSet, egg,
+      unlockedRarity, unlockedTemporalRarity, unlockedCrystalRarity, unlockedExclusiveSet, egg,
       heldReward, incenseReward, fossilPart: fossilPartReward
     };
   }
@@ -4239,6 +4272,13 @@ class Store {
     setTemporalUnlocked(this.s.temporalUnlocked);
   }
 
+  get crystalUnlocked() { return [...this.s.crystalUnlocked]; }
+  isCrystalUnlocked(rarity) { return this.s.crystalUnlocked.includes(Number(rarity)); }
+
+  syncCrystalUnlocks() {
+    setCrystalUnlocked(this.s.crystalUnlocked);
+  }
+
   get exclusive2Unlocked() { return !!this.s.exclusive2Unlocked; }
 
   /** Pushes the exclusive unlock into data.js, which rebuilds those pools. */
@@ -4253,6 +4293,7 @@ class Store {
   syncUnlocks() {
     this.syncGalacticUnlocks();
     this.syncTemporalUnlocks();
+    this.syncCrystalUnlocks();
     this.syncExclusiveUnlocks();
     this.syncSpawnConditions();
   }

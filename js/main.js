@@ -12,7 +12,7 @@ import {
 import { Weather, weatherContext } from './weather.js';
 import { Battery } from './battery.js';
 import { Place } from './place.js';
-import { Persist, progressOf } from './persist.js';
+import { Persist, progressOf, readMarker } from './persist.js';
 import { store } from './state.js';
 import { Geo, distance, parseCoords, formatDistance, offsetMeters } from './geo.js';
 import { fetchPOIs, clearPOICache, lastPOIsWereStale } from './osm.js';
@@ -45,7 +45,7 @@ import { setMissionsRenderer, setShopRenderer } from './views.js';
 import { initShop, renderShop } from './shop.js';
 import { renderNews, renderNewsBadge, loadNews, openCalendar } from './news.js';
 import { initEggs, maybePromptHatch, showEggDropPopup } from './eggs.js';
-import { backupOncePerDay } from './cloud.js';
+import { backupToCloud, CLOUD_MIN_GAP_MS } from './cloud.js';
 import {
   $, $$, el, toast, wireSheetClosers, openSheet, closeSheet, num, syncOverlayState
 } from './ui.js';
@@ -144,13 +144,23 @@ function showRecoveryGate() {
   const boot = $('#boot');
   const snap = store.loadRecoverable;
   const readFailed = store.loadReadFailed;
+  const marker = readMarker();
 
+  // Where the copy on offer came from: the rolling snapshots in the database,
+  // or the compressed copy kept in localStorage.
+  const snapWhat = snap?.source === 'browser backup' ? 'Newest browser backup' : 'Newest snapshot';
   const snapLine = snap
     ? `<p class="small" style="color:#b9ffd0;margin:0 0 4px">
-         Newest snapshot: <b>${new Date(snap.savedAt).toLocaleString()}</b> —
+         ${snapWhat}: <b>${new Date(snap.savedAt).toLocaleString()}</b> —
          ${snap.progress.creatures} creatures, ${Number(snap.progress.xp).toLocaleString()} XP.
        </p>`
     : `<p class="small" style="color:#ffd9a8;margin:0 0 4px">No snapshot was found on this device.</p>`;
+  const markerLine = marker?.progress
+    ? `<p class="small" style="color:#98a1c8;margin:0 0 4px">
+         Last save the game remembers: ${new Date(marker.savedAt).toLocaleString()} —
+         ${marker.progress.creatures} creatures, ${Number(marker.progress.xp).toLocaleString()} XP.
+       </p>`
+    : '';
 
   boot.innerHTML = `
     <div style="max-width:38ch;text-align:center;padding:20px">
@@ -158,20 +168,24 @@ function showRecoveryGate() {
       <p style="color:#ffd9a8;margin:0 0 12px">
         ${readFailed
           ? 'The save could not be read. It may still be on this device.'
-          : 'No save was found, but this device has a snapshot, so one should exist.'}
+          : snap
+            ? 'No save was found, but this device has a backup copy, so one should exist.'
+            : 'Your save has gone missing from this browser. Restore it from a backup file or your linked save file.'}
       </p>
       <p class="small" style="color:#98a1c8;margin:0 0 14px">
         The game has <b>not</b> started, so nothing has been overwritten.
         Do not skip past this unless you are happy to start over.
       </p>
+      ${markerLine}
       ${snapLine}
       <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
         <button id="rg-retry" class="btn primary">Try loading again</button>
-        ${snap ? '<button id="rg-snap" class="btn">Restore that snapshot</button>' : ''}
+        ${snap ? `<button id="rg-snap" class="btn">Restore that ${snap.source === 'browser backup' ? 'backup' : 'snapshot'}</button>` : ''}
+        ${Persist.supportsFS ? '<button id="rg-open" class="btn">Open my save file…</button>' : ''}
         <button id="rg-import" class="btn">Restore from a backup file…</button>
         <button id="rg-fresh" class="btn ghost">Start a new account anyway</button>
       </div>
-      <input id="rg-file" type="file" accept="application/json,.json" hidden />
+      <input id="rg-file" type="file" accept="application/json,.json,text/plain,.txt" hidden />
       <p id="rg-msg" class="small" style="color:#ff9b9b;margin:12px 0 0"></p>
     </div>`;
 
@@ -187,6 +201,19 @@ function showRecoveryGate() {
     } catch (e) { say(e.message || 'Could not restore that snapshot'); }
   });
 
+  // Re-pick the device save file. The link to it lives in the same browser
+  // storage that went missing, so the game cannot find it on its own.
+  $('#rg-open')?.addEventListener('click', async () => {
+    try {
+      const data = await Persist.openFile();
+      if (progressOf(data).empty && !confirm('That save file looks empty. Restore it anyway?')) return;
+      await store.replace(data);
+      location.reload();
+    } catch (e) {
+      if (e?.name !== 'AbortError') say(e?.friendly ? e.message : 'That file could not be read as a save.');
+    }
+  });
+
   $('#rg-import').addEventListener('click', () => $('#rg-file').click());
   $('#rg-file').addEventListener('change', async e => {
     const file = e.target.files?.[0];
@@ -197,7 +224,7 @@ function showRecoveryGate() {
       if (progressOf(data).empty && !confirm('That backup looks empty. Restore it anyway?')) return;
       await store.replace(data);
       location.reload();
-    } catch { say('That file could not be read as a save.'); }
+    } catch (err) { say(err?.friendly ? err.message : 'That file could not be read as a save.'); }
   });
 
   $('#rg-fresh').addEventListener('click', async () => {
@@ -229,8 +256,8 @@ async function boot() {
     // stop and ask rather than starting a fresh account that would autosave
     // over it. Returning here means the game loop never starts, so nothing
     // writes while the player decides.
-    if (src === 'none' && (store.loadReadFailed || store.loadRecoverable)) {
-      dlog(`Save missing (readFailed=${store.loadReadFailed}) — holding at the recovery gate`);
+    if (src === 'none' && (store.loadReadFailed || store.loadRecoverable || store.loadMissing)) {
+      dlog(`Save missing (readFailed=${store.loadReadFailed}, marker=${store.loadMissing}) — holding at the recovery gate`);
       showRecoveryGate();
       return;
     }
@@ -291,21 +318,11 @@ async function boot() {
     // the badge appears once it has.
     loadNews().then(renderNewsBadge);
 
-    // One cloud copy of the save per day, also in the background. It never
-    // blocks play and never interrupts it: a failure is logged and forgotten,
-    // because the local save is still the real one.
-    backupOncePerDay(store.s).then(r => {
-      if (r.ok) {
-        // cloud.js stamped the day onto the save, so persist that.
-        store.touch('cloud-backup');
-        dlog(`Cloud backup written (${r.bytes} bytes)`);
-      } else if (r.reason === 'already-today') {
-        dlog('Cloud backup: already done today');
-      } else {
-        dlog(`Cloud backup skipped: ${r.reason}${r.error ? ' — ' + r.error : ''}`);
-      }
-      renderSaveStatus();
-    });
+    // Cloud copies of the save, in the background: one now if the last is
+    // over half an hour old, then every half hour of play, and when the app is
+    // put away (see the lifecycle handlers). Never blocks play.
+    runCloudBackup();
+    setInterval(() => runCloudBackup(), 5 * 60_000);
 
     $('#boot').classList.add('hidden');
     $('#app').classList.remove('hidden');
@@ -340,6 +357,34 @@ async function boot() {
         then open <code>http://localhost:8080</code>.
       </p>`;
   }
+}
+
+/* ===============================================================
+   Cloud backup
+   =============================================================== */
+let cloudFailWarned = false;
+
+/**
+ * One cloud backup attempt, if it is due. A failure is said out loud once per
+ * session and stays visible in Profile — the old daily backup failed silently
+ * for weeks, which is how a dead battery cost far more than it should have.
+ */
+async function runCloudBackup(opts = {}) {
+  if (!store.s || progressOf(store.s).empty) return;   // nothing worth backing up
+  const r = await backupToCloud(store.s, opts);
+  if (r.ok) {
+    // cloud.js stamped the time onto the save, so persist that.
+    store.touch('cloud-backup');
+    dlog(`Cloud backup written (${r.bytes} bytes)`);
+  } else if (r.reason === 'failed' || r.reason === 'too-big') {
+    dlog(`Cloud backup failed: ${r.error || r.reason}`);
+    if (!cloudFailWarned) {
+      cloudFailWarned = true;
+      toast(`Cloud backup failed${r.reason === 'too-big' ? ': the save is too large' : ''}. `
+        + 'Your progress is still saved on this phone — take a backup in Profile to be safe.', 'bad', 6500);
+    }
+  }
+  renderSaveStatus();
 }
 
 function escapeHtml(s) {
@@ -788,7 +833,8 @@ async function doCapture(live) {
     ];
     if (res.shiny) rewards.unshift({ icon: '✨', label: 'Shiny!' });
 
-    await playCapture({ sp: res.sp, isNew: res.isNew, rewards, imageSrc: sprite, shiny: res.shiny });
+    await playCapture({ sp: res.sp, isNew: res.isNew, rewards, imageSrc: sprite,
+      shiny: res.shiny, newShiny: res.newShiny });
 
     if (res.levelUp.levelledUp) showLevelUpPopup(res.levelUp);
     refreshAll();
@@ -1018,10 +1064,14 @@ function startLoop() {
   }, 1000);
 
   // Keep the save current when the app goes to the background.
+  // `urgent` writes the device files and the browser backup straight away
+  // instead of on their timers, because a put-away app may never come back.
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) store.flush();
+    if (!document.hidden) return;
+    store.flush({ urgent: true });
+    runCloudBackup({ minGapMs: CLOUD_MIN_GAP_MS });
   });
-  window.addEventListener('pagehide', () => store.flush());
+  window.addEventListener('pagehide', () => store.flush({ urgent: true }));
 }
 
 /* ===============================================================
@@ -1262,11 +1312,24 @@ function initUI() {
     renderSaveStatus();
   });
 
+  // The second file: saves alternate between the two, so a phone dying in the
+  // middle of a write can only ever damage one of them.
+  $('#btn-link-file-b').addEventListener('click', async () => {
+    try {
+      await Persist.linkSecondFile(store.s);
+      toast('Second save file linked — saves now alternate between the two', 'good', 3600);
+      dlog('Linked second save file: ' + Persist.status().fileNameB);
+    } catch (e) {
+      if (e?.name !== 'AbortError') toast(e.message || 'Could not link file', 'bad', 4000);
+    }
+    renderSaveStatus();
+  });
+
   $('#btn-load-file').addEventListener('click', async () => {
     try {
       const data = await Persist.openFile();
-      if (!data) { toast('That file has no save data', 'bad'); return; }
-      if (!confirm('Replace your current progress with the contents of that file?')) return;
+      const p = progressOf(data);
+      if (!confirm(`Replace your current progress with that file (${p.creatures} creatures, ${num(p.xp)} XP)?`)) return;
       await store.replace(data);
       toast('Progress restored', 'good');
       refreshAll(); syncMap();
@@ -1288,13 +1351,17 @@ function initUI() {
     if (!file) return;
     try {
       const data = await Persist.importFile(file);
-      if (!confirm('Replace your current progress with this backup?')) return;
+      const p = progressOf(data);
+      const when = data.savedAt ? ` saved ${new Date(data.savedAt).toLocaleString()}` : '';
+      if (!confirm(`Replace your current progress with this backup${when} (${p.creatures} creatures, ${num(p.xp)} XP)?`)) return;
       await store.replace(data);
       toast('Backup imported', 'good');
       refreshAll(); syncMap();
     } catch (err) {
-      toast('That file could not be read as a save', 'bad', 4000);
+      // The message says which: empty, damaged, or not a save at all.
+      toast(err?.friendly ? err.message : 'That file could not be read as a save', 'bad', 6500);
     }
+    renderSaveStatus();
   });
 
   $('#btn-wipe').addEventListener('click', async () => {

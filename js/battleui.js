@@ -13,7 +13,7 @@ import {
   FRONTIER_GRAND_LABEL, FRONTIER_LEVELS, frontierTeam, frontierTrainerImage,
   frontierLevelRewards, frontierMode, frontierModeAllows, frontierChallenge,
   FRONTIER_DAILY_ID, FRONTIER_DAILY_NAME, FRONTIER_DAILY_ART, IMAGE_DIR,
-  FEATHER_ITEM,
+  FEATHER_ITEM, STATUS_CONDITIONS,
   GRUNT_REWARD, WIN_FULL_HEAL_CHANCE, WIN_FULL_HEAL_ITEM, dustBonusFor,
   SET_INCENSE_GRUNT_CHANCE, MYSTERIOUS_INCENSE_GRUNT_CHANCE
 } from './data.js';
@@ -214,6 +214,17 @@ export function closeBattle() {
   endPeek();
   if (busy) return;
 
+  /* Walking away from a beaten raid boss that could still be caught is final,
+     and the button sits right next to the Ultra Disc one, so ask first. Covers
+     the ✕ as well as "Leave it". */
+  const catchOffered = ctx?.result?.won && ctx.kind === 'raid'
+    && !$('#bt-result').classList.contains('hidden')
+    && !$('#bt-catch').classList.contains('hidden');
+  if (catchOffered) {
+    const name = species(ctx.raid?.speciesId)?.name || 'the boss';
+    if (!confirm(`Leave ${name} behind?\n\nYou will not be able to catch it after this.`)) return;
+  }
+
   const b = ctx?.battle;
   const midFight = b && !b.over;
   if (midFight) {
@@ -363,7 +374,10 @@ function renderPreview() {
     body.append(
       el('div', { class: `bt-boss${exclusive ? ' exclusive' : ''}` },
         el('img', { src: sp.spritePath(raid.shiny), alt: sp.name }),
-        raid.shiny ? el('div', { class: 'new-banner', text: '★ SHINY' }) : null,
+        raid.shiny
+          ? el('div', { class: 'new-banner',
+            text: store.hasShinyCaught(raid.speciesId) ? '★ SHINY' : '★ NEW SHINY' })
+          : null,
         el('h3', { text: sp.name }),
         el('div', { class: 'reveal-tags' },
           exclusive ? el('span', { class: 'tag tag-exclusive', text: '💠 Exclusive' }) : null,
@@ -1168,6 +1182,20 @@ function setHp(barSel, numSel, battler) {
 function renderBuffs(sel, battler) {
   const host = $(sel);
   host.innerHTML = '';
+  // Status conditions first: they change what the creature can do, which
+  // matters more than a stat being a little higher or lower.
+  for (const name of Object.keys(battler.status || {})) {
+    const def = STATUS_CONDITIONS[name];
+    if (!def) continue;
+    const st = battler.status[name];
+    const left = name === 'Loop' && st?.left ? ` ${st.left}`
+      : name === 'Iced' && st?.to ? ` ${Math.max(0, st.to - ctx.battle.turn)}` : '';
+    host.append(el('span', {
+      class: 'bt-buff bt-status',
+      title: `${name}: ${def.blurb}`,
+      text: `${def.icon} ${name}${left}`
+    }));
+  }
   for (const stat of Object.keys(battler.buffs)) {
     const pct = battler.buffPercent(stat);
     if (!pct) continue;
@@ -1184,17 +1212,37 @@ function renderMoves() {
   const host = $('#bt-moves');
   host.innerHTML = '';
   const moves = ctx.battle.availableMoves;
+  const usable = ctx.battle.usableMoves('player');
   moves.forEach((m, i) => {
+    const ok = usable.includes(m);
+    // Say why a move is greyed out, so a status never looks like a bug.
+    const why = ok ? null : (() => {
+      const r = ctx.battle.moveBlockedReason('player', m);
+      if (r && typeof r === 'object') return `${r.ability} stops it`;
+      if (r) return `${STATUS_CONDITIONS[r]?.icon || ''} ${r}`;
+      return `${STATUS_CONDITIONS.Loop.icon} Loop`;
+    })();
     host.append(el('button', {
-      class: 'bt-move' + (m.isStatus ? ' buffmove' : ''),
-      disabled: busy || ctx.battle.over,
+      class: 'bt-move' + (m.isStatus ? ' buffmove' : '') + (ok ? '' : ' blocked'),
+      disabled: busy || ctx.battle.over || !ok,
+      title: why || '',
       onclick: () => playTurn(i)
     },
       el('b', { text: m.name }),
-      el('span', { text: Battle.describeMove(m) })
+      el('span', { text: why ? `Unavailable · ${why}` : Battle.describeMove(m) })
     ));
   });
+  // Every move taken away at once: the turn still has to be played.
+  if (!usable.length && !ctx.battle.over) {
+    host.append(el('button', {
+      class: 'bt-move buffmove',
+      disabled: busy,
+      onclick: () => playTurn(-1)
+    }, el('b', { text: 'Wait' }), el('span', { text: 'No move can be used this turn' })));
+  }
 }
+
+const sideWho = side => (side === 'player' ? 'Your' : 'The opposing');
 
 /**
  * An ability announcement, in its own colour so it stands apart from the blow
@@ -1250,6 +1298,56 @@ async function playTurn(moveIndex) {
       const who = e.side === 'player' ? 'Your' : 'The opposing';
       logLine(`${who} <b>${e.actorLabel}</b> used <b>${e.move}</b>.`);
       await sleep(340);
+    } else if (e.type === 'damage' && e.selfHit) {
+      const img = $(e.side === 'player' ? '#bt-mine-img' : '#bt-enemy-img');
+      img.classList.remove('hit'); void img.offsetWidth; img.classList.add('hit');
+      logLine(`<span class="status-log">${STATUS_CONDITIONS.Hallucination.icon} ${sideWho(e.side)} `
+        + `<b>${e.targetLabel}</b> is hallucinating and hit itself for <b>${e.amount}</b> damage.</span>`);
+      refreshHpOnly();
+      await sleep(460);
+    } else if (e.type === 'status') {
+      const who = sideWho(e.targetSide);
+      const from = e.source?.ability ? ` (${e.source.actorLabel}'s ${e.source.ability})` : '';
+      logLine(`<span class="status-log">${e.icon} ${e.resisted
+        ? `${who} <b>${e.targetLabel}</b> cannot be given ${e.status} — its <b>${e.resisted}</b> protects it.`
+        : e.already
+          ? `${who} <b>${e.targetLabel}</b> already has ${e.status}.`
+          : `${who} <b>${e.targetLabel}</b> now has <b>${e.status}</b>${from}. ${STATUS_CONDITIONS[e.status]?.blurb || ''}`}</span>`);
+      renderArena();
+      await sleep(440);
+    } else if (e.type === 'statusForced') {
+      logLine(`<span class="status-log">${STATUS_CONDITIONS.Loop.icon} ${sideWho(e.side)} <b>${e.actorLabel}</b> is stuck in a loop`
+        + ` and has to use <b>${e.move}</b> again.</span>`);
+      await sleep(320);
+    } else if (e.type === 'statusBlocked') {
+      const who = `${sideWho(e.side)} <b>${e.actorLabel}</b>`;
+      const icon = STATUS_CONDITIONS[e.reason]?.icon || '✋';
+      const text = e.reason === 'Flux' ? `is in Flux and could not move this turn`
+        : e.reason === 'none' ? 'had no move it could use and waited'
+        : e.reason === 'ability' ? `could not use <b>${e.move}</b> — ${e.ability} stops it`
+        : `could not use <b>${e.move}</b> because of ${e.reason}`;
+      logLine(`<span class="status-log">${icon} ${who} ${text}.</span>`);
+      await sleep(380);
+    } else if (e.type === 'statusEnd') {
+      logLine(`<span class="status-log">${STATUS_CONDITIONS[e.status]?.icon || ''} ${sideWho(e.targetSide)} `
+        + `<b>${e.targetLabel}</b> is no longer affected by ${e.status}.</span>`);
+      renderArena();
+      await sleep(300);
+    } else if (e.type === 'statSwap') {
+      const img = $(e.targetSide === 'player' ? '#bt-mine-img' : '#bt-enemy-img');
+      img.classList.remove('debuffed'); void img.offsetWidth; img.classList.add('debuffed');
+      const [a, b] = e.stats;
+      logLine(`<span class="sidefx">⇄ ${sideWho(e.targetSide)} <b>${e.actorLabel}</b>'s ${a.statLabel} and `
+        + `${b.statLabel} were swapped: ${a.statLabel} ${a.before} → ${a.after}, ${b.statLabel} ${b.before} → ${b.after}.</span>`);
+      renderArena();
+      await sleep(460);
+    } else if (e.type === 'hpCost') {
+      const img = $(e.targetSide === 'player' ? '#bt-mine-img' : '#bt-enemy-img');
+      img.classList.remove('hit'); void img.offsetWidth; img.classList.add('hit');
+      logLine(`<span class="debuff">${sideWho(e.targetSide)} <b>${e.actorLabel}</b> paid <b>${e.amount}</b> HP `
+        + `(${e.pct}% of what it had) for the move (${e.hpAfter}/${e.maxHp}).</span>`);
+      refreshHpOnly();
+      await sleep(400);
     } else if (e.type === 'damage') {
       const imgSel = e.side === 'player' ? '#bt-enemy-img' : '#bt-mine-img';
       const img = $(imgSel);
@@ -1268,6 +1366,10 @@ async function playTurn(moveIndex) {
         logLine(`<span class="held-log">◈ <b>${e.wouldHaveBeen}</b> damage would have knocked it out — `
           + `its <b>${e.savedBy}</b> left it on <b>1 HP</b>.</span>`);
       }
+      if (e.sturdyBy) {
+        logLine(`<span class="ability">✦ <b>${e.sturdyBy}</b> — it was at full HP, so the `
+          + `<b>${e.wouldHaveBeen}</b> damage became just <b>1</b>.</span>`);
+      }
       refreshHpOnly();
       await sleep(420);
     } else if (e.type === 'buff') {
@@ -1284,7 +1386,7 @@ async function playTurn(moveIndex) {
       const whose = e.onSelf === false
         ? (e.targetSide === 'player' ? 'Your' : 'The opposing')
         : (e.targetSide === 'player' ? 'Your own' : 'Its own');
-      logLine(`<span class="buff">${whose} <b>${e.actorLabel}</b>: ${parts.join(', ')} (+${e.pct}%).</span>`);
+      logLine(`<span class="buff">${e.fromAbility ? `✦ ${e.fromAbility} — ` : ''}${whose} <b>${e.actorLabel}</b>: ${parts.join(', ')} (+${e.pct}%).</span>`);
       renderArena();
       await sleep(380);
     } else if (e.type === 'debuff') {
@@ -1296,7 +1398,7 @@ async function playTurn(moveIndex) {
         : (e.targetSide === 'player' ? 'Your' : 'The opposing');
       const parts = (e.stats?.length ? e.stats : [e])
         .map(s => `${s.statLabel} fell to ${s.after}`);
-      logLine(`<span class="debuff">${whose} <b>${e.actorLabel}</b>: ${parts.join(', ')} (−${e.pct}%).</span>`);
+      logLine(`<span class="debuff">${e.fromAbility ? `✦ ${e.fromLabel ? `${e.fromLabel}'s ` : ''}${e.fromAbility} — ` : ''}${whose} <b>${e.actorLabel}</b>: ${parts.join(', ')} (−${e.pct}%).</span>`);
       renderArena();
       await sleep(380);
     } else if (e.type === 'heal') {
@@ -1305,7 +1407,7 @@ async function playTurn(moveIndex) {
       img.classList.remove('healed'); void img.offsetWidth; img.classList.add('healed');
       const who = (e.targetSide ?? e.side) === 'player' ? 'Your' : 'The opposing';
       logLine(e.amount > 0
-        ? `<span class="heal">${who} <b>${e.actorLabel}</b> recovered <b>${e.amount}</b> HP (${e.hpAfter}/${e.maxHp}).</span>`
+        ? `<span class="heal">${e.fromAbility ? `✦ ${e.fromAbility} — ` : ''}${who} <b>${e.actorLabel}</b> recovered <b>${e.amount}</b> HP (${e.hpAfter}/${e.maxHp}).</span>`
         : `<span class="heal">${who} <b>${e.actorLabel}</b> was already at full health.</span>`);
       refreshHpOnly();
       await sleep(400);
@@ -1659,7 +1761,8 @@ async function throwUltraDisc() {
       isNew: res.isNew,
       rewards,
       imageSrc: res.sp.spritePath(res.shiny),
-      shiny: res.shiny
+      shiny: res.shiny,
+      newShiny: res.newShiny
     });
 
     if (res.levelUp.levelledUp) toast(`Player level ${res.levelUp.to}!`, 'good', 3200);

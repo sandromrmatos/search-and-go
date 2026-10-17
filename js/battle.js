@@ -18,7 +18,8 @@ import {
   movesForCreature, ABILITY_MULTIPLIER_MIN, ABILITY_MULTIPLIER_MAX,
   evaluateAbility, faintDamage, clauseEffectText, clauseConditionText, buffStatsLabel,
   moveEffectText, moveSummaryText,
-  STAT_KEYS, STAT_LABELS, BATTLE_TEAM_SIZE, moveLevelFor, heldItem
+  STAT_KEYS, STAT_LABELS, BATTLE_TEAM_SIZE, moveLevelFor, heldItem,
+  STATUS_CONDITIONS, moveBuffsSelf, moveDebuffsOpponent
 } from './data.js';
 import { store, creatureStats, maxHpOf, hpOf } from './state.js';
 
@@ -49,7 +50,16 @@ export class Battler {
      * and so the log can announce it.
      */
     this.held = held || null;
+    /**
+     * Status conditions, by name. Most are just `true`; Iced and Loop carry
+     * their own countdown. Cleared only by fainting, or by running out.
+     */
+    this.status = {};
+    /** The move it used most recently, which is what Loop holds it to. */
+    this.lastMove = null;
   }
+
+  has(status) { return !!this.status[status]; }
 
   get species() { return species(this.speciesId); }
   /** The held item definition, or null. */
@@ -518,6 +528,160 @@ export class Battle {
   /** Moves the player's active creature can use this turn. */
   get availableMoves() { return this.playerActive?.moves || []; }
 
+  /* ---- status conditions ---- */
+
+  /** Current Speed, or 1 while Iced. */
+  speedOf(b) {
+    const iced = b?.status.Iced;
+    if (iced && this.turn >= iced.from && this.turn <= iced.to) return 1;
+    return b?.stats.speed ?? 0;
+  }
+
+  /**
+   * Why the creature on `side` cannot use `move` right now, or null. Covers the
+   * statuses that forbid a kind of move and the opponent's ability that limits
+   * which slots may be used. Loop is not here: it forces a move rather than
+   * forbidding one, and is resolved when the creature acts.
+   */
+  moveBlockedReason(side, move) {
+    const self = side === 'player' ? this.playerActive : this.enemyActive;
+    if (!self || !move) return null;
+    if (self.has('Lock') && moveBuffsSelf(move)) return 'Lock';
+    if (self.has('Rust') && moveDebuffsOpponent(move)) return 'Rust';
+    if (self.has('Disorient') && move.slot === 4) return 'Disorient';
+    const foeRead = this.abilityFor(side === 'player' ? 'enemy' : 'player');
+    if (foeRead?.restrictSlots && !foeRead.restrictSlots.includes(move.slot)) {
+      return { ability: foeRead.ability.name };
+    }
+    return null;
+  }
+
+  /** The moves the creature on `side` is allowed to pick this turn. */
+  usableMoves(side) {
+    const self = side === 'player' ? this.playerActive : this.enemyActive;
+    if (!self) return [];
+    const loop = self.status.Loop;
+    // Locked into a move: that one, if nothing else forbids it.
+    if (loop?.move) {
+      const forced = self.moves.find(m => m === loop.move) || loop.move;
+      return this.moveBlockedReason(side, forced) ? [] : [forced];
+    }
+    return self.moves.filter(m => !this.moveBlockedReason(side, m));
+  }
+
+  /**
+   * Gives `target` a status condition. Refused if it is already carrying that
+   * one, if it is knocked out, or if its ability makes it immune.
+   * @returns the event to log, or null when nothing happened worth saying.
+   */
+  giveStatus(target, targetSide, status, source) {
+    if (!target || target.fainted || !STATUS_CONDITIONS[status]) return null;
+    const base = {
+      type: 'status', targetSide, target: target.key, targetLabel: target.label,
+      status, icon: STATUS_CONDITIONS[status].icon, source
+    };
+    const read = this.abilityFor(targetSide);
+    if (read?.statusImmune) return { ...base, resisted: read.ability.name };
+    if (target.has(status)) return { ...base, already: true };
+    if (status === 'Iced') {
+      target.status.Iced = { from: this.turn + 1, to: this.turn + STATUS_CONDITIONS.Iced.turns };
+    } else if (status === 'Loop') {
+      // Held to whatever it used last. If it has not moved yet, the next move it
+      // makes becomes the one it is stuck with, and that counts as turn one.
+      target.status.Loop = { move: target.lastMove || null, left: STATUS_CONDITIONS.Loop.turns };
+    } else {
+      target.status[status] = true;
+    }
+    return base;
+  }
+
+  /**
+   * One creature's go: Loop decides the move, the statuses decide whether it
+   * gets to use it, and then it is applied like any other.
+   */
+  act(step) {
+    const { side, actor } = step;
+    const events = [];
+    let move = step.move;
+    // Its target knocked itself out first (Hallucination), so there is nothing to hit.
+    if (step.target?.fainted) return events;
+
+    const loop = actor.status.Loop;
+    if (loop) {
+      if (!loop.move) loop.move = move;
+      else if (move !== loop.move) {
+        events.push({ type: 'statusForced', side, actor: actor.key, actorLabel: actor.label,
+          status: 'Loop', move: loop.move.name, wanted: move?.name || null });
+        move = loop.move;
+      }
+    }
+
+    const finishLoop = () => {
+      if (!loop) return;
+      loop.left -= 1;
+      if (loop.left <= 0) {
+        delete actor.status.Loop;
+        events.push({ type: 'statusEnd', targetSide: side, targetLabel: actor.label, status: 'Loop' });
+      }
+    };
+
+    if (!move) {
+      events.push({ type: 'statusBlocked', side, actor: actor.key, actorLabel: actor.label, reason: 'none' });
+      finishLoop();
+      return events;
+    }
+    const blocked = this.moveBlockedReason(side, move);
+    if (blocked) {
+      events.push({ type: 'statusBlocked', side, actor: actor.key, actorLabel: actor.label,
+        move: move.name, reason: typeof blocked === 'string' ? blocked : 'ability',
+        ability: blocked.ability || null });
+      finishLoop();
+      return events;
+    }
+    if (actor.has('Flux') && this.rng() < STATUS_CONDITIONS.Flux.chance) {
+      events.push({ type: 'statusBlocked', side, actor: actor.key, actorLabel: actor.label,
+        move: move.name, reason: 'Flux' });
+      finishLoop();
+      return events;
+    }
+
+    events.push(...this.applyMove({ ...step, move }));
+    actor.lastMove = move;
+    finishLoop();
+    return events;
+  }
+
+  /** After both sides have moved: per-turn abilities, and Iced wearing off. */
+  endOfTurn() {
+    const events = [];
+    for (const side of ['player', 'enemy']) {
+      const self = side === 'player' ? this.playerActive : this.enemyActive;
+      if (!self || self.fainted) continue;
+      const read = this.abilityFor(side);
+      if (read?.turnBuff) {
+        const applied = read.turnBuff.stats.map(stat => {
+          const r = self.applyBuff(stat, read.turnBuff.pct);
+          return { stat, statLabel: STAT_LABELS[stat], before: r.before, after: r.after,
+            totalPct: self.buffPercent(stat) };
+        });
+        events.push({
+          type: 'buff', side, targetSide: side, onSelf: true,
+          actor: self.key, actorLabel: self.label,
+          pct: Math.round(read.turnBuff.pct * 100), stats: applied,
+          stat: applied[0]?.stat, statLabel: applied[0]?.statLabel,
+          before: applied[0]?.before, after: applied[0]?.after, totalPct: applied[0]?.totalPct,
+          fromAbility: read.ability.name
+        });
+      }
+      const iced = self.status.Iced;
+      if (iced && this.turn >= iced.to) {
+        delete self.status.Iced;
+        events.push({ type: 'statusEnd', targetSide: side, targetLabel: self.label, status: 'Iced' });
+      }
+    }
+    return events;
+  }
+
   /* ---- one turn ---- */
 
   /**
@@ -530,9 +694,14 @@ export class Battle {
     const theirs = this.enemyActive;
     if (!mine || !theirs) return [{ type: 'already-over' }];
 
-    const myMove = this.availableMoves[playerMoveIndex];
-    if (!myMove) return [{ type: 'invalid-move' }];
-    const theirMove = chooseAIMove(theirs, this.rng);
+    /* Status conditions and abilities can take moves away. The player chooses
+       from what is left; an index of -1 means "pass", which is only accepted
+       when there is genuinely nothing to choose. */
+    const myUsable = this.usableMoves('player');
+    const myMove = playerMoveIndex === -1 ? null : this.availableMoves[playerMoveIndex];
+    if (myMove ? !myUsable.includes(myMove) : myUsable.length) return [{ type: 'invalid-move' }];
+    const theirUsable = this.usableMoves('enemy');
+    const theirMove = theirUsable.length ? chooseAIMove({ moves: theirUsable }, this.rng) : null;
 
     this.turn++;
     const events = [{ type: 'turn', turn: this.turn }];
@@ -546,14 +715,17 @@ export class Battle {
     // Nothing has been hit yet this turn, which is what Reflect damage reads.
     this.turnDamage = { player: 0, enemy: 0 };
 
-    // Speed decides who swings first; equal speed is a coin flip.
+    // Speed decides who swings first; equal speed is a coin flip. An Iced
+    // creature's Speed counts as 1.
+    const mySpeed = this.speedOf(mine);
+    const theirSpeed = this.speedOf(theirs);
     let first = 'player';
-    if (theirs.stats.speed > mine.stats.speed) first = 'enemy';
-    else if (theirs.stats.speed === mine.stats.speed) first = this.rng() < 0.5 ? 'player' : 'enemy';
+    if (theirSpeed > mySpeed) first = 'enemy';
+    else if (theirSpeed === mySpeed) first = this.rng() < 0.5 ? 'player' : 'enemy';
     /* Speed inversion flips the answer for the rest of the battle. Applied after
        the normal decision rather than by reversing the comparison, so a tie stays
        a coin flip instead of quietly becoming deterministic. */
-    if (this.speedInverted && theirs.stats.speed !== mine.stats.speed) {
+    if (this.speedInverted && theirSpeed !== mySpeed) {
       first = first === 'player' ? 'enemy' : 'player';
     }
 
@@ -576,13 +748,16 @@ export class Battle {
         });
         continue;
       }
-      events.push(...this.applyMove(step));
+      events.push(...this.act(step));
       /* A hit is what moves the readings abilities watch — how hurt each side is,
          what the opponent has raised, whether anyone is now alone — so any ability
          that has just switched on or off says so here, next to the blow that did
          it, rather than at the top of some later turn. */
       events.push(...this.abilityChanges());
     }
+
+    // Abilities that act every turn, and statuses that run out.
+    events.push(...this.endOfTurn());
 
     // Bring in replacements
     events.push(...this.handleFaints());
@@ -617,6 +792,60 @@ export class Battle {
     const fx = move.effect;
     if (!fx) return [];
     const otherSide = side === 'player' ? 'enemy' : 'player';
+
+    /* ---- the Crystal Canopy effects ---- */
+
+    // Two effects in one move, applied in the order the sheet wrote them.
+    if (fx.kind === 'combo') {
+      return fx.parts.flatMap(part =>
+        this.applyMoveEffect({ side, actor, target, move: { ...move, effect: part } }));
+    }
+    if (fx.kind === 'status') {
+      if (target.fainted) return [];
+      if (fx.chance < 1 && this.rng() >= fx.chance) return [];
+      const e = this.giveStatus(target, otherSide, fx.status, { move: move.name, actorLabel: actor.label });
+      return e ? [e] : [];
+    }
+    // Swaps two of the opponent's stats outright — base, current and any buff,
+    // so a later buff or copy still adds up.
+    if (fx.kind === 'statSwap') {
+      if (target.fainted) return [];
+      const [a, b] = fx.stats;
+      const before = { [a]: target.stats[a], [b]: target.stats[b] };
+      [target.stats[a], target.stats[b]] = [target.stats[b], target.stats[a]];
+      [target.baseStats[a], target.baseStats[b]] = [target.baseStats[b], target.baseStats[a]];
+      const ba = target.buffs[a], bb = target.buffs[b];
+      if (bb == null) delete target.buffs[a]; else target.buffs[a] = bb;
+      if (ba == null) delete target.buffs[b]; else target.buffs[b] = ba;
+      return [{
+        type: 'statSwap', side, targetSide: otherSide,
+        actor: target.key, actorLabel: target.label,
+        stats: [a, b].map(s => ({ stat: s, statLabel: STAT_LABELS[s], before: before[s], after: target.stats[s] }))
+      }];
+    }
+    // A share of what the user has left. Never the last point: it is a price,
+    // not a way to knock yourself out.
+    if (fx.kind === 'loseHp') {
+      const amount = Math.min(actor.hp - 1, Math.floor(actor.hp * fx.pct));
+      if (amount <= 0) return [];
+      const hpBefore = actor.hp;
+      actor.takeDamage(amount);
+      return [{
+        type: 'hpCost', side, targetSide: side,
+        actor: actor.key, actorLabel: actor.label,
+        amount, pct: Math.round(fx.pct * 100),
+        hpBefore, hpAfter: actor.hp, maxHp: actor.maxHp
+      }];
+    }
+    if (fx.kind === 'healFull') {
+      const r = actor.heal(actor.maxHp);
+      return [{
+        type: 'heal', side, targetSide: side,
+        actor: actor.key, actorLabel: actor.label,
+        amount: r.healed, asked: actor.maxHp,
+        hpBefore: r.before, hpAfter: r.after, maxHp: r.maxHp
+      }];
+    }
 
     /* ---- the five fossil effects ----
        Handled before the buff/debuff machinery below because none of them is a
@@ -783,6 +1012,29 @@ export class Battle {
     // a hard hitter swinging into something fragile compounds.
     const attackerRead = this.abilityFor(side);
     const defenderRead = this.abilityFor(side === 'player' ? 'enemy' : 'player');
+
+    /* Hallucination: one hit in four turns on its owner. The blow is worked out
+       exactly as it would have landed, and the whole move — its rider effect
+       included — is spent on the attacker instead. */
+    if (actor.has('Hallucination') && this.rng() < STATUS_CONDITIONS.Hallucination.chance) {
+      const selfDmg = damageOf(
+        move, actor.type, actor.stats.attack, target.type, target.stats.defence,
+        { dealMultiplier: (attackerRead?.dealMultiplier ?? 1) * this.sideMultiplier(side),
+          takeMultiplier: defenderRead?.takeMultiplier ?? 1 }
+      );
+      const hpBefore = actor.hp;
+      actor.takeDamage(selfDmg);
+      events.push({
+        type: 'damage', side, actor: actor.key, target: actor.key, targetLabel: actor.label,
+        amount: selfDmg, selfHit: 'Hallucination',
+        hpBefore, hpAfter: actor.hp, maxHp: actor.maxHp
+      });
+      if (actor.fainted) {
+        events.push({ type: 'faint', side, actor: actor.key, label: actor.label });
+        events.push(...this.partingShot(actor, target, side));
+      }
+      return events;
+    }
     const dealMultiplier = attackerRead?.dealMultiplier ?? 1;
     const takeMultiplier = defenderRead?.takeMultiplier ?? 1;
 
@@ -804,7 +1056,13 @@ export class Battle {
      */
     let dealt = dmg;
     let saved = null;
-    if (target.heldDef?.effect === 'survive'
+    // An ability that shrugs off everything but a single point while at full HP.
+    // Checked first: it is the stronger of the two, and 1 damage never kills.
+    let sturdy = null;
+    if (defenderRead?.sturdy && target.hp === target.maxHp && dmg > 1) {
+      dealt = 1;
+      sturdy = defenderRead.ability.name;
+    } else if (target.heldDef?.effect === 'survive'
       && target.hp === target.maxHp
       && dmg >= target.hp) {
       dealt = target.hp - 1;
@@ -825,8 +1083,9 @@ export class Battle {
       // Named so the log can explain a number the stats alone do not account for.
       sideFx: sideMult !== 1 ? Math.round((sideMult - 1) * 100) : null,
       // The blow it would have been, so the log can say what was survived.
-      wouldHaveBeen: saved ? dmg : null,
+      wouldHaveBeen: saved || sturdy ? dmg : null,
       savedBy: saved,
+      sturdyBy: sturdy,
       superEffective: eff.superEffective,
       notVeryEffective: eff.notVeryEffective,
       // Named so the UI can say why a number looked surprising.
@@ -838,6 +1097,24 @@ export class Battle {
     // The rider effect lands after the hit, so a move that heals its user still
     // does so on the turn it knocks something out.
     events.push(...this.applyMoveEffect({ side, actor, target, move }));
+
+    /* Abilities that answer being hit: a status thrown back at the attacker, or
+       a heal. Read off the defender as it stood when the blow landed. */
+    for (const { status, chance } of defenderRead?.onHitStatus || []) {
+      if (chance < 1 && this.rng() >= chance) continue;
+      const e = this.giveStatus(actor, side, status, { ability: defenderRead.ability.name, actorLabel: target.label });
+      if (e) events.push(e);
+    }
+    if (defenderRead?.healOnHit && !target.fainted) {
+      const r = target.heal(defenderRead.healOnHit);
+      events.push({
+        type: 'heal', side: hitSide, targetSide: hitSide,
+        actor: target.key, actorLabel: target.label,
+        amount: r.healed, asked: defenderRead.healOnHit,
+        hpBefore: r.before, hpAfter: r.after, maxHp: r.maxHp,
+        fromAbility: defenderRead.ability.name
+      });
+    }
 
     if (target.fainted) {
       events.push({
@@ -872,17 +1149,36 @@ export class Battle {
       world: this.env.world,
       battle: this.battleReadings(fallenSide)
     });
-    if (!read.faintPercent) return [];
+
+    const events = [];
+    const attackerSide = fallenSide === 'player' ? 'enemy' : 'player';
+    // A debuff on the way down, rather than (or as well as) a last hit.
+    if (read.faintDebuff) {
+      const applied = read.faintDebuff.stats.map(stat => {
+        const r = attacker.applyDebuff(stat, read.faintDebuff.pct);
+        return { stat, statLabel: STAT_LABELS[stat], before: r.before, after: r.after,
+          totalPct: attacker.buffPercent(stat) };
+      });
+      events.push({
+        type: 'debuff', side: fallenSide, targetSide: attackerSide, onSelf: false,
+        actor: attacker.key, actorLabel: attacker.label,
+        pct: Math.round(read.faintDebuff.pct * 100), stats: applied,
+        stat: applied[0]?.stat, statLabel: applied[0]?.statLabel,
+        before: applied[0]?.before, after: applied[0]?.after, totalPct: applied[0]?.totalPct,
+        fromAbility: read.ability.name, fromLabel: fallen.label
+      });
+    }
+    if (!read.faintPercent) return events;
 
     const dealt = faintDamage(read.faintPercent, attacker.hp);
-    if (dealt <= 0) return [];
+    if (dealt <= 0) return events;
 
     const hpBefore = attacker.hp;
     attacker.takeDamage(dealt);
     // A player's creature going down can still land this last hit.
     this.creditDamage(fallen, attacker, hpBefore);
 
-    const events = [{
+    events.push({
       type: 'partingShot',
       side: fallenSide,
       targetSide: fallenSide === 'player' ? 'enemy' : 'player',
@@ -892,7 +1188,7 @@ export class Battle {
       percent: read.faintPercent,
       amount: dealt,
       hpBefore, hpAfter: attacker.hp, maxHp: attacker.maxHp
-    }];
+    });
 
     // It can take the attacker with it, which is the whole point of a last hit.
     if (attacker.fainted) {

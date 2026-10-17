@@ -2383,3 +2383,8 @@ a.ad-link:active { transform: scale(.98); }
   width: 100%; text-align: left; padding: 10px 12px;
 }
 .set-incense-opt b { font-size: 14px; }
+
+/* ---- status conditions ---- */
+.bt-buff.bt-status { background: #b07cff2e; border-color: #b07cff77; color: #e3d4ff; }
+.bt-move.blocked { opacity: .45; }
+.bt-log .status-log, #bt-log .status-log { color: #d9c7ff; }

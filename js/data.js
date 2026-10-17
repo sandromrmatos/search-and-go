@@ -57,6 +57,16 @@ export const TEMPORAL_CSV_FILE = 'Temporal Rift.csv';
 export const TEMPORAL_SET_NAME = 'Temporal Rift';
 
 /**
+ * The fourth set, opened off the back of Temporal Rift registrations the same
+ * way Temporal Rift opens off Galactic Adventures. New here: moves and abilities
+ * that cause status conditions, and a creature that only spawns at restaurants.
+ * The sheet has an extra "Note for moves or abilities" column, which is a design
+ * note for whoever edits it and is never read.
+ */
+export const CRYSTAL_CSV_FILE = 'Crystal Canopy.csv';
+export const CRYSTAL_SET_NAME = 'Crystal Canopy';
+
+/**
  * Creature lists for the two annual events that use hand-picked casts rather
  * than a type or the whole pool. One `id,name` row per creature, the same shape
  * as the Creature Spotlight rota. Both files are optional: without one, that
@@ -82,6 +92,7 @@ export const MYTHICAL_RARITY = 6;
  */
 export const MYTHICAL_ASTRALYON_ID = 'Mythical_01';
 export const MYTHICAL_CHROMARION_ID = 'Mythical_02';
+export const MYTHICAL_AETHERAVE_ID = 'Mythical_03';
 
 /**
  * Dex numbers per set, spaced so the shared sort keeps each collection
@@ -94,6 +105,8 @@ export const GALACTIC_ORDER_BASE = 1000;
  * and this base has to agree with that order.
  */
 export const TEMPORAL_ORDER_BASE = 1500;
+/** Temporal Rift ends at 1574, so the fourth set fits before the Exclusives. */
+export const CRYSTAL_ORDER_BASE = 1750;
 export const EXCLUSIVE_ORDER_BASE = 2000;
 /**
  * The Grand Raid bosses get their own base rather than sharing the Exclusive
@@ -712,6 +725,47 @@ export const NOT_VERY_EFFECTIVE_MULTIPLIER = 0.7;
 export const BATTLE_TEAM_SIZE = 3;
 
 /* ---------------------------------------------------------------
+   Status conditions
+
+   Introduced with Crystal Canopy. A move or an ability can give the opponent
+   one; it then stays with that creature until it faints (Iced and Loop wear off
+   on their own). A creature can carry several different ones at once, but the
+   same one twice does nothing.
+   --------------------------------------------------------------- */
+export const STATUS_CONDITIONS = {
+  Hallucination: {
+    icon: '🌀', chance: 0.25,
+    blurb: '25% chance each turn that the damage it would deal lands on itself instead.'
+  },
+  Lock: { icon: '🔒', blurb: 'Cannot use moves that raise its own stats.' },
+  Rust: { icon: '🦀', blurb: "Cannot use moves that lower the opponent's stats." },
+  Flux: { icon: '⚡', chance: 0.25, blurb: '25% chance each turn that it cannot move at all.' },
+  Loop: {
+    icon: '🔁', turns: 3,
+    blurb: 'Has to repeat the move it used last for 3 turns in a row.'
+  },
+  Iced: { icon: '🧊', turns: 3, blurb: 'Its Speed counts as 1 for the next 3 turns.' },
+  Disorient: { icon: '💫', blurb: 'Cannot use its 4th move.' }
+};
+export const STATUS_NAMES = Object.keys(STATUS_CONDITIONS);
+
+/** "iced" / "ICED" -> "Iced", or null when it is not a status condition. */
+export const statusConditionName = raw => {
+  const low = String(raw ?? '').trim().toLowerCase();
+  return STATUS_NAMES.find(s => s.toLowerCase() === low) || null;
+};
+
+/** Does this move raise its user's own stats (what Lock forbids)? */
+export const moveBuffsSelf = move => effectHasKind(move?.effect, 'buffSelf');
+/** Does this move lower the opponent's stats (what Rust forbids)? */
+export const moveDebuffsOpponent = move => effectHasKind(move?.effect, 'debuffOpponent');
+function effectHasKind(fx, kind) {
+  if (!fx) return false;
+  if (fx.kind === 'combo') return fx.parts.some(p => effectHasKind(p, kind));
+  return fx.kind === kind;
+}
+
+/* ---------------------------------------------------------------
    Abilities
 
    An ability belongs to a species and holds one or more *clauses*. Each clause
@@ -741,6 +795,56 @@ export const ABILITY_EFFECTS = {
   'take less': { channel: 'take', direction: -1 },
   'deal on faint': { channel: 'faint', direction: 0 }
 };
+
+/**
+ * Every ability effect, the fixed ones above plus the Crystal Canopy ones,
+ * which carry a parameter in their own wording:
+ *
+ *   "inflict <status> on hit"                 Percent = chance, when hit by a damaging move
+ *   "debuff opponent <stats> on faint"        Percent = how much, as it faints
+ *   "take 1 at full hp"                       no Percent
+ *   "buff self <stats> each turn"             Percent = how much, at the end of each turn
+ *   "status immune"                           no Percent
+ *   "opponent uses moves 1 and 2 only"        no Percent
+ *   "heal on hit"                             Percent = HP healed, when hit by a damaging move
+ *
+ * Returns { channel, direction, needsPercent, maxPercent, … } or null.
+ */
+const abilitySpecCache = new Map();
+export function abilityEffectSpec(effect) {
+  const key = String(effect ?? '').trim().toLowerCase();
+  if (abilitySpecCache.has(key)) return abilitySpecCache.get(key);
+  let spec = null;
+  if (ABILITY_EFFECTS[key]) {
+    spec = { ...ABILITY_EFFECTS[key], needsPercent: true };
+  } else {
+    let m;
+    if ((m = key.match(/^inflict\s+(\w+)\s+on\s+hit$/)) && statusConditionName(m[1])) {
+      spec = { channel: 'onHitStatus', direction: 0, status: statusConditionName(m[1]),
+        needsPercent: true, maxPercent: 100 };
+    } else if ((m = key.match(/^debuff\s+opponent\s+(.+?)\s+on\s+faint$/))) {
+      const stats = normaliseStats(m[1]).filter(s => s !== 'hp');
+      if (stats.length) spec = { channel: 'faintDebuff', direction: 0, stats, needsPercent: true, maxPercent: 99 };
+    } else if (/^take\s+(?:only\s+)?1(?:\s+damage)?\s+at\s+full\s+hp$/.test(key)) {
+      spec = { channel: 'sturdy', direction: 0, needsPercent: false };
+    } else if ((m = key.match(/^buff\s+self\s+(.+?)\s+each\s+turn$/))) {
+      const stats = normaliseStats(m[1]).filter(s => s !== 'hp');
+      if (stats.length) spec = { channel: 'turnBuff', direction: 0, stats, needsPercent: true, maxPercent: 100 };
+    } else if (/^status\s+immune$/.test(key)) {
+      spec = { channel: 'statusImmune', direction: 0, needsPercent: false };
+    } else if ((m = key.match(/^opponent\s+uses\s+moves?\s+([\d\s,and]+?)\s+only$/))) {
+      const slots = (m[1].match(/\d/g) || []).map(Number).filter(n => n >= 1 && n <= 4);
+      if (slots.length) spec = { channel: 'restrictMoves', direction: 0, slots, needsPercent: false };
+    } else if (/^heal\s+on\s+hit$/.test(key)) {
+      spec = { channel: 'healOnHit', direction: 0, needsPercent: true };
+    }
+  }
+  abilitySpecCache.set(key, spec);
+  return spec;
+}
+
+/** Channels that fire as their owner faints, and so need the "always" trigger. */
+const FAINT_CHANNELS = new Set(['faint', 'faintDebuff']);
 
 /** Triggers that read a list of allowed values out of the `Value` column. */
 export const ABILITY_LIST_TRIGGERS = [
@@ -982,8 +1086,8 @@ const clampAbilityMultiplier = m =>
 
 /** A clause's multiplier, e.g. "deal less 50" -> 0.5. */
 export function clauseMultiplier(clause) {
-  const spec = ABILITY_EFFECTS[clause.effect];
-  if (!spec) return 1;
+  const spec = abilityEffectSpec(clause.effect);
+  if (!spec || !spec.direction) return 1;
   return 1 + spec.direction * (clause.percent / 100);
 }
 
@@ -1198,7 +1302,12 @@ export function evaluateClause(clause, ctx = {}) {
     case ALWAYS_TRIGGER:
       // No condition to report, so the reason describes when the effect that
       // uses this trigger actually lands.
-      return { active: true, reason: 'on being knocked out' };
+      return {
+        active: true,
+        reason: FAINT_CHANNELS.has(abilityEffectSpec(clause.effect)?.channel)
+          ? 'on being knocked out'
+          : 'always on'
+      };
     case 'time': {
       const h = now.getHours() + now.getMinutes() / 60;
       const { min, max } = clause;
@@ -1230,6 +1339,13 @@ export function evaluateClause(clause, ctx = {}) {
       const name = MONTH_NAMES_LONG[now.getMonth()];
       return { active: has(name), reason: `it is ${name}` };
     }
+    case 'poi': {
+      const p = ctx.poi;
+      const pretty = v => String(v).replace(/_/g, ' ');
+      if (!p) return { active: false, reason: `only spawns at a ${list.map(pretty).join(' or ')}` };
+      const value = String(p.kindValue || '').toLowerCase();
+      return { active: has(value) || has(String(p.kind || '').toLowerCase()), reason: `this is a ${pretty(value)}` };
+    }
     default:
       return { active: false, reason: 'unknown trigger' };
   }
@@ -1251,6 +1367,20 @@ export function evaluateAbility(ability, ctx = {}) {
      * two multipliers because it is not a multiplier: it fires once, on a faint.
      */
     faintPercent: 0,
+    /** Statuses given to whatever lands a damaging hit on this creature. */
+    onHitStatus: [],
+    /** Stats lowered on the opponent as this creature faints, or null. */
+    faintDebuff: null,
+    /** At full HP, any hit deals only 1. */
+    sturdy: false,
+    /** Stats raised at the end of every turn, or null. */
+    turnBuff: null,
+    /** Cannot be given a status condition. */
+    statusImmune: false,
+    /** The only move slots the opponent may use, or null for no limit. */
+    restrictSlots: null,
+    /** HP healed when hit by a damaging move. */
+    healOnHit: 0,
     anyActive: false
   };
   if (!ability) return out;
@@ -1260,9 +1390,18 @@ export function evaluateAbility(ability, ctx = {}) {
     out.clauses.push({ clause, active, reason });
     if (!active) continue;
     out.anyActive = true;
-    const channel = ABILITY_EFFECTS[clause.effect]?.channel;
+    const spec = abilityEffectSpec(clause.effect);
+    const channel = spec?.channel;
     if (channel === 'deal') out.dealMultiplier *= clauseMultiplier(clause);
     if (channel === 'take') out.takeMultiplier *= clauseMultiplier(clause);
+    // The Crystal Canopy effects, each read by the battle at its own moment.
+    if (channel === 'onHitStatus') out.onHitStatus.push({ status: spec.status, chance: clause.percent / 100 });
+    if (channel === 'faintDebuff') out.faintDebuff = { stats: spec.stats, pct: clause.percent / 100 };
+    if (channel === 'sturdy') out.sturdy = true;
+    if (channel === 'turnBuff') out.turnBuff = { stats: spec.stats, pct: clause.percent / 100 };
+    if (channel === 'statusImmune') out.statusImmune = true;
+    if (channel === 'restrictMoves') out.restrictSlots = spec.slots;
+    if (channel === 'healOnHit') out.healOnHit = Math.max(out.healOnHit, clause.percent);
     // Several faint clauses would be odd authoring; the biggest one wins rather
     // than compounding into something unbounded.
     if (channel === 'faint') out.faintPercent = Math.max(out.faintPercent, clause.percent);
@@ -1295,6 +1434,22 @@ export function clauseEffectText(clause) {
     case 'take less': return `takes ${pct}% less damage`;
     case 'deal on faint':
       return `deals ${pct}% of the opponent's remaining HP as it faints`;
+  }
+  const spec = abilityEffectSpec(clause.effect);
+  switch (spec?.channel) {
+    case 'onHitStatus':
+      return pct >= 100
+        ? `gives ${spec.status} to whatever hits it`
+        : `has a ${pct}% chance of giving ${spec.status} to whatever hits it`;
+    case 'faintDebuff':
+      return `lowers the opponent's ${spec.stats.map(s => STAT_LABELS[s]).join(' and ')} by ${pct}% as it faints`;
+    case 'sturdy': return 'takes only 1 damage from any hit while at full HP';
+    case 'turnBuff':
+      return `raises its ${spec.stats.map(s => STAT_LABELS[s]).join(', ')} by ${pct}% at the end of every turn`;
+    case 'statusImmune': return 'cannot be given a status condition';
+    case 'restrictMoves':
+      return `only lets the opponent use move${spec.slots.length === 1 ? '' : 's'} ${spec.slots.join(' and ')}`;
+    case 'healOnHit': return `heals ${pct} HP when hit`;
     default: return 'has no effect';
   }
 }
@@ -1390,13 +1545,18 @@ export function clauseConditionText(clause) {
         ? `the team includes ${list[0]}`
         : `the rest of the team is ${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`;
     case ALWAYS_TRIGGER: return 'it faints';
+    case 'poi': return `it is at a ${join(list.map(v => String(v).replace(/_/g, ' ')))}`;
     default: return 'an unknown condition';
   }
 }
 
 /** One clause as a sentence: "Deals 50% more damage if …". */
-export const clauseText = clause =>
-  `${clauseEffectText(clause).replace(/^./, ch => ch.toUpperCase())} if ${clauseConditionText(clause)}.`;
+export const clauseText = clause => {
+  const effect = clauseEffectText(clause).replace(/^./, ch => ch.toUpperCase());
+  // An unconditional effect needs no "if" — a faint one already says "as it faints".
+  if (clause.trigger === ALWAYS_TRIGGER) return `${effect}.`;
+  return `${effect} if ${clauseConditionText(clause)}.`;
+};
 
 /* ---------------------------------------------------------------
    Spawn restrictions
@@ -1433,7 +1593,11 @@ const RESTRICTION_TRIGGERS = {
   'hour': 'time',
   'time': 'time',
   'walked today': 'walked today',
-  'grunts today': 'grunts today'
+  'grunts today': 'grunts today',
+  // Which kind of real place it spawns at, by its OpenStreetMap value:
+  // "POI = restaurant", "POI = cafe, bakery".
+  'poi': 'poi',
+  'place': 'poi'
 };
 
 /**
@@ -1465,6 +1629,10 @@ function parseRestrictionClause(text, where) {
   if (op === '=') {
     const values = splitList(rest);
     if (!values.length) return fail('nothing listed after the "="');
+    // Spawn restrictions only: an ability has no POI to judge.
+    if (trigger === 'poi') {
+      return { trigger, values: values.map(v => v.toLowerCase().replace(/\s+/g, '_')), min: null, max: null };
+    }
     if (!ABILITY_LIST_TRIGGERS.includes(trigger)) {
       return fail(`"${trigger}" needs a comparison such as > or <, not "="`);
     }
@@ -1575,10 +1743,10 @@ export const spawnConditionContext = (now = new Date()) => ({
  * Is this creature allowed to appear right now? True for anything without a
  * restriction, which is every creature outside Temporal Rift.
  */
-export function canSpawnNow(sp, now = new Date()) {
+export function canSpawnNow(sp, now = new Date(), { poi = null } = {}) {
   const r = sp?.spawnRestriction;
   if (!r) return true;
-  const ctx = spawnConditionContext(now);
+  const ctx = { ...spawnConditionContext(now), poi };
   return r.clauses.every(c => evaluateClause(c, ctx).active);
 }
 
@@ -1622,7 +1790,7 @@ export const abilityNeedsBattle = ability =>
 
 /** True when the ability does its work by fainting rather than by hitting. */
 export const abilityFaintsToFire = ability =>
-  !!ability?.clauses.some(c => ABILITY_EFFECTS[c.effect]?.channel === 'faint');
+  !!ability?.clauses.some(c => FAINT_CHANNELS.has(abilityEffectSpec(c.effect)?.channel));
 
 /**
  * Would this ability actually do anything in a battle that has not started yet?
@@ -2043,6 +2211,11 @@ export const FRONTIER_CHALLENGES = [
     id: 'temporal', name: TEMPORAL_SET_NAME, set: TEMPORAL_SET_NAME, type: null, randomBoss: true,
     trainer: 'challenge temporal rift.png', trainerName: 'Chronicler Vex',
     phrase: 'I have seen this battle a hundred times. You lose in most of them.'
+  },
+  {
+    id: 'crystal', name: CRYSTAL_SET_NAME, set: CRYSTAL_SET_NAME, type: null, randomBoss: true,
+    trainer: 'challenge crystal canopy.png', trainerName: 'Canopy Keeper Wren',
+    phrase: 'Up here, every leaf has a trick. Let us see if you can keep your head straight.'
   }
 ];
 
@@ -2295,6 +2468,11 @@ export const FRONTIER_MODES = [
     id: 'set_temporal', label: `Only ${TEMPORAL_SET_NAME}`,
     kind: 'set', value: TEMPORAL_SET_NAME,
     blurb: `Every creature on your team must come from ${TEMPORAL_SET_NAME}.`
+  },
+  {
+    id: 'set_crystal', label: `Only ${CRYSTAL_SET_NAME}`,
+    kind: 'set', value: CRYSTAL_SET_NAME,
+    blurb: `Every creature on your team must come from ${CRYSTAL_SET_NAME}.`
   },
   {
     id: 'set_exclusive', label: 'Only Exclusives',
@@ -3274,6 +3452,15 @@ export const EGG_TYPES = {
     speciesId: MYTHICAL_CHROMARION_ID,
     noShiny: true,
     ignoresStorageLimit: true
+  },
+  /** Aetherave's egg, paid for completing every creature in Temporal Rift. */
+  '50km-aetherave': {
+    id: '50km-aetherave', km: 50, dust: 500, xp: 100, image: '50km_egg.png', bonusCandy: 25,
+    label: 'Aetherave 50 km egg',
+    mythical: true,
+    speciesId: MYTHICAL_AETHERAVE_ID,
+    noShiny: true,
+    ignoresStorageLimit: true
   }
 };
 
@@ -3283,6 +3470,8 @@ export const EXCLUSIVE_EGG_TYPE = '15km';
 export const MYTHICAL_EGG_TYPE = '50km';
 /** The egg the last Temporal Rift Set mission hands over. */
 export const CHROMARION_EGG_TYPE = '50km-chromarion';
+/** The egg the 100% Temporal Rift Set mission hands over. */
+export const AETHERAVE_EGG_TYPE = '50km-aetherave';
 
 /** Which egg you get when one drops. */
 export const EGG_TYPE_ROLL = [
@@ -3908,6 +4097,44 @@ export const SET_MISSIONS = [
     label: `Register all 77 creatures in ${GALACTIC_SET_NAME}`
   },
   /**
+   * The Crystal Canopy ladder, counting Temporal Rift registrations. Rarity 5
+   * stops 3 short of the whole set, because several Temporal Rift creatures only
+   * appear under conditions that can take a long time to meet. Completing it in
+   * full is its own rung, and pays the third mythical.
+   */
+  {
+    id: 'cc1', kind: 'registeredInSet', set: TEMPORAL_SET_NAME, target: 60, requireXp: 42_000,
+    xp: 35, dust: 350, unlockCrystalRarity: 1,
+    label: `Register 60 creatures from ${TEMPORAL_SET_NAME}`
+  },
+  {
+    id: 'cc2', kind: 'registeredInSet', set: TEMPORAL_SET_NAME, target: 64, requireXp: 46_000,
+    xp: 50, dust: 500, unlockCrystalRarity: 2,
+    label: `Register 64 creatures from ${TEMPORAL_SET_NAME}`
+  },
+  {
+    id: 'cc3', kind: 'registeredInSet', set: TEMPORAL_SET_NAME, target: 67, requireXp: 50_000,
+    xp: 70, dust: 700, unlockCrystalRarity: 3,
+    label: `Register 67 creatures from ${TEMPORAL_SET_NAME}`
+  },
+  {
+    id: 'cc4', kind: 'registeredInSet', set: TEMPORAL_SET_NAME, target: 69, requireXp: 54_000,
+    xp: 90, dust: 900, unlockCrystalRarity: 4,
+    label: `Register 69 creatures from ${TEMPORAL_SET_NAME}`
+  },
+  {
+    id: 'cc5', kind: 'registeredInSet', set: TEMPORAL_SET_NAME, target: 71, requireXp: 58_000,
+    xp: 200, dust: 2000, unlockCrystalRarity: 5,
+    items: { set_incense: 1 },
+    label: `Register 71 creatures from ${TEMPORAL_SET_NAME}`
+  },
+  {
+    id: 'cc6', kind: 'registeredInSet', set: TEMPORAL_SET_NAME, target: 74, requireXp: 62_000,
+    xp: 200, dust: 2000,
+    grantEgg: AETHERAVE_EGG_TYPE,
+    label: `Register all 74 creatures in ${TEMPORAL_SET_NAME}`
+  },
+  /**
    * The exclusive ladder. Filling in the first wave of Exclusives opens the
    * second, which is the only way those creatures enter the Collection or the
    * exclusive raid and 15 km egg pools. No XP gate: getting 19 raid-only
@@ -3986,6 +4213,7 @@ export const SETS = [
   { id: 'elemental-awakening', title: SET_NAME, available: true, setName: SET_NAME },
   { id: 'galactic-adventures', title: GALACTIC_SET_NAME, available: true, setName: GALACTIC_SET_NAME, galactic: true },
   { id: 'temporal-rift', title: TEMPORAL_SET_NAME, available: true, setName: TEMPORAL_SET_NAME, temporal: true },
+  { id: 'crystal-canopy', title: CRYSTAL_SET_NAME, available: true, setName: CRYSTAL_SET_NAME, crystal: true },
   { id: 'exclusive', title: EXCLUSIVE_SET_NAME, available: true, exclusive: true, setName: EXCLUSIVE_SET_NAME },
   // Straight after the Exclusives, which is where the dex numbers put them too.
   { id: 'fossil', title: FOSSIL_SET_NAME, available: true, fossil: true, setName: FOSSIL_SET_NAME },
@@ -4014,6 +4242,9 @@ let galacticUnlocked = new Set();
    --------------------------------------------------------------- */
 
 let temporalUnlocked = new Set();
+
+/** Crystal Canopy rarities, the same shape again, one set further along. */
+let crystalUnlocked = new Set();
 
 /* ---------------------------------------------------------------
    Exclusive wave 2 unlock
@@ -4095,6 +4326,17 @@ export function setTemporalUnlocked(rarities = []) {
   return unlockedTemporalRarities();
 }
 
+/** True once the Set mission for this Crystal Canopy rarity has been claimed. */
+export const isCrystalRarityUnlocked = r => crystalUnlocked.has(Number(r));
+export const unlockedCrystalRarities = () => [...crystalUnlocked].sort((a, b) => a - b);
+
+/** The Crystal Canopy twin of setGalacticUnlocked. */
+export function setCrystalUnlocked(rarities = []) {
+  crystalUnlocked = new Set((rarities || []).map(Number).filter(r => r >= 1 && r <= 5));
+  if (DB.loaded) rebuildSpawnPools();
+  return unlockedCrystalRarities();
+}
+
 /**
  * Recomputes every pool a roll can draw from.
  *
@@ -4108,6 +4350,7 @@ export function rebuildSpawnPools() {
     if (sp.exclusive || sp.mythical || sp.fossil) return false;
     if (sp.galactic) return isGalacticRarityUnlocked(sp.rarity || familyRarity(sp.id));
     if (sp.temporal) return isTemporalRarityUnlocked(sp.rarity || familyRarity(sp.id));
+    if (sp.crystal) return isCrystalRarityUnlocked(sp.rarity || familyRarity(sp.id));
     return true;
   };
 
@@ -4144,13 +4387,14 @@ export const hasAbility = speciesId => DB.abilities.has(speciesId);
 export function speciesForSet(set) {
   if (set?.galactic) return DB.galactic;
   if (set?.temporal) return DB.temporal;
+  if (set?.crystal) return DB.crystal;
   // In play only: the second wave of exclusives stays out of the tab entirely
   // until its Set mission is claimed, rather than sitting there as a spoiler.
   if (set?.exclusive) return DB.exclusiveInPlay;
   if (set?.fossil) return DB.fossil;
   if (set?.mythical) return DB.mythical;
   return DB.species.filter(s =>
-    !s.galactic && !s.exclusive && !s.mythical && !s.temporal && !s.fossil);
+    !s.galactic && !s.exclusive && !s.mythical && !s.temporal && !s.crystal && !s.fossil);
 }
 
 /* ---------------------------------------------------------------
@@ -4212,7 +4456,8 @@ function buildAbilities(rows) {
     }
 
     const effect = (r['effect'] || '').trim().toLowerCase();
-    if (!ABILITY_EFFECTS[effect]) {
+    const spec = abilityEffectSpec(effect);
+    if (!spec) {
       DB.warnings.push(`Abilities line ${line}: unknown Effect "${r['effect']}"`);
       return;
     }
@@ -4223,8 +4468,11 @@ function buildAbilities(rows) {
       return;
     }
 
-    const percent = numOrNull(r['percent']);
-    if (percent == null || percent <= 0) {
+    // Some of the newer effects have nothing to measure, so Percent is optional
+    // for them and ignored if given.
+    const rawPercent = numOrNull(r['percent']);
+    const percent = spec.needsPercent ? rawPercent : (rawPercent ?? 0);
+    if (spec.needsPercent && (percent == null || percent <= 0)) {
       DB.warnings.push(`Abilities line ${line}: Percent must be a positive number`);
       return;
     }
@@ -4233,8 +4481,12 @@ function buildAbilities(rows) {
       DB.warnings.push(`Abilities line ${line}: "${effect}" cannot exceed 100%`);
       return;
     }
+    if (spec.maxPercent != null && percent > spec.maxPercent) {
+      DB.warnings.push(`Abilities line ${line}: "${effect}" cannot exceed ${spec.maxPercent}%`);
+      return;
+    }
 
-    const channel = ABILITY_EFFECTS[effect].channel;
+    const channel = spec.channel;
 
     // A single clause beyond the cap would be silently clamped in battle, which
     // is confusing to author against, so say so up front. A faint effect moves no
@@ -4246,8 +4498,8 @@ function buildAbilities(rows) {
           `Abilities line ${line}: "${effect}" cannot exceed 100% of the opponent's HP`);
         return;
       }
-    } else {
-      const single = 1 + ABILITY_EFFECTS[effect].direction * (percent / 100);
+    } else if (channel === 'deal' || channel === 'take') {
+      const single = 1 + spec.direction * (percent / 100);
       if (single < ABILITY_MULTIPLIER_MIN || single > ABILITY_MULTIPLIER_MAX) {
         DB.warnings.push(
           `Abilities line ${line}: ${percent}% is outside the ` +
@@ -4263,13 +4515,13 @@ function buildAbilities(rows) {
        use it bring their own timing. It is only meaningful with such an effect,
        so pairing it with a damage multiplier is a mistake worth naming. */
     if (trigger === ALWAYS_TRIGGER) {
-      if (channel !== 'faint') {
+      if (channel === 'deal' || channel === 'take') {
         DB.warnings.push(
           `Abilities line ${line}: "${ALWAYS_TRIGGER}" has no condition, so it only ` +
           `makes sense with an effect that has its own timing, not "${effect}"`);
         return;
       }
-    } else if (channel === 'faint') {
+    } else if (FAINT_CHANNELS.has(channel)) {
       DB.warnings.push(
         `Abilities line ${line}: "${effect}" fires when the creature faints, so its ` +
         `trigger must be "${ALWAYS_TRIGGER}", not "${trigger}"`);
@@ -4620,6 +4872,8 @@ export const DB = {
    */
   temporalSpawnable: [],
   temporalByRarity: { 1: [], 2: [], 3: [], 4: [], 5: [] },
+  /** Crystal Canopy, every creature whether unlocked or not. */
+  crystal: [],
   /**
    * The fossil creatures. Like the exclusives these are deliberately outside
    * `spawnable`, `byRarity` and `available`: assembling the parts and waiting a
@@ -4671,7 +4925,8 @@ export async function loadDatabase(
   thanksgivingUrl = THANKSGIVING_CSV_FILE,
   exclusive3Url = EXCLUSIVE3_CSV_FILE,
   frontierUrl = FRONTIER_CSV_FILE,
-  fossilUrl = FOSSIL_CSV_FILE
+  fossilUrl = FOSSIL_CSV_FILE,
+  crystalUrl = CRYSTAL_CSV_FILE
 ) {
   DB.warnings = [];
 
@@ -4683,7 +4938,7 @@ export async function loadDatabase(
 
   const [baseText, statsText, exclusiveText, abilitiesText, galacticText, mythicalText,
          spotlightText, exclusive2Text, temporalText, halloweenText, thanksgivingText,
-         exclusive3Text, frontierText, fossilText] =
+         exclusive3Text, frontierText, fossilText, crystalText] =
     await Promise.all([
       fetchText(csvUrl),
       fetchText(statsUrl),
@@ -4707,7 +4962,8 @@ export async function loadDatabase(
       optional(frontierUrl, 'Battle Frontier challenges'),
       // Without it the fossil parts still drop and simply have nothing to revive
       // into, which is the same shape as every other optional set.
-      optional(fossilUrl, 'Fossil creatures')
+      optional(fossilUrl, 'Fossil creatures'),
+      optional(crystalUrl, CRYSTAL_SET_NAME)
     ]);
 
   const baseRows = toRecords(parseCSV(baseText));
@@ -4723,6 +4979,7 @@ export async function loadDatabase(
   const exclusive3Rows = exclusive3Text ? toRecords(parseCSV(exclusive3Text)) : [];
   const frontierRows = frontierText ? toRecords(parseCSV(frontierText)) : [];
   const fossilRows = fossilText ? toRecords(parseCSV(fossilText)) : [];
+  const crystalRows = crystalText ? toRecords(parseCSV(crystalText)) : [];
 
   const statsById = new Map();
   const statsByName = new Map();
@@ -4739,6 +4996,7 @@ export async function loadDatabase(
   DB.abilities = new Map();
   DB.stage1 = []; DB.spawnable = []; DB.exclusive = [];
   DB.galactic = []; DB.mythical = []; DB.available = []; DB.temporal = [];
+  DB.crystal = [];
   DB.fossil = [];
   DB.spotlight = [];
   DB.byRarity = { 1: [], 2: [], 3: [], 4: [], 5: [] };
@@ -4822,9 +5080,13 @@ export async function loadDatabase(
     setName: TEMPORAL_SET_NAME, orderBase: TEMPORAL_ORDER_BASE,
     bucket: DB.temporal, flags: { temporal: true }
   });
+  addSelfContainedSet(crystalRows, {
+    setName: CRYSTAL_SET_NAME, orderBase: CRYSTAL_ORDER_BASE,
+    bucket: DB.crystal, flags: { crystal: true }
+  });
 
   DB.species.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
-  for (const list of [DB.galactic, DB.exclusive, DB.mythical, DB.temporal, DB.fossil]) {
+  for (const list of [DB.galactic, DB.exclusive, DB.mythical, DB.temporal, DB.crystal, DB.fossil]) {
     list.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
   }
 
@@ -5124,6 +5386,23 @@ function readEffect(rawEffect, rawNumber, { name, slot, moveName }) {
   const where = `${name}: move ${slot} "${moveName}"`;
   const low = text.toLowerCase();
 
+  /* ---- combined effects ----
+     "Buff self attack, speed & lose 50% HP" and "Heal self full & Debuff self
+     defence" are two effects in one cell, joined by "&". Each half is read on its
+     own; the effect number goes to whichever half needs one. */
+  if (text.includes('&')) {
+    const parts = [];
+    for (const piece of text.split('&').map(s => s.trim()).filter(Boolean)) {
+      const sub = readEffectPart(piece, rawNumber, where)
+        ?? readEffect(piece, rawNumber, { name, slot, moveName });
+      if (!sub) return null;
+      parts.push(sub);
+    }
+    return { kind: 'combo', parts, stats: [], pct: null, amount: null };
+  }
+  const single = readEffectPart(text, rawNumber, where);
+  if (single) return single;
+
   if (/^heals?\b.*\bself\b/.test(low) || /^self\s+heal/.test(low)) {
     const amount = int(rawNumber);
     if (amount == null || amount <= 0) {
@@ -5211,6 +5490,55 @@ function readEffect(rawEffect, rawNumber, { name, slot, moveName }) {
   };
 }
 
+/**
+ * The effects Crystal Canopy introduced, which only make sense as a whole cell
+ * or as one half of a combined one. Returns null for anything else, so the
+ * older readers above get their turn.
+ *
+ *   "Hallucination" … "Disorient"  → number is the chance, e.g. 50% (blank = always)
+ *   "Stat swap attack, speed"      → swaps those two stats on the opponent
+ *   "Lose 50% HP"                  → costs the user that share of its current HP
+ *   "Heal self full"               → back to full HP
+ */
+function readEffectPart(text, rawNumber, where) {
+  const low = String(text).trim().toLowerCase();
+
+  const status = statusConditionName(low);
+  if (status) {
+    const p = String(rawNumber ?? '').trim() ? pct(rawNumber) : 1;
+    if (p == null || p <= 0 || p > 1) {
+      DB.warnings.push(`${where}: "${text}" needs a chance between 1% and 100%, got "${rawNumber}" — effect ignored`);
+      return null;
+    }
+    return { kind: 'status', status, chance: p, stats: [], pct: p, amount: null };
+  }
+
+  const swap = low.match(/^stat\s+swap\s+(.+)$/);
+  if (swap) {
+    const stats = normaliseStats(swap[1]).filter(s => s !== 'hp');
+    if (stats.length !== 2) {
+      DB.warnings.push(`${where}: "${text}" must name exactly two of Attack, Defence and Speed — effect ignored`);
+      return null;
+    }
+    return { kind: 'statSwap', stats, pct: null, amount: null };
+  }
+
+  const cost = low.match(/^lose\s+(\d+(?:\.\d+)?)\s*%\s*(?:of\s+)?(?:its\s+|your\s+)?(?:remaining\s+|current\s+)?hp$/);
+  if (cost) {
+    const p = Number(cost[1]) / 100;
+    if (!(p > 0 && p < 1)) {
+      DB.warnings.push(`${where}: "${text}" must lose between 1% and 99% of its HP — effect ignored`);
+      return null;
+    }
+    return { kind: 'loseHp', stats: [], pct: p, amount: null };
+  }
+
+  if (/^heal\s+self\s+(?:to\s+)?full(?:\s+hp)?$/.test(low)) {
+    return { kind: 'healFull', stats: [], pct: null, amount: null };
+  }
+  return null;
+}
+
 /** "Attack and Speed" from a list of stat keys. */
 const statListLabel = stats => {
   const names = (stats || []).map(s => STAT_LABELS[s] || s);
@@ -5228,8 +5556,25 @@ export function moveEffectText(move) {
     // Older data reached here through the legacy buff columns.
     return move?.isBuff ? buffMoveText(move) : '';
   }
+  return effectText(fx);
+}
+
+/** One effect in words; a combined effect reads as its halves joined up. */
+function effectText(fx) {
   const amountPct = fx.pct == null ? '' : `${Math.round(fx.pct * 100)}%`;
   switch (fx.kind) {
+    case 'combo': {
+      const bits = fx.parts.map(effectText).filter(Boolean);
+      return bits.map((b, i) => (i ? b.charAt(0).toLowerCase() + b.slice(1) : b)).join(', then ');
+    }
+    case 'status':
+      return fx.chance >= 1
+        ? `Gives the opponent ${fx.status}`
+        : `${Math.round(fx.chance * 100)}% chance to give the opponent ${fx.status}`;
+    case 'statSwap':
+      return `Swaps the opponent's ${statListLabel(fx.stats)}`;
+    case 'loseHp': return `Costs ${amountPct} of your current HP`;
+    case 'healFull': return 'Heals you to full HP';
     case 'healSelf': return `Heals ${fx.amount} HP`;
     // The five fossil effects. Each says "for the rest of the battle" out loud,
     // because that — surviving the user fainting — is what makes them unusual.
@@ -5637,13 +5982,29 @@ export function rollSpawnSpecies(weights = RARITY_WEIGHTS, now = new Date()) {
  * Eggs and raids deliberately keep using `rollSpawnSpecies`: the spotlight is
  * about what walks past you on the map.
  */
-export function rollWildSpecies(weights = RARITY_WEIGHTS, now = new Date()) {
+/** Spawnable creatures whose restriction names a kind of POI. */
+const poiOnlySpecies = () => (DB.spawnable || []).filter(sp =>
+  sp.spawnRestriction?.clauses.some(c => c.trigger === 'poi'));
+
+export function rollWildSpecies(weights = RARITY_WEIGHTS, now = new Date(), { poi = null } = {}) {
   // The featured creature still has to be in season. A spotlight cannot conjure
   // a creature the weather says is not around.
   const spotlit = isCreatureSpotlight(now) ? spotlightSpecies(now) : null;
   const featured = spotlit && canSpawnNow(spotlit, now) ? spotlit : null;
   const featuredRarity = featured ? (featured.rarity || familyRarity(featured.id) || 1) : 0;
-  const buckets = spawnPoolByRarity(now);
+  let buckets = spawnPoolByRarity(now);
+
+  /* Creatures restricted to one kind of POI are never in the shared pools —
+     canSpawnNow reads no POI there and so turns them down. A roll for a real
+     place adds back whichever of them that place suits. */
+  const atPoi = poiOnlySpecies().filter(sp => canSpawnNow(sp, now, { poi }));
+  if (poi && atPoi.length) {
+    buckets = { ...buckets };
+    for (const sp of atPoi) {
+      const r = sp.rarity || familyRarity(sp.id) || 1;
+      if (buckets[r]) buckets[r] = [...buckets[r], sp];
+    }
+  }
 
   for (let attempt = 0; attempt < 6; attempt++) {
     const tier = rollRarityWith(weights);

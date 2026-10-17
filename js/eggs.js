@@ -293,7 +293,8 @@ async function hatchNow(eggId) {
       isNew: res.isNew,
       rewards,
       imageSrc: res.sp.spritePath(res.shiny),
-      shiny: res.shiny
+      shiny: res.shiny,
+      newShiny: res.newShiny
     });
 
     toast(`${res.km} km egg hatched into ${res.sp.name}!`, 'good', 3600);

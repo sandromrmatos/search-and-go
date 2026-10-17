@@ -333,7 +333,8 @@ async function collectFossils(id) {
       isNew: res.isNew,
       rewards,
       imageSrc: res.sp.spritePath(res.shiny),
-      shiny: res.shiny
+      shiny: res.shiny,
+      newShiny: res.newShiny
     });
     if (res.levelUp?.levelledUp) toast(`Player level ${res.levelUp.to}!`, 'good', 3200);
   }

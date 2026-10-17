@@ -100,7 +100,9 @@ function basePoint(kind, poi, now) {
 function makeCreaturePoint(poi, now) {
   // rollWildSpecies, not rollSpawnSpecies: during the Creature Spotlight hour a
   // matching rarity has a chance of becoming the featured creature.
-  const sp = rollWildSpecies(RARITY_WEIGHTS, new Date(now));
+  // The POI is passed in so creatures that only live at one kind of place (a
+  // restaurant, say) can turn up there and nowhere else.
+  const sp = rollWildSpecies(RARITY_WEIGHTS, new Date(now), { poi });
   // Shiny is decided at capture time for wild spawns, so it stays a surprise.
   return { ...basePoint('creature', poi, now), speciesId: sp.id };
 }
