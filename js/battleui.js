@@ -13,7 +13,9 @@ import {
   FRONTIER_GRAND_LABEL, FRONTIER_LEVELS, frontierTeam, frontierTrainerImage,
   frontierLevelRewards, frontierMode, frontierModeAllows, frontierChallenge,
   FRONTIER_DAILY_ID, FRONTIER_DAILY_NAME, FRONTIER_DAILY_ART, IMAGE_DIR,
-  FEATHER_ITEM
+  FEATHER_ITEM,
+  GRUNT_REWARD, WIN_FULL_HEAL_CHANCE, WIN_FULL_HEAL_ITEM, dustBonusFor,
+  SET_INCENSE_GRUNT_CHANCE, MYSTERIOUS_INCENSE_GRUNT_CHANCE
 } from './data.js';
 
 /** "+50%" style label straight from the raid modifier table. */
@@ -435,12 +437,7 @@ function renderPreview() {
         );
       })),
       el('h4', { class: 'sheet-h4', text: 'If you win' }),
-      el('div', { class: 'rewards' },
-        el('span', { class: 'reward' }, el('span', { text: DUST_ICON }),
-          el('span', { text: '+50–75 stardust' })),
-        el('span', { class: 'reward' }, el('span', { text: '🎁' }),
-          el('span', { text: 'small chance of an Incense or Magnet' }))
-      )
+      el('div', { class: 'rewards' }, ...gruntRewardChips())
     );
   }
 
@@ -464,6 +461,39 @@ function renderPreview() {
  * in full — level, held item and boosts — because the mode restriction means
  * the player has to plan around it rather than just bring their best three.
  */
+/**
+ * The grunt win table, read straight from the reward data so the preview can
+ * never fall behind what `rewardGruntWin` actually pays.
+ */
+function gruntRewardChips() {
+  const pctOf = p => {
+    const v = p * 100;
+    return `${Number.isInteger(v) ? v : v.toFixed(1)}%`;
+  };
+  const chip = (icon, text) => el('span', { class: 'reward' },
+    typeof icon === 'string' && icon.length <= 2
+      ? el('span', { text: icon })
+      : el('img', { src: itemImage(icon), alt: '',
+        style: { width: '18px', height: '18px', objectFit: 'contain' } }),
+    el('span', { text }));
+
+  const [lo, hi] = GRUNT_REWARD.dust;
+  const bonus = dustBonusFor(store.level);
+  const totalWeight = GRUNT_REWARD.bonus.reduce((n, b) => n + b.weight, 0);
+
+  return [
+    chip(DUST_ICON, `+${num(lo + bonus)}–${num(hi + bonus)} stardust`),
+    chip('potion', 'A Potion, a Revive, or both'),
+    chip(WIN_FULL_HEAL_ITEM, `${pctOf(WIN_FULL_HEAL_CHANCE)} a ${itemName(WIN_FULL_HEAL_ITEM)}`),
+    ...(GRUNT_REWARD.extras || []).map(x => chip(x.item, `${pctOf(x.chance)} a ${itemName(x.item)}`)),
+    chip('set_incense', `${pctOf(SET_INCENSE_GRUNT_CHANCE)} a ${itemName('set_incense')}`),
+    ...GRUNT_REWARD.bonus.filter(b => b.item)
+      .map(b => chip(b.item, `${pctOf(b.weight / totalWeight)} a ${itemName(b.item)}`)),
+    chip('mysterious_incense',
+      `${pctOf(MYSTERIOUS_INCENSE_GRUNT_CHANCE)} a ${itemName('mysterious_incense')}`)
+  ];
+}
+
 function renderFrontierPreview(body) {
   // The Daily Challenge is a different enough screen to be worth its own.
   if (ctx.frontier.daily) return renderDailyPreview(body);
