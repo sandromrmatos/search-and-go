@@ -1487,16 +1487,15 @@ function renderResult() {
      than left to a toast — the harvest is a whole second screen, so the player
      should know it is coming before pressing the button that starts it. */
   if (won && dailyWin) {
-    const pctFeather = Math.round(dailyWin.level.featherChance * 100);
     body.append(
       el('div', { class: 'rewards' },
-        el('span', { class: 'reward' },
-          el('img', { src: itemImage(FEATHER_ITEM), alt: '',
-            style: { width: '18px', height: '18px', objectFit: 'contain' } }),
-          el('span', { text: dailyWin.feather
-            ? `A ${itemName(FEATHER_ITEM)}!`
-            : `No ${itemName(FEATHER_ITEM)} this time — it was a ${pctFeather}% chance` })),
-        // Only mentioned when it drops: a miss on a small bonus roll is noise.
+        // The bonus drops are only mentioned when they land: a miss is noise.
+        dailyWin.feather
+          ? el('span', { class: 'reward' },
+            el('img', { src: itemImage(FEATHER_ITEM), alt: '',
+              style: { width: '18px', height: '18px', objectFit: 'contain' } }),
+            el('span', { text: `A ${itemName(FEATHER_ITEM)}!` }))
+          : null,
         dailyWin.setIncense
           ? el('span', { class: 'reward' },
             el('img', { src: itemImage('set_incense'), alt: '',

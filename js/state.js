@@ -47,7 +47,7 @@ import {
   DIAMOND_ITEM, DIAMOND_STARDUST_COST,
   DIAMOND_POWER_BONUS, DIAMOND_WINS_NEEDED, DIAMOND_METRES_NEEDED,
   SHOP_ITEMS, shopItem, COINS_PER_AD,
-  SET_INCENSE_ITEM, isSetIncenseOption,
+  SET_INCENSE_ITEM, SET_INCENSE_GRUNT_CHANCE, isSetIncenseOption,
   ACHIEVEMENT_MISSIONS, ACHIEVEMENT_TIERS, ACHIEVEMENT_DAMAGE_TYPES,
   achievementCandy, achievementTierFor
 } from './data.js';
@@ -2072,6 +2072,10 @@ class Store {
     // And the long shot: a Mysterious Incense.
     if (chance(MYSTERIOUS_INCENSE_GRUNT_CHANCE)) {
       items[MYSTERIOUS_INCENSE_ITEM] = (items[MYSTERIOUS_INCENSE_ITEM] || 0) + 1;
+    }
+    // A Set Incense, on its own independent roll.
+    if (chance(SET_INCENSE_GRUNT_CHANCE)) {
+      items[SET_INCENSE_ITEM] = (items[SET_INCENSE_ITEM] || 0) + 1;
     }
     for (const extra of GRUNT_REWARD.extras || []) {
       if (chance(extra.chance)) items[extra.item] = (items[extra.item] || 0) + 1;

@@ -2678,6 +2678,9 @@ export const mysteriousIncenseRaidChance = rarity =>
    --------------------------------------------------------------- */
 export const SET_INCENSE_ITEM = 'set_incense';
 
+/** Chance of one dropping from a grunt win (Frontier fights pay their own table). */
+export const SET_INCENSE_GRUNT_CHANCE = 0.05;
+
 /** The spawnable creatures of one set, as rarity buckets, honouring restrictions. */
 function setSpawnBuckets(setName, now = new Date()) {
   const buckets = { 1: [], 2: [], 3: [], 4: [], 5: [] };
