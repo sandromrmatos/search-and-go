@@ -2258,7 +2258,7 @@ a.ad-link:active { transform: scale(.98); }
 
 /* ---- multi-select toolbar ---- */
 .multi-bar {
-  display: flex; align-items: center; gap: 8px; padding: 8px 14px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 14px;
   background: #1b2450; border-bottom: 1px solid var(--line);
   position: sticky; top: 0; z-index: 10;
 }

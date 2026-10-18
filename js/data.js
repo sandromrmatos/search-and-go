@@ -325,6 +325,16 @@ export const XP_ON_EVOLVE = { 1: 30, 2: 50 };
 
 export const CANDY_ON_DELETE = 1;
 
+/**
+ * Candy for releasing a creature, by evolution stage: an evolved creature cost
+ * candy to make, so it hands more of it back. Unknown stages pay the Stage 1 rate.
+ */
+export const CANDY_ON_RELEASE_BY_STAGE = { 1: 1, 2: 3, 3: 5 };
+export const releaseCandyFor = speciesOrStage => {
+  const stage = typeof speciesOrStage === 'number' ? speciesOrStage : speciesOrStage?.stage;
+  return CANDY_ON_RELEASE_BY_STAGE[stage] ?? CANDY_ON_DELETE;
+};
+
 /** Extra candy for capturing the boss at the end of a raid. */
 export const RAID_CAPTURE_BONUS_CANDY = 2;
 /** Creatures caught from a raid always arrive at this level. */

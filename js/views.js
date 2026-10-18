@@ -26,7 +26,7 @@ import {
   GALACTIC_SET_NAME, MYTHICAL_RARITY, unlockedGalacticRarities,
   TEMPORAL_SET_NAME, unlockedTemporalRarities, unlockedCrystalRarities,
   discoverableSpeciesCount, shinyObtainableSpeciesCount,
-  setIncenseOptions
+  setIncenseOptions, releaseCandyFor
 } from './data.js';
 import { renderEggs, renderEggTabBadge, openEggPickerFor } from './eggs.js';
 import { renderProfileTitle, renderAchievementBadge, renderAchievements } from './achievements.js';
@@ -564,8 +564,22 @@ export function renderStorage() {
       grid.parentElement.insertBefore(bar, grid);
     }
     bar.innerHTML = '';
+    // "Select all" covers the page on screen, and only creatures that can be
+    // released — favourites, shinies, buddies and breeding ones are skipped.
+    const pageable = list.filter(canMultiSelect);
+    const allOnPage = pageable.length > 0 && pageable.every(c => multiSelected.has(c.uid));
     bar.append(
       el('span', { class: 'muted', text: `${multiSelected.size} selected` }),
+      el('button', {
+        class: 'btn ghost', disabled: !pageable.length,
+        title: 'Every creature on this page that can be released',
+        onclick: () => {
+          for (const c of pageable) {
+            if (allOnPage) multiSelected.delete(c.uid); else multiSelected.add(c.uid);
+          }
+          renderStorage();
+        }
+      }, allOnPage ? 'Unselect page' : `Select all (${pageable.length})`),
       el('button', { class: 'btn danger', disabled: !multiSelected.size, onclick: doMassRelease },
         `Release ${multiSelected.size}`),
       el('button', { class: 'btn ghost', onclick: exitMultiSelect }, 'Cancel')
@@ -748,7 +762,13 @@ function exitMultiSelect() {
 function doMassRelease() {
   if (!multiSelected.size) return;
   const n = multiSelected.size;
-  if (!confirm(`Release ${n} creature${n > 1 ? 's' : ''}? You will earn ${n} candy total (1 per creature).`)) return;
+  // Stage 1 pays 1 candy, Stage 2 pays 3, Stage 3 pays 5.
+  const candy = [...multiSelected].reduce((sum, uid) => {
+    const c = store.creature(uid);
+    return sum + (c ? releaseCandyFor(species(c.speciesId)) : 0);
+  }, 0);
+  if (!confirm(`Release ${n} creature${n > 1 ? 's' : ''}? You will earn ${candy} candy in total `
+    + '(1 per Stage 1, 3 per Stage 2, 5 per Stage 3).')) return;
   const r = store.massRelease([...multiSelected]);
   exitMultiSelect();
   toast(`Released ${r.released} creature${r.released > 1 ? 's' : ''} · +${r.candy} candy`, 'good', 3400);
@@ -2311,7 +2331,7 @@ function renderCreatureSheet() {
         ? 'Buddies cannot be released'
         : c.favourite
           ? 'Unfavourite to release'
-          : `Release · +${CANDY_ICON} 1 ${familyName(s.id)} candy`)
+          : `Release · +${CANDY_ICON} ${releaseCandyFor(s)} ${familyName(s.id)} candy`)
     ),
 
     // ---- where and when it was caught ----
@@ -2686,7 +2706,7 @@ function doRelease(uid) {
   const c = store.creature(uid);
   if (!c) return;
   const s = species(c.speciesId);
-  const ok = confirm(`Release ${s.name} (Lv ${c.level})?\n\nYou get 1 ${familyName(s.id)} candy. This cannot be undone.`);
+  const ok = confirm(`Release ${s.name} (Lv ${c.level})?\n\nYou get ${releaseCandyFor(s)} ${familyName(s.id)} candy. This cannot be undone.`);
   if (!ok) return;
   const r = store.remove(uid);
   if (!r.ok) {
@@ -2698,7 +2718,7 @@ function doRelease(uid) {
     return;
   }
   closeSheet('sheet');
-  toast(`Released ${s.name} · +1 ${familyName(s.id)} candy`, 'good');
+  toast(`Released ${s.name} · +${r.candy} ${familyName(s.id)} candy`, 'good');
   refreshAll();
 }
 

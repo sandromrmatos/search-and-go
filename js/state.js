@@ -6,7 +6,7 @@ import { Persist } from './persist.js';
 import {
   DB, species, familyRoot, familyRarity, familyChain,
   candyForCapture, dustForCapture, xpForCapture, dustBonusFor,
-  XP_ON_EVOLVE, CANDY_ON_DELETE, levelUpCost, MAX_CREATURE_LEVEL,
+  XP_ON_EVOLVE, CANDY_ON_DELETE, releaseCandyFor, levelUpCost, MAX_CREATURE_LEVEL,
   playerProgress, playerLevelFor, statsFor, rollStatModifier, rerollStatModifier, rollMoveUnlock,
   rollShiny, chance, RULES, RAID_CAPTURE_LEVEL, RAID_CAPTURE_BONUS_CANDY,
   MISSIONS, DAILY_MISSIONS, WEEKLY_MISSIONS, SET_MISSIONS,
@@ -2291,11 +2291,13 @@ class Store {
     this.noteAchLevel(c);
     this.s.storage.splice(i, 1);
     const sp = species(c.speciesId);
-    const total = this.addCandy(c.speciesId, CANDY_ON_DELETE);
+    // More for an evolved creature: 1 / 3 / 5 by stage.
+    const candy = releaseCandyFor(sp);
+    const total = this.addCandy(c.speciesId, candy);
     this.s.stats.deletes++;
     this.touch('delete', { immediate: true });
     return {
-      ok: true, sp, candy: CANDY_ON_DELETE, candyTotal: total,
+      ok: true, sp, candy, candyTotal: total,
       familyRootId: familyRoot(c.speciesId), reclaimed
     };
   }
@@ -2337,8 +2339,9 @@ class Store {
       if (back?.returned) reclaimed.push(back.item);
       this.noteAchLevel(c);
       this.s.storage.splice(i, 1);
-      this.addCandy(c.speciesId, CANDY_ON_DELETE);
-      totalCandy += CANDY_ON_DELETE;
+      const candy = releaseCandyFor(species(c.speciesId));
+      this.addCandy(c.speciesId, candy);
+      totalCandy += candy;
       released.push(uid);
       this.s.stats.deletes++;
     }
