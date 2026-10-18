@@ -652,9 +652,52 @@ a { color: var(--accent); }
   background: rgba(11, 16, 36, .9); color: var(--muted);
   border: 1px solid var(--line);
 }
+/* Ready: bigger and brighter, since the marker itself is now the only signpost
+   (the rainbow arrow is the essence's alone). */
 .fossil-drop.ready .fossil-when {
   background: #7bd88f; color: #06240f; border-color: #ffffffb3;
+  font-size: 12px; padding: 2px 8px; bottom: -4px;
+  box-shadow: 0 0 10px #7bd88faa, 0 2px 6px #0007;
 }
+
+/* ---- Daily Route stops ----
+   Numbered pins joined by a dashed gold line (drawn by Leaflet). Done stops are
+   ticked and dimmed, the next one is bigger and pulses so the order is obvious. */
+.route-rot { transform: rotate(var(--map-rot, 0deg)); transform-origin: 50% 92%; }
+.route-stop {
+  position: relative; width: 34px; height: 44px;
+  display: grid; justify-items: center; align-content: start;
+}
+.route-stop b {
+  display: grid; place-items: center;
+  width: 28px; height: 28px; border-radius: 50%;
+  background: #ffc75f; color: #10142c; border: 2px solid #fff;
+  box-shadow: 0 2px 6px #0008;
+  font-size: 14px; font-weight: 900; font-style: normal;
+}
+.route-stop.done b { background: #7bd88f; opacity: .75; }
+.route-stop.next b {
+  width: 32px; height: 32px; font-size: 16px;
+  background: #ffe08a;
+  box-shadow: 0 0 0 4px #ffc75f66, 0 0 14px #ffc75f, 0 2px 6px #0008;
+  animation: routePulse 1.6s ease-in-out infinite;
+}
+.route-next-tag {
+  margin-top: 2px; padding: 0 6px; border-radius: 8px;
+  font-size: 10px; font-weight: 800; white-space: nowrap;
+  background: rgba(11, 16, 36, .92); color: #ffe08a; border: 1px solid #ffc75f88;
+}
+@keyframes routePulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }
+body.overlay-open #map .route-rot * { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) { .route-stop.next b { animation: none; } }
+
+/* The route chip on the map, next to the effect chips. */
+.fx-chip.route {
+  cursor: pointer; pointer-events: auto; font: inherit; font-size: 12px;
+  color: #ffe08a; border-color: #ffc75f88;
+}
+.fx-chip.route.hidden { display: none; }
+.fx-chip.route.done { background: #7bd88f; color: #06240f; border-color: #ffffffb3; font-weight: 800; }
 
 /* ---- Precious Diamond ---- */
 /* A move that has been permanently strengthened. */
@@ -2388,3 +2431,6 @@ a.ad-link:active { transform: scale(.98); }
 .bt-buff.bt-status { background: #b07cff2e; border-color: #b07cff77; color: #e3d4ff; }
 .bt-move.blocked { opacity: .45; }
 .bt-log .status-log, #bt-log .status-log { color: #d9c7ff; }
+
+/* The stop tapped on the map, highlighted in the route sheet. */
+.det-row.route-focus { border-color: #ffc75f; background: #ffc75f1a; }

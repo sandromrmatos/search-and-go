@@ -7,8 +7,10 @@ import {
   BREEDING_UNLOCK_LEVEL, isRelaxHour, RAID_INVASION_LABEL,
   isCreatureSpotlight, spotlightSpecies, SPOTLIGHT_LABEL, SPOTLIGHT_BONUS_CANDY,
   SPOTLIGHT_SPAWN_MS, scanIntervalLabel,
-  annualEvent, EVENT_SPAWN_MS, eventRewardBonus
+  annualEvent, EVENT_SPAWN_MS, eventRewardBonus,
+  DAILY_ROUTE_STOPS, DAILY_ROUTE_XP, DAILY_ROUTE_STARDUST, DAILY_ROUTE_ENCOUNTERS
 } from './data.js';
+import { planDailyRoute } from './route.js';
 import { Weather, weatherContext } from './weather.js';
 import { Battery } from './battery.js';
 import { Place } from './place.js';
@@ -908,11 +910,193 @@ function syncMap() {
   // a fossil, plus anything of yours already waiting at one.
   syncMedicalSpots();
   GameMap.syncFossilDrops(store.fossilDrops());
+  GameMap.syncRoute(store.dailyRoute());
+  renderRouteChip();
   // Straight away rather than on the next tick, so playing a harvest clears the
   // arrow the moment the sheet closes.
   GameMap.syncEssenceArrow();
   const open = active.filter(p => !p.collected).length;
   $('#spawn-count').textContent = open === 1 ? '1 point active' : `${open} points active`;
+}
+
+/* ===============================================================
+   Daily Route
+   =============================================================== */
+
+/**
+ * Once a second: plan today's route if there is none, mark the next stop when
+ * the player reaches it, and keep the chip current. Stops only count in order,
+ * and only when you are within reach — the same reach as tapping anything else.
+ */
+function tickDailyRoute(now = Date.now()) {
+  const pos = Geo.current;
+  if (pos && store.canPlanRoute(new Date(now))) {
+    planDailyRoute(pos, now).then(route => {
+      if (!route) return;
+      const first = route.stops[0];
+      dlog(`Daily Route planned: ${route.stops.map(s => s.name).join(' → ')}`);
+      syncMap();
+      toast(`🧭 Today's route is on your map — ${DAILY_ROUTE_STOPS} numbered stops. `
+        + `Start at 1: ${first.name}, ${formatDistance(distance(pos, first))} away.`, 'good', 6500);
+    });
+  }
+
+  const route = store.dailyRoute(new Date(now));
+  if (route && !route.completedAt && pos) {
+    const next = route.stops[route.reached];
+    if (next && distance(pos, next) <= interactRange()) {
+      const r = store.reachRouteStop(route.reached, now);
+      if (r.ok) {
+        dlog(`Daily Route: stop ${r.index + 1} reached (${next.name})`);
+        syncMap();
+        if (r.finished) {
+          toast('🧭 Route complete! Tap the route chip to claim your reward.', 'good', 6000);
+          if (!capturing && !isBattleOpen() && !anySheetOpen()) openRouteSheet();
+        } else {
+          const after = route.stops[route.reached];
+          toast(`🧭 Stop ${r.index + 1} of ${DAILY_ROUTE_STOPS} reached — next: ${after.name}, `
+            + `${formatDistance(distance(pos, after))} away`, 'good', 4500);
+        }
+      }
+    }
+  }
+  renderRouteChip(now);
+}
+
+/** The chip under the timer: progress, or a claim prompt once the walk is done. */
+function renderRouteChip(now = Date.now()) {
+  const chip = $('#route-chip');
+  if (!chip) return;
+  const route = store.dailyRoute(new Date(now));
+  if (!route || route.claimedAt) { chip.classList.add('hidden'); return; }
+  chip.classList.remove('hidden');
+  const done = !!route.completedAt;
+  chip.classList.toggle('done', done);
+  let text;
+  if (done) {
+    text = '🎁 Route complete — claim your reward';
+  } else {
+    const next = route.stops[route.reached];
+    const away = Geo.current && next ? ` · ${formatDistance(distance(Geo.current, next))}` : '';
+    text = `🧭 Route ${route.reached}/${DAILY_ROUTE_STOPS} · next stop ${route.reached + 1}${away}`;
+  }
+  if (chip.textContent !== text) chip.textContent = text;
+}
+
+/** The route sheet: every stop in order, what it pays, and the claim button. */
+function openRouteSheet(focusIndex = null) {
+  const route = store.dailyRoute();
+  const body = $('#sheet-body');
+  body.innerHTML = '';
+  const pos = Geo.current;
+
+  if (!route) {
+    body.append(el('div', { style: { padding: '8px 0' } },
+      el('h3', { text: '🧭 Daily Route' }),
+      el('p', { class: 'muted', text: `Your route for today has not been planned yet. It appears the first `
+        + `time the game has your location, using ${DAILY_ROUTE_STOPS} places around you. If there are not `
+        + 'enough places nearby it tries again in a few minutes.' }),
+      el('button', { class: 'btn primary wide', onclick: () => closeSheet('sheet') }, 'OK')));
+    openSheet('sheet');
+    return;
+  }
+
+  const done = !!route.completedAt;
+  const rows = route.stops.map((s, i) => {
+    const reached = i < route.reached;
+    const isNext = !done && i === route.reached;
+    const away = pos ? formatDistance(distance(pos, s)) : '';
+    return el('div', {
+      class: 'det-row' + (i === focusIndex ? ' route-focus' : ''),
+      style: { alignItems: 'center', opacity: reached ? '.7' : '1' }
+    },
+      el('span', { text: reached ? '✓' : String(i + 1), style: { fontWeight: '900', minWidth: '20px' } }),
+      el('span', { text: s.name + (isNext ? ' — next' : '') }),
+      el('b', { text: reached ? 'Visited' : away }));
+  });
+
+  const rewardsLine = el('div', { class: 'rewards', style: { justifyContent: 'center', marginTop: '8px' } },
+    el('span', { class: 'reward' }, el('span', { text: '🕯 1 incense (45% Incense · 25% Rare · 15% Set · 10% Shiny · 5% Mysterious)' })),
+    el('span', { class: 'reward' }, el('span', { text: `⭐ +${DAILY_ROUTE_XP} XP` })),
+    el('span', { class: 'reward' }, el('span', { text: `${DUST_ICON} +${DAILY_ROUTE_STARDUST} stardust` })),
+    ...DAILY_ROUTE_ENCOUNTERS.map(e => el('span', { class: 'reward' }, el('span', { text: `🎯 ${e.label}` }))));
+
+  body.append(el('div', { style: { padding: '4px 0' } },
+    el('h3', { text: '🧭 Daily Route' }),
+    el('p', { class: 'muted small', text: done
+      ? 'You walked the whole route. Your reward is waiting.'
+      : `Walk to the stops in order — ${route.reached} of ${DAILY_ROUTE_STOPS} done. A stop counts as soon `
+        + `as you are within ${interactRange() === Infinity ? 'range' : interactRange() + ' m'} of it. `
+        + 'A new route is planned tomorrow.' }),
+    el('div', { class: 'det-rows' }, ...rows),
+    el('h4', { text: 'Reward', style: { margin: '12px 0 4px' } }),
+    rewardsLine,
+    el('div', { class: 'btn-row', style: { justifyContent: 'center', marginTop: '14px' } },
+      el('button', { class: 'btn ghost', onclick: () => closeSheet('sheet') }, 'Close'),
+      done && !route.claimedAt
+        ? el('button', { class: 'btn primary', onclick: () => claimDailyRoute() }, 'Claim reward')
+        : null)));
+  openSheet('sheet');
+}
+
+/** Pays the route out, then plays each creature's capture in turn. */
+async function claimDailyRoute() {
+  if (capturing) return;
+  const res = store.claimRouteRewards();
+  if (!res.ok) {
+    toast(res.reason === 'claimed' ? 'You have already claimed today\'s route' : 'Finish the route first', 'bad');
+    closeSheet('sheet');
+    return;
+  }
+  dlog(`Daily Route claimed: ${res.incense}, +${res.xp} XP, +${res.dust} dust, `
+    + res.catches.map(c => `${c.res.sp.name} (R${c.res.rarity})${c.res.shiny ? ' SHINY' : ''}`).join(', '));
+  syncMap();
+  refreshAll();
+
+  // First the items, then the three creatures one at a time.
+  const body = $('#sheet-body');
+  body.innerHTML = '';
+  body.append(el('div', { style: { textAlign: 'center', padding: '12px 0' } },
+    el('h3', { text: '🧭 Route complete!' }),
+    el('img', { src: itemImage(res.incense), alt: '', style: { width: '72px', height: '72px', objectFit: 'contain' } }),
+    el('p', { style: { margin: '6px 0 0', fontWeight: '700', fontSize: '15px' }, text: itemName(res.incense, 1) }),
+    el('div', { class: 'rewards', style: { justifyContent: 'center', marginTop: '10px' } },
+      el('span', { class: 'reward' }, el('span', { text: `⭐ +${res.xp} XP` })),
+      el('span', { class: 'reward' }, el('span', { text: `${DUST_ICON} +${num(res.dust)} stardust` }))),
+    el('p', { class: 'muted small', style: { marginTop: '10px' }, text: 'And three creatures have come to meet you…' }),
+    el('button', { class: 'btn primary wide', onclick: () => { closeSheet('sheet'); revealRouteCatches(res); } }, 'Meet them')));
+  openSheet('sheet');
+}
+
+async function revealRouteCatches(res) {
+  capturing = true;
+  const levelUps = [res.levelUp];
+  try {
+    for (const { enc, res: c } of res.catches) {
+      const rewards = [
+        { icon: '🎯', label: enc.label },
+        { icon: CANDY_ICON, label: `+${c.candy} ${familyName(c.sp.id)} candy${c.sweet ? ' (Tuesday ×2)' : ''}` },
+        { icon: DUST_ICON, label: `+${num(c.dust)} stardust` },
+        { icon: '⭐', label: `+${c.xp} XP` }
+      ];
+      if (c.shiny) rewards.unshift({ icon: '✨', label: 'Shiny!' });
+      levelUps.push(c.levelUp);
+      await playCapture({ sp: c.sp, isNew: c.isNew, rewards, imageSrc: c.sp.spritePath(c.shiny),
+        shiny: c.shiny, newShiny: c.newShiny });
+    }
+  } finally {
+    capturing = false;
+  }
+  // Several level-ups in a row read as one: from the first level to the last,
+  // with every reward listed.
+  const ups = levelUps.filter(l => l?.levelledUp);
+  if (ups.length) {
+    showLevelUpPopup({
+      levelledUp: true, from: ups[0].from, to: ups[ups.length - 1].to,
+      rewards: ups.flatMap(l => l.rewards)
+    });
+  }
+  refreshAll();
 }
 
 /** Is any sheet or modal already on screen? Same test the map tap guard uses. */
@@ -1031,12 +1215,17 @@ function startLoop() {
     GameMap.syncFossilDrops(store.fossilDrops(), now);
 
     /* A fossil finishing is worth interrupting for: it is a day old and the
-       player has to walk back for it. Announced once per set. */
+       player has to walk back for it. Announced once per set, and once more
+       each time the game is opened while it waits. The marker itself says
+       "Ready" — there is no arrow for fossils any more. */
     for (const drop of announceReadyFossils(now)) {
       dlog(`Fossil ready at "${drop.poiName}" (${drop.count})`);
       toast(`🦴 ${drop.count === 1 ? 'Your fossil is' : `Your ${drop.count} fossils are`} ready at `
-        + `${drop.poiName} — follow the arrow`, 'good', 6000);
+        + `${drop.poiName}`, 'good', 6000);
     }
+
+    // The Daily Route: planned once a day on the first fix, then followed.
+    tickDailyRoute(now);
 
     /* And the "found something on the ground" reveal, drained one at a time and
        only when nothing else is on screen, so it never fights a capture
@@ -1195,6 +1384,10 @@ function initUI() {
     const near = !isFinite(range) || (pos && distance(pos, spot) <= range);
     openFossilAssistant(spot, { inRange: !!near });
   };
+
+  // A numbered Daily Route stop.
+  GameMap.onRouteStopClick = index => openRouteSheet(index);
+  $('#route-chip').addEventListener('click', () => openRouteSheet());
 
   // Your own fossils, waiting where you left them.
   GameMap.onFossilDropClick = drop => {

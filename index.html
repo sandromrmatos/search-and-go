@@ -79,6 +79,10 @@
           <button id="btn-hide-chip" class="chip-toggle" title="Hide/show timer">✕</button>
         </div>
         <div id="effect-chips" class="effect-chips"></div>
+        <!-- The Daily Route's progress. Its own element rather than one of the
+             effect chips, because those are rebuilt every second and this one
+             is tapped. -->
+        <button id="route-chip" class="fx-chip route hidden" type="button"></button>
       </div>
       <div class="map-overlay-bottom">
         <div id="spawn-count" class="spawn-count">0 points active</div>

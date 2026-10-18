@@ -41,6 +41,8 @@ import {
   FRONTIER_GRAND_SHINY_ODDS,
   fullLearnset, movesForCreature, moveBoostFor,
   FEATHER_ITEM, FEATHER_POINTS_PER_DAY, FEATHERS_PER_DIAMOND,
+  DAILY_ROUTE_STOPS, DAILY_ROUTE_XP, DAILY_ROUTE_STARDUST, DAILY_ROUTE_ENCOUNTERS,
+  rollRouteIncense, rollRouteEncounter,
   FOSSIL_PARTS, FOSSIL_FIND_CHANCE, fossilFindFor, rollFossilPart,
   FOSSIL_REVIVE_MS, FOSSIL_REVIVE_LEVEL, FOSSIL_REVIVE_BONUS_CANDY, FOSSIL_SHINY_ODDS,
   fossilRevivePool,
@@ -261,6 +263,15 @@ function blankState() {
     featherDay: null,
 
     /**
+     * Today's Daily Route: { day, anchor: {lat,lng}, stops: [{ poiId, lat, lng,
+     * name }], reached, completedAt, claimedAt, createdAt }. `reached` counts
+     * stops visited in order. A stale day reads as no route, except one that is
+     * finished but not yet claimed — that is kept so the reward is never lost to
+     * midnight.
+     */
+    dailyRoute: null,
+
+    /**
      * Fossil parts found but not yet revealed. The part is already in the bag —
      * this only drives the "you found something on the ground" dialogue, so a
      * reveal missed at a bad moment costs nothing.
@@ -328,6 +339,35 @@ function blankState() {
       /** The uids of the last team taken into a battle, in battle order. */
       lastBattleTeam: []
     }
+  };
+}
+
+/**
+ * A saved Daily Route, cleaned up, or null. Anything that cannot be walked —
+ * bad coordinates, the wrong number of stops — is dropped rather than repaired,
+ * and the next open simply plans a new one.
+ */
+function normaliseRoute(r) {
+  if (!r || typeof r !== 'object' || typeof r.day !== 'string') return null;
+  const stops = (Array.isArray(r.stops) ? r.stops : [])
+    .filter(p => p && isFinite(p.lat) && isFinite(p.lng))
+    .map(p => ({
+      poiId: String(p.poiId || ''),
+      lat: Number(p.lat),
+      lng: Number(p.lng),
+      name: typeof p.name === 'string' && p.name ? p.name.slice(0, 80) : 'A place nearby'
+    }));
+  if (stops.length !== DAILY_ROUTE_STOPS) return null;
+  const anchor = r.anchor && isFinite(r.anchor.lat) && isFinite(r.anchor.lng)
+    ? { lat: Number(r.anchor.lat), lng: Number(r.anchor.lng) } : { lat: stops[0].lat, lng: stops[0].lng };
+  return {
+    day: r.day,
+    anchor,
+    stops,
+    reached: Math.max(0, Math.min(DAILY_ROUTE_STOPS, Math.floor(Number(r.reached) || 0))),
+    completedAt: Number(r.completedAt) || 0,
+    claimedAt: Number(r.claimedAt) || 0,
+    createdAt: Number(r.createdAt) || Date.now()
   };
 }
 
@@ -716,6 +756,9 @@ export function migrate(raw) {
   // ---- cloud backup stamp ----
   s.cloudBackupDay = typeof s.cloudBackupDay === 'string' ? s.cloudBackupDay : null;
   s.cloudBackupAt = Math.max(0, Number(s.cloudBackupAt) || 0);
+
+  // ---- daily route ----
+  s.dailyRoute = normaliseRoute(raw.dailyRoute);
   if (s.weekly.week !== weekKey()) s.weekly = blankWeekly();
 
   // ---- grunt window stamp ----
@@ -2430,6 +2473,74 @@ class Store {
   markFeathersPlaced(now = new Date()) {
     this.s.featherDay = dayKey(now);
     this.touch('feathers', { immediate: true });
+  }
+
+  /* ---------------- the Daily Route ---------------- */
+
+  /**
+   * The route to show, or null. Today's, or an older one that was finished but
+   * never claimed — the walk was done, so the reward waits however late it is.
+   */
+  dailyRoute(now = new Date()) {
+    const r = this.s.dailyRoute;
+    if (!r) return null;
+    if (r.day === dayKey(now)) return r;
+    return r.completedAt && !r.claimedAt ? r : null;
+  }
+
+  /** No route has been planned today yet. An unclaimed old one blocks a new one. */
+  canPlanRoute(now = new Date()) {
+    const r = this.s.dailyRoute;
+    if (!r) return true;
+    if (r.completedAt && !r.claimedAt) return false;
+    return r.day !== dayKey(now);
+  }
+
+  setDailyRoute(route) {
+    this.s.dailyRoute = normaliseRoute(route);
+    this.touch('route', { immediate: true });
+    return this.s.dailyRoute;
+  }
+
+  /**
+   * Marks the next stop as visited. Only ever the next one: the route is walked
+   * in order, so standing at stop 4 before stop 2 does nothing yet.
+   * @returns {{ok:boolean, index?:number, finished?:boolean}}
+   */
+  reachRouteStop(index, now = Date.now()) {
+    const r = this.dailyRoute(new Date(now));
+    if (!r || r.completedAt || index !== r.reached) return { ok: false };
+    r.reached++;
+    const finished = r.reached >= r.stops.length;
+    if (finished) r.completedAt = now;
+    this.touch('route', { immediate: true });
+    return { ok: true, index, finished };
+  }
+
+  /**
+   * Hands over everything a finished route pays, in one go and saved at once,
+   * so closing the game halfway through the animations loses nothing: the
+   * incense, the XP, the stardust and the three creatures, already in storage.
+   */
+  claimRouteRewards(now = Date.now()) {
+    const r = this.dailyRoute(new Date(now));
+    if (!r || !r.completedAt || r.claimedAt) return { ok: false, reason: r?.claimedAt ? 'claimed' : 'notDone' };
+    r.claimedAt = now;
+
+    const incense = rollRouteIncense();
+    this.addItem(incense, 1);
+    const dust = this.addStardust(DAILY_ROUTE_STARDUST);
+    const levelUp = this.addXP(DAILY_ROUTE_XP);
+
+    // Ordinary catches in every other way: candy, stardust, XP and the usual
+    // shiny odds. No disc is spent — these are the reward, not a chance at one.
+    const catches = DAILY_ROUTE_ENCOUNTERS.map(enc => {
+      const sp = rollRouteEncounter(enc, new Date(now));
+      return { enc, res: this.capture(sp.id, { origin: 'route' }) };
+    });
+
+    this.touch('route-claim', { immediate: true });
+    return { ok: true, incense, dust, xp: DAILY_ROUTE_XP, levelUp, catches };
   }
 
   /** The feather points still live and uncollected. */

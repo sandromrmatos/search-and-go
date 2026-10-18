@@ -55,7 +55,8 @@ import {
   FOSSIL_SHINY_ODDS, FOSSIL_POI_VALUES, fossilRevivePool,
   FEATHER_ITEM, FEATHER_POINTS_PER_DAY, FEATHER_MIN_M, FEATHER_MAX_M,
   FEATHERS_PER_DIAMOND, DIAMOND_ITEM, DIAMOND_STARDUST_COST, DIAMOND_POWER_BONUS,
-  DIAMOND_WINS_NEEDED, DIAMOND_METRES_NEEDED, STATUS_CONDITIONS
+  DIAMOND_WINS_NEEDED, DIAMOND_METRES_NEEDED, STATUS_CONDITIONS,
+  DAILY_ROUTE_STOPS, DAILY_ROUTE_START_M, DAILY_ROUTE_RADIUS_M, DAILY_ROUTE_XP, DAILY_ROUTE_STARDUST
 } from './data.js';
 import { store, maxHpOf, hpOf, isFainted } from './state.js';
 import { itemImage, itemName, ITEMS, itemsInOrder } from './items.js';
@@ -1977,12 +1978,19 @@ function renderInfo(tab = 'basics') {
         el('li', { html: `Reviving is done by someone who knows bones. Take a full set to a real <b>${FOSSIL_POI_VALUES.join(' or ')}</b> — they show on your map as <b>white crosses</b> — and hand it over. You need to be within the usual <b>${RULES.CAPTURE_RANGE_M} m</b> to talk to the assistant, though you can <b>see</b> the crosses from anywhere in your <b>${RULES.SCAN_RADIUS_M} m</b> scan radius so you know where to walk.` }),
         el('li', { html: 'You can hand in <b>as many complete sets as you are holding</b> in one visit, and the parts go the moment you do. Leftover parts of an incomplete set stay in your Items waiting for the missing bone.' }),
         el('li', { html: `Then it takes <b>${Math.round(FOSSIL_REVIVE_MS / 3_600_000)} hours</b>, and you have to <b>come back to the same place</b>. Your fossils sit on the map the whole time with the wait counting down on them in <b>hours and minutes</b> — nothing expires, so being a week late costs you nothing.` }),
-        el('li', { html: 'When they are ready you get a <b>notification</b> and the same <b>flickering rainbow arrow</b> Essence Harvesting uses, pointing at where you left them. A ready fossil takes priority over an essence, since the essence will expire and the fossil will not.' }),
+        el('li', { html: 'When they are ready you get a <b>notification</b> — and again each time you open the game while they wait — and the marker where you left them shows a green <b>✓ Ready</b>.' }),
         el('li', { html: `Collecting plays the full <b>capture animation</b>, one creature at a time. They arrive at <b>level ${FOSSIL_REVIVE_LEVEL}</b> with <b>+${FOSSIL_REVIVE_BONUS_CANDY} candy</b>, like a raid catch, and no disc is needed — it is already yours.` }),
         el('li', { html: `A revival always gives a <b>Stage 1</b> fossil, and there are <b>${fossilRevivePool().length}</b> of those. Their <b>Stage 2</b> forms are reached by <b>evolving</b> them, exactly like every other creature in the game — the assistant rebuilds a skeleton, it does not age it.` }),
         el('li', { html: `<b>Which</b> creature it is, is decided when you <b>collect</b> it, not when you hand the parts in, so there is nothing to look up early. The <b>shiny odds are a flat ${pct(FOSSIL_SHINY_ODDS)}</b> and <b>nothing moves them</b> — not a <b>Shiny Bonanza</b>, not a <b>Shiny Incense</b>. A fossil is assembled rather than caught, so it should be worth the same whenever you happen to hand it in.` }),
         el('li', { html: `They register into the <b>${FOSSIL_SET_NAME}</b> tab of your Collection, after <b>${EXCLUSIVE_SET_NAME}</b>. Once revived they are ordinary creatures — they level, evolve, battle and hold items like anything else.` }),
         el('li', { html: 'There are <b>lifetime missions</b> for finding your first of each part and for reviving 1, 5, 10, 25 and 50 fossils. The part ones count <b>every part you have ever found</b>, so spending them on a revival does not un-complete a mission.' })
+      ),
+      el('h4', { text: '🧭 Daily Route' }),
+      el('p', { html: `Once a day, the first time the game has your location, <b>${DAILY_ROUTE_STOPS} real places</b> around you are joined into a walk and drawn on the map as <b>numbered stops</b> with a dashed gold line. Stop 1 is within <b>${DAILY_ROUTE_START_M} m</b> of where you opened the game, and every stop is within <b>${DAILY_ROUTE_RADIUS_M} m</b> of that spot.` }),
+      el('ul', {},
+        el('li', { html: `Walk to them <b>in order</b>. A stop counts as soon as you are within reach of it, the same ${RULES.CAPTURE_RANGE_M} m as everything else (wider during ${RELAX_HOUR_LABEL} or with a Molten Seeker). The next stop pulses and the chip under the timer says how far it is.` }),
+        el('li', { html: `Finish all ${DAILY_ROUTE_STOPS} and tap the chip to claim: <b>one incense</b> — 45% Incense, 25% Rare, 15% Set, 10% Shiny, 5% Mysterious — <b>+${DAILY_ROUTE_XP} XP</b>, <b>+${DAILY_ROUTE_STARDUST} stardust</b>, and <b>three creatures</b>: one ordinary wild creature, one of <b>rarity 3 or higher</b> and one of <b>rarity 4 or higher</b>. No discs needed, and the usual shiny odds apply.` }),
+        el('li', { html: 'A new route is planned each day. One you finished but did not claim waits for you past midnight, and the next day\'s route appears once it is claimed.' })
       ),
       el('h4', { text: 'Annual events' }),
       el('p', { html: `Nine events come round once a year, each lasting <b>three days</b> — except the Holiday Season, which runs from <b>20 December to 1 January</b>. The <b>📅 Calendar</b> in the News tab lists whichever are coming up, and a green chip sits on the map while one is running.` }),

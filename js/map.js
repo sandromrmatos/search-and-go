@@ -119,7 +119,7 @@ function fossilDropIcon(drop, now = Date.now()) {
   // hh:mm rather than mm:ss: the wait is 24 hours, which the minutes-and-seconds
   // label would show as "1439:59".
   const label = ready
-    ? 'Ready'
+    ? '✓ Ready'
     : hoursMinutesLabel(drop.readyAt - now);
   return `<div class="fossil-rot">`
     + `<div class="fossil-drop${ready ? ' ready' : ''}">`
@@ -177,6 +177,9 @@ export const GameMap = {
     // Below the spawns: the crosses are landmarks you navigate by, not targets.
     this.medicalLayer = L.layerGroup().addTo(this.map);
     this.breedingLayer = L.layerGroup().addTo(this.map);
+    // The Daily Route's line and numbered stops. Below the spawns, so a creature
+    // standing on a stop can still be tapped.
+    this.routeLayer = L.layerGroup().addTo(this.map);
     this.spawnLayer = L.layerGroup().addTo(this.map);
     // Above the spawns: a finished fossil is the most important thing on the map.
     this.fossilLayer = L.layerGroup().addTo(this.map);
@@ -721,7 +724,7 @@ export const GameMap = {
         existing.marker.setLatLng([drop.lat, drop.lng]);
         // Only redraw when the label actually changes, so this is cheap to call
         // every second.
-        const label = ready ? 'Ready' : hoursMinutesLabel(drop.readyAt - now);
+        const label = ready ? '✓ Ready' : hoursMinutesLabel(drop.readyAt - now);
         if (existing.label !== label) {
           existing.label = label;
           existing.marker.setIcon(L.divIcon({
@@ -738,10 +741,61 @@ export const GameMap = {
         }),
         zIndexOffset: 650
       }).addTo(this.fossilLayer);
-      const rec = { marker, drop, label: ready ? 'Ready' : hoursMinutesLabel(drop.readyAt - now) };
+      const rec = { marker, drop, label: ready ? '✓ Ready' : hoursMinutesLabel(drop.readyAt - now) };
       this.fossilMarkers.set(drop.id, rec);
       marker.on('click', () => this.onFossilDropClick?.(rec.drop));
     }
+  },
+
+  /* ---------------- Daily Route ---------------- */
+
+  /** Fires with (index, route) when a numbered stop is tapped. */
+  onRouteStopClick: null,
+  routeMarkers: [],
+  routeLine: null,
+  _routeKey: null,
+
+  /**
+   * Draws today's route: a dashed line through the stops in order, and a
+   * numbered pin on each. Visited stops are ticked, the next one pulses.
+   * Rebuilt only when something about the route changes, so it is cheap to
+   * call every second.
+   */
+  syncRoute(route) {
+    if (!this.map || !this.routeLayer) return;
+    const key = route
+      ? `${route.day}|${route.reached}|${route.completedAt ? 1 : 0}|${route.claimedAt ? 1 : 0}`
+        + `|${route.stops.map(s => s.poiId).join(',')}`
+      : null;
+    if (key === this._routeKey) return;
+    this._routeKey = key;
+
+    this.routeLayer.clearLayers();
+    this.routeMarkers = [];
+    this.routeLine = null;
+    // A claimed route has nothing left to do, so it leaves the map.
+    if (!route || route.claimedAt) return;
+
+    this.routeLine = L.polyline(route.stops.map(s => [s.lat, s.lng]), {
+      color: '#ffc75f', weight: 4, opacity: 0.8, dashArray: '8 10', interactive: false
+    }).addTo(this.routeLayer);
+
+    route.stops.forEach((stop, i) => {
+      const done = i < route.reached;
+      const next = !route.completedAt && i === route.reached;
+      const cls = `route-stop${done ? ' done' : ''}${next ? ' next' : ''}`;
+      const html = `<div class="route-rot"><div class="${cls}">`
+        + `<b>${done ? '✓' : i + 1}</b>`
+        + (next ? '<span class="route-next-tag">Next</span>' : '')
+        + `</div></div>`;
+      const marker = L.marker([stop.lat, stop.lng], {
+        icon: L.divIcon({ className: '', html, iconSize: [34, 44], iconAnchor: [17, 40] }),
+        zIndexOffset: next ? 450 : 300,
+        title: `Stop ${i + 1}: ${stop.name}`
+      }).addTo(this.routeLayer);
+      marker.on('click', () => this.onRouteStopClick?.(i, route));
+      this.routeMarkers.push(marker);
+    });
   },
 
   /** The Battle Frontier is the third permanent pin, and works the same way. */
@@ -785,7 +839,7 @@ export const GameMap = {
   /** Fires when the arrow itself is tapped, with the essence point. */
   onEssenceArrowClick: null,
   _essenceTarget: null,
-  /** 'essence' or 'fossil', so the tap goes to the right handler. */
+  /** 'essence' while the arrow has a target, else null. */
   _essenceTargetKind: null,
 
   /** How close to the edge of the view the arrow may sit, in px. */
@@ -797,12 +851,7 @@ export const GameMap = {
     host.addEventListener('click', e => {
       e.stopPropagation();
       if (!this._essenceTarget) return;
-      // Two kinds of target share the arrow, so the tap has to be routed.
-      if (this._essenceTargetKind === 'fossil') {
-        this.onFossilDropClick?.(this._essenceTarget);
-      } else {
-        this.onEssenceArrowClick?.(this._essenceTarget);
-      }
+      this.onEssenceArrowClick?.(this._essenceTarget);
     });
     // Pan and zoom move the target on screen without any game state changing,
     // so the once-a-second tick is not enough on its own.
@@ -817,25 +866,16 @@ export const GameMap = {
     const host = document.getElementById('essence-arrow');
     if (!host || !this.map) return;
 
-    /* An uncollected essence, or a fossil that has finished — both are somewhere
-       you want to walk to and both can be off screen, so they share the one
-       arrow. A ready fossil wins: it is a day old, and the essence will come
-       round again in two hours. */
+    /* Only an uncollected essence. A ready fossil used to borrow this arrow too;
+       it now just says "Ready" on its own marker, and the game announces it when
+       it finishes, so the arrow belongs to the essence alone. */
     let target = null;
-    let kind = 'essence';
-    for (const rec of this.fossilMarkers.values()) {
-      if (rec.drop.readyAt <= Date.now()) { target = rec.drop; kind = 'fossil'; break; }
-    }
-    if (!target) {
-      for (const rec of this.markers.values()) {
-        if (rec.point.kind === 'essence' && !rec.point.collected) { target = rec.point; break; }
-      }
+    for (const rec of this.markers.values()) {
+      if (rec.point.kind === 'essence' && !rec.point.collected) { target = rec.point; break; }
     }
     this._essenceTarget = target;
-    this._essenceTargetKind = target ? kind : null;
+    this._essenceTargetKind = target ? 'essence' : null;
     if (!target) { host.classList.add('hidden'); return; }
-    // The arrow is styled per kind: the essence's rainbow, or a fossil's green.
-    host.classList.toggle('for-fossil', kind === 'fossil');
 
     // Vector from the centre of the view to the essence, in *container*
     // coordinates. The rotated container is still centred on the viewport, so

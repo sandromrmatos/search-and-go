@@ -2113,6 +2113,64 @@ export const fossilRevivePool = () => DB.fossil.filter(s => s.stage === 1);
    than a purchase.
    --------------------------------------------------------------- */
 
+/* ---------------------------------------------------------------
+   Daily Route
+
+   Once a day, the first time the game is opened, five real places nearby are
+   strung together into a walk. Stop 1 is within DAILY_ROUTE_START_M of where
+   you opened the game, and every stop is within DAILY_ROUTE_RADIUS_M of that
+   same spot, so the whole loop is a short walk round the neighbourhood rather
+   than a trek. They have to be visited in order.
+   --------------------------------------------------------------- */
+export const DAILY_ROUTE_STOPS = 5;
+export const DAILY_ROUTE_START_M = 150;
+export const DAILY_ROUTE_RADIUS_M = 400;
+/** No two stops closer than this, so five stops are five places, not one corner. */
+export const DAILY_ROUTE_MIN_APART_M = 35;
+export const DAILY_ROUTE_XP = 100;
+export const DAILY_ROUTE_STARDUST = 150;
+/** The one incense the route pays, as weights out of 100. */
+export const DAILY_ROUTE_INCENSE_WEIGHTS = {
+  incense: 45, rare_incense: 25, set_incense: 15, shiny_incense: 10, mysterious_incense: 5
+};
+/**
+ * The three creatures at the end. Each is a rarity table: an ordinary wild roll,
+ * then one floored at Rare (3) and one floored at Epic (4). The floors keep the
+ * wild odds' shape above them, so a Legendary stays rarer than an Epic.
+ */
+export const DAILY_ROUTE_ENCOUNTERS = [
+  { label: 'A wild creature', minRarity: 1, weights: RARITY_WEIGHTS },
+  { label: 'Rarity 3 or higher', minRarity: 3, weights: { 3: RARITY_WEIGHTS[3], 4: RARITY_WEIGHTS[4], 5: RARITY_WEIGHTS[5] } },
+  { label: 'Rarity 4 or higher', minRarity: 4, weights: { 4: RARITY_WEIGHTS[4], 5: RARITY_WEIGHTS[5] } }
+];
+
+/** Picks the route's incense from DAILY_ROUTE_INCENSE_WEIGHTS. */
+export function rollRouteIncense() {
+  const entries = Object.entries(DAILY_ROUTE_INCENSE_WEIGHTS);
+  const total = entries.reduce((a, [, w]) => a + w, 0);
+  let r = Math.random() * total;
+  for (const [id, w] of entries) {
+    r -= w;
+    if (r < 0) return id;
+  }
+  return entries[0][0];
+}
+
+/**
+ * A wild creature of at least `minRarity`. rollWildSpecies can fall back to any
+ * rarity when every tier it drew was empty, so the floor is checked and the roll
+ * repeated; failing that, any spawnable creature at or above the floor will do.
+ */
+export function rollRouteEncounter(enc, now = new Date()) {
+  const ok = sp => sp && (sp.rarity || familyRarity(sp.id) || 1) >= enc.minRarity;
+  for (let i = 0; i < 12; i++) {
+    const sp = rollWildSpecies(enc.weights, now);
+    if (ok(sp)) return sp;
+  }
+  const fallback = (DB.spawnable || []).filter(ok);
+  return fallback.length ? fallback[Math.floor(Math.random() * fallback.length)] : rollWildSpecies(RARITY_WEIGHTS, now);
+}
+
 /** How many highlighted places appear per day. */
 export const FEATHER_POINTS_PER_DAY = 3;
 
