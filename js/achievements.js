@@ -10,7 +10,7 @@
 
 import {
   SETS, speciesForSet, species, familyRoot, familyRarity, DB, RARITY_NAMES,
-  ACHIEVEMENT_TIERS, achievementCandy, achievementTitle
+  ACHIEVEMENT_TIERS, achievementCandy, achievementTitle, CUSTOM_ACHIEVEMENTS
 } from './data.js';
 import { store } from './state.js';
 import { $, $$, el, toast, openSheet, num, wireSwipe, bumpEl } from './ui.js';
@@ -19,6 +19,11 @@ const CANDY_ICON = '🍬';
 
 /** Sets with creatures in them — "Coming soon" has nothing to show here. */
 const achSets = () => SETS.filter(s => s.available);
+
+/** The page after the last set: achievements that are not about one family. */
+const CUSTOM_PAGE = { id: 'custom', title: 'Custom', custom: true };
+/** Every page the Achievements screen steps through, custom last. */
+const achPages = () => [...achSets(), CUSTOM_PAGE];
 
 /** Family roots of one set, in dex order. */
 const rootsForSet = set => speciesForSet(set).filter(s => familyRoot(s.id) === s.id);
@@ -33,7 +38,7 @@ export function initAchievements({ onChange: changed } = {}) {
   $('#ach-back')?.addEventListener('click', () => $('#nav-profile')?.click());
 
   const step = dir => {
-    const sets = achSets();
+    const sets = achPages();
     const ui = store.s.ui;
     ui.achSetIndex = Math.max(0, Math.min(sets.length - 1, (ui.achSetIndex || 0) + dir));
     store.touch('ui');
@@ -70,7 +75,7 @@ export function openAchievements() {
 }
 
 export function renderAchievements() {
-  const sets = achSets();
+  const sets = achPages();
   const ui = store.s.ui;
   const index = Math.max(0, Math.min(sets.length - 1, ui.achSetIndex || 0));
   const set = sets[index];
@@ -78,6 +83,9 @@ export function renderAchievements() {
   $('#ach-set-title').textContent = set.title;
   $('#ach-set-prev').disabled = index === 0;
   $('#ach-set-next').disabled = index === sets.length - 1;
+  // The tier legend only means something for the family pages.
+  $('.ach-legend')?.classList.toggle('hidden', !!set.custom);
+  if (set.custom) { renderCustomPage(); return; }
 
   const live = store.liveFamilyLevels();
   const roots = rootsForSet(set);
@@ -115,6 +123,100 @@ export function renderAchievements() {
     `🥇 ${tally.gold} · 🥈 ${tally.silver} · 🥉 ${tally.bronze} / ${roots.length}`;
 }
 
+/** The Custom page: one tile per achievement, done or not. */
+function renderCustomPage() {
+  const grid = $('#ach-grid');
+  grid.innerHTML = '';
+  let won = 0;
+  const frag = document.createDocumentFragment();
+  for (const def of CUSTOM_ACHIEVEMENTS) {
+    const st = store.customAchievementState(def.id);
+    if (st.claimed) won++;
+    const art = DB.byName.get(def.art.toLowerCase());
+    frag.append(el('button', {
+      class: 'cell ach-cell' + (st.claimed ? ' ach-gold' : '') + (st.claimable ? ' ach-claimable' : ''),
+      onclick: () => openCustomSheet(def.id)
+    },
+      st.claimable ? el('span', { class: 'ach-dot', text: '1' }) : null,
+      art ? el('img', { src: art.imagePath, alt: '', loading: 'lazy' }) : null,
+      el('span', { class: 'nm', text: def.title }),
+      el('span', { class: 'sub', text: `${st.done} / ${st.total}` })
+    ));
+  }
+  grid.append(frag);
+  $('#ach-count').textContent = `🏅 ${won} / ${CUSTOM_ACHIEVEMENTS.length} titles`;
+}
+
+function openCustomSheet(id) {
+  renderCustomSheet(id);
+  openSheet('sheet');
+}
+
+function renderCustomSheet(id) {
+  const st = store.customAchievementState(id);
+  if (!st) return;
+  const { def } = st;
+  const body = $('#sheet-body');
+  body.innerHTML = '';
+
+  // Swipe between the custom achievements, like the family sheets do.
+  const ids = CUSTOM_ACHIEVEMENTS.map(a => a.id);
+  const at = ids.indexOf(id);
+  wireSwipe(body, {
+    onLeft: () => (ids[at + 1] ? renderCustomSheet(ids[at + 1]) : bumpEl(body, 'left')),
+    onRight: () => (at > 0 ? renderCustomSheet(ids[at - 1]) : bumpEl(body, 'right'))
+  });
+
+  const art = DB.byName.get(def.art.toLowerCase());
+  const claim = () => {
+    const r = store.claimCustomAchievement(id);
+    if (!r.ok) { toast('Nothing to claim yet', 'bad'); return; }
+    toast(`You earned the title "${def.title}"`, 'good', 3200);
+    renderCustomSheet(id);
+    renderAchievements();
+    renderAchievementBadge();
+    renderProfileTitle();
+    onChange();
+  };
+
+  body.append(
+    el('div', { class: 'ach-head' },
+      el('div', { class: 'ach-head-art' + (st.claimed ? ' ach-gold' : '') },
+        art ? el('img', { src: art.imagePath, alt: '' }) : null),
+      el('div', { class: 'ach-head-meta' },
+        el('h3', { text: def.title }),
+        el('div', { class: 'muted small', text: `${st.done} / ${st.total} missions` }),
+        st.claimed
+          ? el('span', { class: 'ach-chip ach-gold', text: 'Title won' })
+          : el('span', { class: 'muted small', text: 'Reward: this title' })
+      )
+    ),
+    el('p', { class: 'hint', html: `<b>Team:</b> ${def.requirement}. Only battles you <b>win</b> with a team like that count.` }),
+    el('div', { class: 'ach-tiers' },
+      el('div', { class: 'ach-tier ach-gold' + (st.complete ? ' reached' : '') },
+        el('b', { text: 'Title' }),
+        el('span', { class: 'small', text: def.title }),
+        st.claimed
+          ? el('span', { class: 'mission-tick', text: '✓' })
+          : st.claimable
+            ? el('button', { class: 'btn primary', onclick: claim }, 'Claim')
+            : el('span', { class: 'muted small', text: `${st.total - st.done} more` }))),
+    el('div', { class: 'mission-list ach-missions' },
+      ...st.missions.map(m => el('div', { class: 'mission' + (m.done ? ' claimed ach-done' : '') },
+        el('span', { class: 'mission-ico', text: m.def.icon }),
+        el('div', { class: 'mission-main' },
+          el('b', { text: m.def.label }),
+          el('div', { class: 'mission-bar' },
+            el('i', { style: { width: Math.round((m.progress / m.target) * 100) + '%' } })),
+          el('div', { class: 'mission-meta' }, el('span', { text: `${num(m.progress)} / ${num(m.target)}` }))
+        ),
+        el('div', { class: 'mission-act' },
+          m.done ? el('span', { class: 'mission-tick', text: '✓' }) : null)
+      ))
+    )
+  );
+}
+
 /** Text for a mission's progress, in km for the walking one. */
 function progressLabel(m) {
   if (m.def.kind === 'buddyMetres') {
@@ -147,7 +249,7 @@ function renderFamilySheet(rootId) {
      would otherwise swipe to one of its own creatures. */
   const sets = achSets();
   const set = sets[Math.max(0, Math.min(sets.length - 1, store.s.ui.achSetIndex || 0))];
-  const walk = rootsForSet(set).map(s => s.id).filter(id => store.familyRegistered(id));
+  const walk = set ? rootsForSet(set).map(s => s.id).filter(id => store.familyRegistered(id)) : [];
   const at = walk.indexOf(rootId);
   const go = (id, dir) => (id ? renderFamilySheet(id) : bumpEl(body, dir));
   wireSwipe(body, {

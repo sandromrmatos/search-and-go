@@ -51,7 +51,9 @@ import {
   SHOP_ITEMS, shopItem, COINS_PER_AD,
   SET_INCENSE_ITEM, SET_INCENSE_GRUNT_CHANCE, isSetIncenseOption,
   ACHIEVEMENT_MISSIONS, ACHIEVEMENT_TIERS, ACHIEVEMENT_DAMAGE_TYPES,
-  achievementCandy, achievementTierFor
+  achievementCandy, achievementTierFor,
+  CUSTOM_ACHIEVEMENTS, CUSTOM_ACHIEVEMENT_MISSIONS, CUSTOM_ACHIEVEMENT_BIG_RAID,
+  CUSTOM_TITLE_PREFIX, isCustomTitleId, customAchievement
 } from './data.js';
 import { ITEMS, item as itemDef } from './items.js';
 import { elevationNow } from './weather.js';
@@ -233,6 +235,11 @@ function blankState() {
      * boosts }; `claimed[root]` is { bronze|silver|gold -> claimedAt }.
      */
     achievements: { families: {}, claimed: {} },
+    /**
+     * Custom achievements, by id: { grunt, raid, bigRaid, claimedAt }. Each counts
+     * battles won with a team that met that achievement's requirement.
+     */
+    customAch: {},
     /** Family roots whose gold title has been won, in the order they were. */
     titles: [],
     /** The title shown next to the nickname: a family root id, or null. */
@@ -826,9 +833,25 @@ export function migrate(raw) {
     }
     s.achievements = { families, claimed };
 
-    // Titles: only gold families actually claimed, no repeats.
+    // Custom achievements: known ids only, counters clamped.
+    const custom = {};
+    for (const def of CUSTOM_ACHIEVEMENTS) {
+      const c = raw.customAch?.[def.id];
+      if (!c || typeof c !== 'object') continue;
+      custom[def.id] = {
+        grunt: Math.floor(nonNeg(c.grunt)),
+        raid: Math.floor(nonNeg(c.raid)),
+        bigRaid: Math.floor(nonNeg(c.bigRaid)),
+        claimedAt: Number(c.claimedAt) || 0
+      };
+    }
+    s.customAch = custom;
+
+    // Titles: only gold families and custom achievements actually claimed, no repeats.
     s.titles = [...new Set((Array.isArray(raw.titles) ? raw.titles : [])
-      .filter(id => isRoot(id) && claimed[id]?.gold))];
+      .filter(id => isCustomTitleId(id)
+        ? !!custom[id.slice(CUSTOM_TITLE_PREFIX.length)]?.claimedAt
+        : isRoot(id) && claimed[id]?.gold))];
     s.title = s.titles.includes(raw.title) ? raw.title : null;
   }
 
@@ -1913,6 +1936,36 @@ class Store {
       species: pinned,
       rarity: rarity || null
     };
+  }
+
+  /** How long one of `itemId` burns for, for the effect running in `kind`. */
+  effectDurationFor(kind, itemId, fx = null) {
+    const slot = EFFECT_SLOTS[kind];
+    if (!slot) return 0;
+    if (itemId === MYSTERIOUS_INCENSE_ITEM) {
+      const pinned = fx?.speciesId ? species(fx.speciesId) : null;
+      return pinned ? mysteriousIncenseDurationMs(pinned.rarity || familyRarity(pinned.id) || 1) : 0;
+    }
+    return slot.durationMs;
+  }
+
+  /**
+   * Burns another of the item that is already running, adding its full length
+   * on top of what is left. Only the same item: a Rare Incense cannot be added to
+   * a plain one. A Mysterious Incense keeps its creature and a Set Incense its
+   * set, because the extension is the same effect running longer.
+   */
+  extendEffect(kind, itemId, now = Date.now()) {
+    const fx = this.effect(kind, now);
+    if (!fx) return { ok: false, reason: 'notActive' };
+    if (fx.itemId !== itemId) return { ok: false, reason: 'different' };
+    if (!this.hasItem(itemId)) return { ok: false, reason: 'noItem' };
+    const added = this.effectDurationFor(kind, itemId, fx);
+    if (!(added > 0)) return { ok: false, reason: 'unknown' };
+    this.spendItem(itemId);
+    fx.endsAt += added;
+    this.touch('effect', { immediate: true });
+    return { ok: true, endsAt: fx.endsAt, addedMs: added };
   }
 
   clearExpiredEffects(now = Date.now()) {
@@ -3488,6 +3541,65 @@ class Store {
     if (dealtBy.size) this.touch('achievements');
   }
 
+  /**
+   * Credits a won battle to every custom achievement whose team requirement the
+   * team met. `teamUids` is the team taken into the battle; `raidRarity` is the
+   * boss's rarity for a raid, 0 otherwise. Frontier fights count as grunts, the
+   * same as for the family achievements.
+   * @returns {string[]} ids of the achievements that moved
+   */
+  recordCustomAchievements(kind, teamUids = [], { won = false, raidRarity = 0 } = {}) {
+    if (!won) return [];
+    const team = teamUids.map(uid => this.creature(uid)).filter(Boolean)
+      .map(c => species(c.speciesId)).filter(Boolean);
+    if (!team.length) return [];
+    const moved = [];
+    for (const def of CUSTOM_ACHIEVEMENTS) {
+      if (!def.test(team)) continue;
+      const rec = this.s.customAch[def.id]
+        || (this.s.customAch[def.id] = { grunt: 0, raid: 0, bigRaid: 0, claimedAt: 0 });
+      if (kind === 'raid') {
+        rec.raid += 1;
+        if (raidRarity >= CUSTOM_ACHIEVEMENT_BIG_RAID) rec.bigRaid += 1;
+      } else {
+        rec.grunt += 1;
+      }
+      moved.push(def.id);
+    }
+    if (moved.length) this.touch('achievements');
+    return moved;
+  }
+
+  /** One custom achievement's missions and claim state. */
+  customAchievementState(id) {
+    const def = customAchievement(id);
+    if (!def) return null;
+    const rec = this.s.customAch[id] || { grunt: 0, raid: 0, bigRaid: 0, claimedAt: 0 };
+    const missions = CUSTOM_ACHIEVEMENT_MISSIONS.map(m => {
+      const progress = Number(rec[m.id]) || 0;
+      return { def: m, progress: Math.min(progress, m.target), target: m.target, done: progress >= m.target };
+    });
+    const done = missions.filter(m => m.done).length;
+    const complete = done === missions.length;
+    const claimed = !!rec.claimedAt;
+    return { def, missions, done, total: missions.length, complete, claimed, claimable: complete && !claimed };
+  }
+
+  /** Pays out a finished custom achievement's title, worn at once if none is. */
+  claimCustomAchievement(id) {
+    const st = this.customAchievementState(id);
+    if (!st) return { ok: false, reason: 'missing' };
+    if (st.claimed) return { ok: false, reason: 'claimed' };
+    if (!st.complete) return { ok: false, reason: 'incomplete' };
+    const rec = this.s.customAch[id];
+    rec.claimedAt = Date.now();
+    const titleId = CUSTOM_TITLE_PREFIX + id;
+    if (!this.s.titles.includes(titleId)) this.s.titles.push(titleId);
+    if (!this.s.title) this.s.title = titleId;
+    this.touch('achievement-claim', { immediate: true });
+    return { ok: true, title: titleId };
+  }
+
   /** Highest level each family is holding right now: root -> level. */
   liveFamilyLevels() {
     const out = new Map();
@@ -3550,6 +3662,7 @@ class Store {
     const live = this.liveFamilyLevels();
     let n = 0;
     for (const root of this.familyRoots) n += this.achievementState(root, live).claimable;
+    for (const def of CUSTOM_ACHIEVEMENTS) if (this.customAchievementState(def.id)?.claimable) n++;
     return n;
   }
 

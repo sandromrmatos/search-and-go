@@ -422,7 +422,7 @@ export const boostsLeft = boosts => Math.max(0, MAX_STAT_BOOSTS - totalBoosts(bo
 
 /** The types the damage missions are listed in, in the order they are shown. */
 export const ACHIEVEMENT_DAMAGE_TYPES = ['Mystic', 'Wind', 'Neutral', 'Celestial', 'Mechanic'];
-export const ACHIEVEMENT_DAMAGE_TARGET = 3500;
+export const ACHIEVEMENT_DAMAGE_TARGET = 4000;
 
 /**
  * `kind` is what the store reads progress from. Battle wins only count when
@@ -469,8 +469,64 @@ export const ACHIEVEMENT_CANDY = {
 export const achievementCandy = (rarity, tierId) =>
   (ACHIEVEMENT_CANDY[rarity] ?? ACHIEVEMENT_CANDY[1])[tierId] || 0;
 
-/** "Babybara Expert" — the title a gold family pays, named after its Stage 1. */
-export const achievementTitle = rootId => `${species(rootId)?.name || '?'} Expert`;
+/* ---------------------------------------------------------------
+   Custom achievements
+
+   Not tied to one family. Each one asks for a particular kind of battle team,
+   and its missions only count battles won with a team that meets it. The only
+   reward is a title. Shown on their own page after the Mythicals.
+
+   `test(team)` gets the team as species objects, in battle order.
+   --------------------------------------------------------------- */
+const teamNames = team => team.map(sp => String(sp?.name || '').toLowerCase());
+const abilityNameOf = sp => (DB.abilities.get(sp?.id)?.name || '').toLowerCase();
+
+export const CUSTOM_ACHIEVEMENTS = [
+  {
+    id: 'patisserie',
+    title: 'Patisserie Connoisseur',
+    art: 'Flakette',
+    requirement: 'Your team has Flakette, Canelette and Rollinette',
+    test: team => ['flakette', 'canelette', 'rollinette'].every(n => teamNames(team).includes(n))
+  },
+  {
+    id: 'antheara',
+    title: 'Antheara Fanatic',
+    art: 'Antheara East',
+    requirement: 'Your team has any of the four Anthearas',
+    test: team => teamNames(team).some(n => n.startsWith('antheara '))
+  },
+  {
+    id: 'smoothie',
+    title: 'Smoothie Blender',
+    art: 'Orbitmelon',
+    requirement: 'Every creature in your team has the Smoothie Season ability',
+    test: team => team.length > 0 && team.every(sp => abilityNameOf(sp) === 'smoothie season')
+  }
+];
+
+/** The three missions every custom achievement shares. */
+export const CUSTOM_ACHIEVEMENT_MISSIONS = [
+  { id: 'grunt', target: 50, icon: '🥋', label: 'Defeat 50 grunts with this team' },
+  { id: 'raid', target: 50, icon: '🔥', label: 'Defeat 50 raids with this team' },
+  { id: 'bigRaid', target: 1, icon: '💎', label: 'Win a raid of rarity 4 or higher with this team' }
+];
+/** The raid rarity the last mission asks for. */
+export const CUSTOM_ACHIEVEMENT_BIG_RAID = 4;
+
+export const customAchievement = id => CUSTOM_ACHIEVEMENTS.find(a => a.id === id) || null;
+
+/** Custom titles are stored alongside family ones, with this prefix. */
+export const CUSTOM_TITLE_PREFIX = 'custom:';
+export const isCustomTitleId = id => typeof id === 'string' && id.startsWith(CUSTOM_TITLE_PREFIX);
+
+/**
+ * "Babybara Expert" — the title a gold family pays, named after its Stage 1.
+ * A custom achievement's id carries the prefix and names its own title.
+ */
+export const achievementTitle = id => isCustomTitleId(id)
+  ? (customAchievement(id.slice(CUSTOM_TITLE_PREFIX.length))?.title || '?')
+  : `${species(id)?.name || '?'} Expert`;
 
 /** Which tier `done` completed missions reach, or null. */
 export function achievementTierFor(done) {
@@ -3046,6 +3102,18 @@ export const TEMPORAL_TAKEOVER_DAY = 5;      // Friday
 export const TEMPORAL_TAKEOVER_START = 18;   // 18:00
 export const TEMPORAL_TAKEOVER_END = 19;     // 19:00
 
+/**
+ * Crystal Canopy Take Over: Saturdays 18:00–19:00.
+ *
+ * The third evening in a row, one set further on again, gated on a Crystal
+ * Canopy rarity being unlocked. Saturday's Training Dojo Hour is 13:30–14:00,
+ * so the two never meet.
+ */
+export const CRYSTAL_TAKEOVER_LABEL = 'Crystal Canopy Take Over';
+export const CRYSTAL_TAKEOVER_DAY = 6;       // Saturday
+export const CRYSTAL_TAKEOVER_START = 18;    // 18:00
+export const CRYSTAL_TAKEOVER_END = 19;      // 19:00
+
 /* ---------------------------------------------------------------
    Annual events
 
@@ -4446,6 +4514,11 @@ export function rebuildSpawnPools() {
   DB.temporalByRarity = { 1: [], 2: [], 3: [], 4: [], 5: [] };
   for (const sp of DB.temporalSpawnable) DB.temporalByRarity[sp.rarity].push(sp);
 
+  // And Crystal Canopy, for the Saturday evening takeover.
+  DB.crystalSpawnable = DB.spawnable.filter(s => s.crystal);
+  DB.crystalByRarity = { 1: [], 2: [], 3: [], 4: [], 5: [] };
+  for (const sp of DB.crystalSpawnable) DB.crystalByRarity[sp.rarity].push(sp);
+
   return DB.spawnable.length;
 }
 
@@ -4948,6 +5021,9 @@ export const DB = {
   temporalByRarity: { 1: [], 2: [], 3: [], 4: [], 5: [] },
   /** Crystal Canopy, every creature whether unlocked or not. */
   crystal: [],
+  /** The unlocked Crystal Canopy creatures, read during Crystal Canopy Take Over. */
+  crystalSpawnable: [],
+  crystalByRarity: { 1: [], 2: [], 3: [], 4: [], 5: [] },
   /**
    * The fossil creatures. Like the exclusives these are deliberately outside
    * `spawnable`, `byRarity` and `available`: assembling the parts and waiting a
@@ -6209,6 +6285,12 @@ export function isTemporalTakeover(now = new Date()) {
   return inWeeklyWindow(now, TEMPORAL_TAKEOVER_DAY, TEMPORAL_TAKEOVER_START, TEMPORAL_TAKEOVER_END);
 }
 
+/** The Saturday one, gated on Crystal Canopy being unlocked. */
+export function isCrystalTakeover(now = new Date()) {
+  if (!DB.crystalSpawnable?.length) return false;
+  return inWeeklyWindow(now, CRYSTAL_TAKEOVER_DAY, CRYSTAL_TAKEOVER_START, CRYSTAL_TAKEOVER_END);
+}
+
 /**
  * Which set has taken the pools over right now, or null. One accessor so the
  * pools, the cache key and the chip can never disagree about it — and so a third
@@ -6235,6 +6317,17 @@ export function activeTakeover(now = new Date()) {
       byRarity: DB.temporalByRarity,
       list: DB.temporalSpawnable,
       endsIn: weeklyWindowEndsIn(now, TEMPORAL_TAKEOVER_DAY, TEMPORAL_TAKEOVER_START, TEMPORAL_TAKEOVER_END)
+    };
+  }
+  if (isCrystalTakeover(now)) {
+    return {
+      id: 'crystalTakeover',
+      label: CRYSTAL_TAKEOVER_LABEL,
+      setName: CRYSTAL_SET_NAME,
+      icon: '💎',
+      byRarity: DB.crystalByRarity,
+      list: DB.crystalSpawnable,
+      endsIn: weeklyWindowEndsIn(now, CRYSTAL_TAKEOVER_DAY, CRYSTAL_TAKEOVER_START, CRYSTAL_TAKEOVER_END)
     };
   }
   return null;
@@ -6571,6 +6664,16 @@ export const CALENDAR_EVENTS = [
     // one is: until then the hour genuinely does nothing.
     onDay: d => d.getDay() === TEMPORAL_TAKEOVER_DAY && DB.temporalSpawnable.length > 0,
     blurb: `Spawns, raids and ordinary eggs all come from your unlocked ${TEMPORAL_SET_NAME} creatures.`
+  },
+  {
+    id: 'crystalTakeover',
+    label: CRYSTAL_TAKEOVER_LABEL,
+    icon: '💎',
+    start: CRYSTAL_TAKEOVER_START,
+    end: CRYSTAL_TAKEOVER_END,
+    // Hidden until Crystal Canopy is unlocked, like the other two takeovers.
+    onDay: d => d.getDay() === CRYSTAL_TAKEOVER_DAY && DB.crystalSpawnable?.length > 0,
+    blurb: `Spawns, raids and ordinary eggs all come from your unlocked ${CRYSTAL_SET_NAME} creatures.`
   },
   {
     id: 'creatureSpotlight',

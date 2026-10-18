@@ -15,7 +15,7 @@ import {
   FRONTIER_DAILY_ID, FRONTIER_DAILY_NAME, FRONTIER_DAILY_ART, IMAGE_DIR,
   FEATHER_ITEM, STATUS_CONDITIONS,
   GRUNT_REWARD, WIN_FULL_HEAL_CHANCE, WIN_FULL_HEAL_ITEM, dustBonusFor,
-  SET_INCENSE_GRUNT_CHANCE, MYSTERIOUS_INCENSE_GRUNT_CHANCE
+  SET_INCENSE_GRUNT_CHANCE, MYSTERIOUS_INCENSE_GRUNT_CHANCE, familyRarity
 } from './data.js';
 
 /** "+50%" style label straight from the raid modifier table. */
@@ -1526,6 +1526,12 @@ async function finishBattle() {
      dealt some. A Grand Raid is a raid; every Frontier trainer fight, the Daily
      Challenge included, counts as a grunt battle. */
   store.recordBattleAchievements(ctx.kind === 'raid' ? 'raid' : 'grunt', b.damageByUid, won);
+  // Custom achievements look at the whole team rather than who dealt damage.
+  const raidRarity = ctx.kind === 'raid'
+    ? Number(ctx.raid?.rarity) || familyRarity(ctx.raid?.speciesId) || 0
+    : 0;
+  store.recordCustomAchievements(ctx.kind === 'raid' ? 'raid' : 'grunt',
+    b.playerResults().map(r => r.uid), { won, raidRarity });
 
   let rewards = null;
   /** Set when a Frontier level was won that had already been won on this mode. */

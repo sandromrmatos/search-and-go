@@ -1317,21 +1317,33 @@ export function openItemSheet(itemId) {
     // A Set Incense asks which set instead, and Elemental Awakening is always
     // one of the answers, so it is never blocked for want of a choice.
     const picksSet = needsSetChoice(itemId);
-    actions.push(el('button', {
-      class: 'btn primary',
-      disabled: qty < 1 || !!active || (picks && candidates < 1),
-      onclick: () => (picks
-        ? (closeSheet('sheet'), openIncenseSpeciesPicker(itemId))
-        : picksSet
-          ? openSetIncensePicker(itemId)
-          : useTimedItem(kind, def))
-    }, active
-      ? `Already running · ${timeLeftLabel(active.endsAt - Date.now())}`
-      : picks
-        ? (candidates < 1 ? 'Nothing registered yet' : 'Choose a creature')
-        : picksSet
-          ? 'Choose a set'
-          : `Use one now`));
+    // The same item already burning can be topped up; anything else in the slot
+    // blocks it, as before.
+    const sameRunning = !!active && active.itemId === itemId;
+    if (sameRunning) {
+      const addMins = Math.round(store.effectDurationFor(kind, itemId, active) / 60_000);
+      actions.push(el('button', {
+        class: 'btn primary',
+        disabled: qty < 1,
+        onclick: () => extendTimedItem(kind, def)
+      }, qty < 1 ? `Running · ${timeLeftLabel(active.endsAt - Date.now())}` : `Add ${addMins} min to it`));
+    } else {
+      actions.push(el('button', {
+        class: 'btn primary',
+        disabled: qty < 1 || !!active || (picks && candidates < 1),
+        onclick: () => (picks
+          ? (closeSheet('sheet'), openIncenseSpeciesPicker(itemId))
+          : picksSet
+            ? openSetIncensePicker(itemId)
+            : useTimedItem(kind, def))
+      }, active
+        ? `${itemName(active.itemId)} running · ${timeLeftLabel(active.endsAt - Date.now())}`
+        : picks
+          ? (candidates < 1 ? 'Nothing registered yet' : 'Choose a creature')
+          : picksSet
+            ? 'Choose a set'
+            : `Use one now`));
+    }
   }
   if (INCUBATOR_ITEMS.includes(itemId)) {
     const free = store.freeIncubators()[itemId] || 0;
@@ -1511,6 +1523,32 @@ function useTimedItem(kind, def) {
   }
   closeSheet('sheet');
   toast(`${label} active for ${mins} minutes`, 'good', 3200);
+  refreshAll();
+  onEffectsChanged?.();
+}
+
+/**
+ * Tops up a running effect with another of the same item. Says what it is
+ * adding to — the creature for a Mysterious Incense, the set for a Set Incense —
+ * since those stay exactly as they were lit.
+ */
+function extendTimedItem(kind, def) {
+  const fx = store.effect(kind);
+  if (!fx || fx.itemId !== def.id) { toast('That is not running any more', 'bad'); return; }
+  const add = store.effectDurationFor(kind, def.id, fx);
+  const addMins = Math.round(add / 60_000);
+  const left = fx.endsAt - Date.now();
+  const pinned = fx.speciesId ? species(fx.speciesId)?.name : null;
+  const what = pinned ? ` (still ${pinned})` : fx.setName ? ` (still ${fx.setName})` : '';
+  if (!confirm(`Add ${addMins} minutes to your ${def.name}${what}? It has ${timeLeftLabel(left)} left, `
+    + `so it will run for ${timeLeftLabel(left + add)}. This uses one ${def.name}.`)) return;
+  const r = store.extendEffect(kind, def.id);
+  if (!r.ok) {
+    toast(r.reason === 'noItem' ? `No ${def.name} left` : 'Could not add time to it', 'bad');
+    return;
+  }
+  closeSheet('sheet');
+  toast(`${def.name}: +${addMins} min · ${timeLeftLabel(r.endsAt - Date.now())} left`, 'good', 3200);
   refreshAll();
   onEffectsChanged?.();
 }
