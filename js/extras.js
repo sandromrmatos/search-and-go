@@ -108,7 +108,8 @@ const MISSION_ICON = {
   essenceHarvests: '🔮', essenceToday: '🔮', essenceWeek: '🔮',
   capturesWeek: '🗓', daysCaughtThisWeek: '✅', eggsHatched: '🥚',
   metresToday: '👣', metresWeek: '👣', creaturesAtLevel: '⬆',
-  fossilPart: '🦴', fossilsRevived: '🦴'
+  fossilPart: '🦴', fossilsRevived: '🦴',
+  routesCompleted: '🧭', routeStreak: '🧭'
 };
 
 /**
@@ -1994,7 +1995,8 @@ function renderInfo(tab = 'basics') {
         el('li', { html: `Each stop is <b>${DAILY_ROUTE_LEG_MIN_M}–${DAILY_ROUTE_LEG_MAX_M} m</b> from the one before, as near to that as the places around you allow.` }),
         el('li', { html: `Walk to them <b>in order</b>. A stop counts as soon as you are within reach of it, the same ${RULES.CAPTURE_RANGE_M} m as everything else (wider during ${RELAX_HOUR_LABEL} or with a Molten Seeker). The next stop pulses and the chip under the timer says how far it is.` }),
         el('li', { html: `Finish all ${DAILY_ROUTE_STOPS} and tap the chip to claim: <b>one incense</b> — 45% Incense, 25% Rare, 15% Set, 10% Shiny, 5% Mysterious — <b>+${DAILY_ROUTE_XP} XP</b>, <b>+${DAILY_ROUTE_STARDUST} stardust</b>, and <b>three creatures</b>: one ordinary wild creature, one of <b>rarity 3 or higher</b> and one of <b>rarity 4 or higher</b>. No discs needed, and the usual shiny odds apply.` }),
-        el('li', { html: 'A new route is planned each day. One you finished but did not claim waits for you past midnight, and the next day\'s route appears once it is claimed.' })
+        el('li', { html: 'A new route is planned each day. One you finished but did not claim waits for you past midnight, and the next day\'s route appears once it is claimed.' }),
+        el('li', { html: '<b>Lifetime missions</b> count the routes you claim — 1, 5, 10, 25, 50 and 100 — and there is one for claiming a route <b>7 days in a row</b>. A day counts by the route\'s own date, so claiming yesterday\'s just after midnight keeps the run going.' })
       ),
       el('h4', { text: 'Annual events' }),
       el('p', { html: `Nine events come round once a year, each lasting <b>three days</b> — except the Holiday Season, which runs from <b>20 December to 1 January</b>. The <b>📅 Calendar</b> in the News tab lists whichever are coming up, and a green chip sits on the map while one is running.` }),

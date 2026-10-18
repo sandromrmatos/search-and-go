@@ -309,7 +309,13 @@ function blankState() {
       fossilParts: {},
       adsWatched: 0, shopBuys: 0,
       /** Harvests that paid at least one candy — what the missions count. */
-      essenceHarvests: 0
+      essenceHarvests: 0,
+      /** Daily Routes finished and claimed, for the route missions. */
+      routesCompleted: 0,
+      /** Days in a row with a claimed route, the best run ever, and the last day. */
+      routeStreak: 0,
+      routeStreakBest: 0,
+      routeLastDay: null
     },
 
     lastScanAt: 0,
@@ -367,7 +373,9 @@ function normaliseRoute(r) {
       lng: Number(p.lng),
       name: typeof p.name === 'string' && p.name ? p.name.slice(0, 80) : 'A place nearby'
     }));
-  if (stops.length !== DAILY_ROUTE_STOPS) return null;
+  // Any length up to today's: a route planned when it was five stops long is
+  // still walked (and claimed) as five, rather than being thrown away.
+  if (stops.length < 2 || stops.length > DAILY_ROUTE_STOPS) return null;
   // Routes planned before legs had a minimum length were often a two-minute
   // stroll. One that has not been started yet is dropped so it is planned again.
   const v = Number(r.v) || 1;
@@ -443,6 +451,10 @@ export function migrate(raw) {
       exclusiveRaidsByRarity: { ...(raw.stats?.exclusiveRaidsByRarity || {}) },
       frontierWins: Number(raw.stats?.frontierWins) || 0,
       fossilsRevived: Number(raw.stats?.fossilsRevived) || 0,
+      routesCompleted: Math.max(0, Math.floor(Number(raw.stats?.routesCompleted) || 0)),
+      routeStreak: Math.max(0, Math.floor(Number(raw.stats?.routeStreak) || 0)),
+      routeStreakBest: Math.max(0, Math.floor(Number(raw.stats?.routeStreakBest) || 0)),
+      routeLastDay: typeof raw.stats?.routeLastDay === 'string' ? raw.stats.routeLastDay : null,
       fossilParts: { ...(raw.stats?.fossilParts || {}) }
     },
     debug: { ...base.debug, ...(raw.debug || {}) },
@@ -774,6 +786,14 @@ export function migrate(raw) {
 
   // ---- daily route ----
   s.dailyRoute = normaliseRoute(raw.dailyRoute);
+  // Routes claimed before the route missions existed: the save only remembers
+  // the last one, so that one is credited once.
+  if (raw.stats?.routesCompleted == null && s.dailyRoute?.claimedAt) {
+    s.stats.routesCompleted = 1;
+    s.stats.routeStreak = 1;
+    s.stats.routeStreakBest = 1;
+    s.stats.routeLastDay = s.dailyRoute.day;
+  }
   if (s.weekly.week !== weekKey()) s.weekly = blankWeekly();
 
   // ---- grunt window stamp ----
@@ -2591,6 +2611,19 @@ class Store {
     if (!r || !r.completedAt || r.claimedAt) return { ok: false, reason: r?.claimedAt ? 'claimed' : 'notDone' };
     r.claimedAt = now;
 
+    /* The route missions. The streak goes by the day the route was planned for,
+       not when it was claimed, so claiming yesterday's walk after midnight still
+       continues the run rather than breaking it. */
+    const st = this.s.stats;
+    st.routesCompleted = (st.routesCompleted || 0) + 1;
+    const [y, m, d] = r.day.split('-').map(Number);
+    const dayBefore = dayKey(new Date(y, m - 1, d - 1));
+    if (st.routeLastDay !== r.day) {
+      st.routeStreak = st.routeLastDay === dayBefore ? (st.routeStreak || 0) + 1 : 1;
+      st.routeLastDay = r.day;
+      st.routeStreakBest = Math.max(st.routeStreakBest || 0, st.routeStreak);
+    }
+
     const incense = rollRouteIncense();
     this.addItem(incense, 1);
     const dust = this.addStardust(DAILY_ROUTE_STARDUST);
@@ -4273,6 +4306,9 @@ class Store {
       }
       case 'exclusiveRaidsWon': return this.s.stats.exclusiveRaidsWon || 0;
       case 'fossilsRevived': return this.s.stats.fossilsRevived || 0;
+      case 'routesCompleted': return this.s.stats.routesCompleted || 0;
+      // The best run ever, so a streak once reached is never lost by a missed day.
+      case 'routeStreak': return this.s.stats.routeStreakBest || 0;
       // Lifetime total for one part, not what is in the bag: spending parts on a
       // revival must not undo a mission you have already earned.
       case 'fossilPart': return this.s.stats.fossilParts?.[m.part] || 0;

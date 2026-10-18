@@ -237,6 +237,24 @@ a { color: var(--accent); }
   transform-origin: 20px 42px;
 }
 #map.rotated .leaflet-tooltip { transform: rotate(calc(-1 * var(--map-bearing, 0deg))); }
+/* Fossil drops, Daily Route stops and the pharmacy crosses stay upright too, so
+   their "Ready" label, stop number and tick read the right way up. Each origin
+   is that icon's anchor point, like the spawn markers above. */
+#map.rotated .fossil-rot {
+  display: block;
+  transform: rotate(calc(-1 * var(--map-bearing, 0deg)));
+  transform-origin: 23px 52px;
+}
+#map.rotated .route-rot {
+  display: block;
+  transform: rotate(calc(-1 * var(--map-bearing, 0deg)));
+  transform-origin: 17px 40px;
+}
+#map.rotated .medical-rot {
+  display: block;
+  transform: rotate(calc(-1 * var(--map-bearing, 0deg)));
+  transform-origin: 50% 50%;
+}
 
 /* compass: the needle always points at true north */
 .round-btn.compass { font-size: 20px; }
@@ -605,7 +623,7 @@ a { color: var(--accent); }
 /* ---- pharmacy and hospital crosses ----
    Landmarks rather than targets: small, calm and always there while you are
    near one. The wrapper counter-rotates with the map like every other pin. */
-.medical-rot { transform: rotate(var(--map-rot, 0deg)); transform-origin: 50% 50%; }
+.medical-rot { display: block; }
 .medical-cross {
   width: 26px; height: 26px; border-radius: 8px;
   display: flex; align-items: center; justify-content: center;
@@ -619,7 +637,7 @@ a { color: var(--accent); }
    Not a spawn: no timer running out, nothing to prune. It sits where you left it
    until you come back, so it gets a calm sepia aura while it works and a green
    pulsing one the moment it is ready. */
-.fossil-rot { transform: rotate(var(--map-rot, 0deg)); transform-origin: 50% 92%; }
+.fossil-rot { display: block; }
 .fossil-drop { position: relative; width: 46px; height: 58px; }
 .fossil-drop-glow {
   position: absolute; left: 50%; top: 20px; width: 54px; height: 54px;
@@ -663,7 +681,7 @@ a { color: var(--accent); }
 /* ---- Daily Route stops ----
    Numbered pins joined by a dashed gold line (drawn by Leaflet). Done stops are
    ticked and dimmed, the next one is bigger and pulses so the order is obvious. */
-.route-rot { transform: rotate(var(--map-rot, 0deg)); transform-origin: 50% 92%; }
+.route-rot { display: block; }
 .route-stop {
   position: relative; width: 34px; height: 44px;
   display: grid; justify-items: center; align-content: start;

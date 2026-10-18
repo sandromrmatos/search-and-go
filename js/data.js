@@ -2188,7 +2188,7 @@ export const fossilRevivePool = () => DB.fossil.filter(s => s.stage === 1);
    same spot, so the whole loop is a short walk round the neighbourhood rather
    than a trek. They have to be visited in order.
    --------------------------------------------------------------- */
-export const DAILY_ROUTE_STOPS = 5;
+export const DAILY_ROUTE_STOPS = 10;
 export const DAILY_ROUTE_START_M = 150;
 export const DAILY_ROUTE_RADIUS_M = 400;
 /** No two stops closer than this, so five stops are five places, not one corner. */
@@ -3991,6 +3991,15 @@ export const MISSIONS = [
     items: { breeding_center: 1, incense: 2, stardust_magnet: 2 },
     label: 'Catch 10000 creatures'
   },
+
+  // ---- Daily Routes ----
+  { id: 'route1',   kind: 'routesCompleted', target: 1,   xp: 50,  dust: 250,  items: { incense: 1 }, label: 'Complete your first Daily Route' },
+  { id: 'route5',   kind: 'routesCompleted', target: 5,   xp: 100, dust: 500,  items: { rare_incense: 1 }, label: 'Complete 5 Daily Routes' },
+  { id: 'route10',  kind: 'routesCompleted', target: 10,  xp: 150, dust: 750,  items: { set_incense: 1, super_incubator: 1 }, label: 'Complete 10 Daily Routes' },
+  { id: 'route25',  kind: 'routesCompleted', target: 25,  xp: 250, dust: 1500, items: { shiny_incense: 1 }, label: 'Complete 25 Daily Routes' },
+  { id: 'route50',  kind: 'routesCompleted', target: 50,  xp: 400, dust: 3000, items: { mysterious_incense: 1, precious_feather: 1 }, label: 'Complete 50 Daily Routes' },
+  { id: 'route100', kind: 'routesCompleted', target: 100, xp: 600, dust: 5000, items: { mysterious_incense: 2, shiny_incense: 1 }, label: 'Complete 100 Daily Routes' },
+  { id: 'routeStreak7', kind: 'routeStreak', target: 7, xp: 200, dust: 1000, items: { shiny_incense: 1 }, label: 'Complete a Daily Route 7 days in a row' },
 
   // ---- raids won ----
   { id: 'raid5',   kind: 'raidsWon', target: 5,   xp: 5,   dust: 20,  items: { single_use_incubator: 1 }, label: 'Successfully defeat 5 raids' },

@@ -954,7 +954,7 @@ function tickDailyRoute(now = Date.now()) {
           if (!capturing && !isBattleOpen() && !anySheetOpen()) openRouteSheet();
         } else {
           const after = route.stops[route.reached];
-          toast(`🧭 Stop ${r.index + 1} of ${DAILY_ROUTE_STOPS} reached — next: ${after.name}, `
+          toast(`🧭 Stop ${r.index + 1} of ${route.stops.length} reached — next: ${after.name}, `
             + `${formatDistance(distance(pos, after))} away`, 'good', 4500);
         }
       }
@@ -978,7 +978,7 @@ function renderRouteChip(now = Date.now()) {
   } else {
     const next = route.stops[route.reached];
     const away = Geo.current && next ? ` · ${formatDistance(distance(Geo.current, next))}` : '';
-    text = `🧭 Route ${route.reached}/${DAILY_ROUTE_STOPS} · next stop ${route.reached + 1}${away}`;
+    text = `🧭 Route ${route.reached}/${route.stops.length} · next stop ${route.reached + 1}${away}`;
   }
   if (chip.textContent !== text) chip.textContent = text;
 }
@@ -1016,7 +1016,7 @@ function openRouteSheet(focusIndex = null) {
   });
 
   const rewardsLine = el('div', { class: 'rewards', style: { justifyContent: 'center', marginTop: '8px' } },
-    el('span', { class: 'reward' }, el('span', { text: '🕯 1 incense (45% Incense · 25% Rare · 15% Set · 10% Shiny · 5% Mysterious)' })),
+    el('span', { class: 'reward' }, el('span', { text: '🕯 One type of incense' })),
     el('span', { class: 'reward' }, el('span', { text: `⭐ +${DAILY_ROUTE_XP} XP` })),
     el('span', { class: 'reward' }, el('span', { text: `${DUST_ICON} +${DAILY_ROUTE_STARDUST} stardust` })),
     ...DAILY_ROUTE_ENCOUNTERS.map(e => el('span', { class: 'reward' }, el('span', { text: `🎯 ${e.label}` }))));
@@ -1025,7 +1025,7 @@ function openRouteSheet(focusIndex = null) {
     el('h3', { text: '🧭 Daily Route' }),
     el('p', { class: 'muted small', text: done
       ? 'You walked the whole route. Your reward is waiting.'
-      : `Walk to the stops in order — ${route.reached} of ${DAILY_ROUTE_STOPS} done. A stop counts as soon `
+      : `Walk to the stops in order — ${route.reached} of ${route.stops.length} done. A stop counts as soon `
         + `as you are within ${interactRange() === Infinity ? 'range' : interactRange() + ' m'} of it. `
         + 'A new route is planned tomorrow.' }),
     el('div', { class: 'det-rows' }, ...rows),
