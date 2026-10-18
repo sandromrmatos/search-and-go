@@ -2126,7 +2126,13 @@ export const DAILY_ROUTE_STOPS = 5;
 export const DAILY_ROUTE_START_M = 150;
 export const DAILY_ROUTE_RADIUS_M = 400;
 /** No two stops closer than this, so five stops are five places, not one corner. */
-export const DAILY_ROUTE_MIN_APART_M = 35;
+export const DAILY_ROUTE_MIN_APART_M = 40;
+/**
+ * How long each leg — one stop to the next — should be. A route that cannot fit
+ * every leg in this band uses the one that comes closest.
+ */
+export const DAILY_ROUTE_LEG_MIN_M = 50;
+export const DAILY_ROUTE_LEG_MAX_M = 80;
 export const DAILY_ROUTE_XP = 100;
 export const DAILY_ROUTE_STARDUST = 150;
 /** The one incense the route pays, as weights out of 100. */

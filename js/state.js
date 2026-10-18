@@ -347,6 +347,9 @@ function blankState() {
  * bad coordinates, the wrong number of stops — is dropped rather than repaired,
  * and the next open simply plans a new one.
  */
+/** Bumped when route planning changes in a way worth re-planning an unstarted route for. */
+export const ROUTE_PLAN_VERSION = 2;
+
 function normaliseRoute(r) {
   if (!r || typeof r !== 'object' || typeof r.day !== 'string') return null;
   const stops = (Array.isArray(r.stops) ? r.stops : [])
@@ -358,9 +361,14 @@ function normaliseRoute(r) {
       name: typeof p.name === 'string' && p.name ? p.name.slice(0, 80) : 'A place nearby'
     }));
   if (stops.length !== DAILY_ROUTE_STOPS) return null;
+  // Routes planned before legs had a minimum length were often a two-minute
+  // stroll. One that has not been started yet is dropped so it is planned again.
+  const v = Number(r.v) || 1;
+  if (v < ROUTE_PLAN_VERSION && !(Number(r.reached) > 0) && !r.completedAt) return null;
   const anchor = r.anchor && isFinite(r.anchor.lat) && isFinite(r.anchor.lng)
     ? { lat: Number(r.anchor.lat), lng: Number(r.anchor.lng) } : { lat: stops[0].lat, lng: stops[0].lng };
   return {
+    v,
     day: r.day,
     anchor,
     stops,

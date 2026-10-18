@@ -56,7 +56,8 @@ import {
   FEATHER_ITEM, FEATHER_POINTS_PER_DAY, FEATHER_MIN_M, FEATHER_MAX_M,
   FEATHERS_PER_DIAMOND, DIAMOND_ITEM, DIAMOND_STARDUST_COST, DIAMOND_POWER_BONUS,
   DIAMOND_WINS_NEEDED, DIAMOND_METRES_NEEDED, STATUS_CONDITIONS,
-  DAILY_ROUTE_STOPS, DAILY_ROUTE_START_M, DAILY_ROUTE_RADIUS_M, DAILY_ROUTE_XP, DAILY_ROUTE_STARDUST
+  DAILY_ROUTE_STOPS, DAILY_ROUTE_START_M, DAILY_ROUTE_RADIUS_M, DAILY_ROUTE_XP, DAILY_ROUTE_STARDUST,
+  DAILY_ROUTE_LEG_MIN_M, DAILY_ROUTE_LEG_MAX_M
 } from './data.js';
 import { store, maxHpOf, hpOf, isFainted } from './state.js';
 import { itemImage, itemName, ITEMS, itemsInOrder } from './items.js';
@@ -1988,6 +1989,7 @@ function renderInfo(tab = 'basics') {
       el('h4', { text: '🧭 Daily Route' }),
       el('p', { html: `Once a day, the first time the game has your location, <b>${DAILY_ROUTE_STOPS} real places</b> around you are joined into a walk and drawn on the map as <b>numbered stops</b> with a dashed gold line. Stop 1 is within <b>${DAILY_ROUTE_START_M} m</b> of where you opened the game, and every stop is within <b>${DAILY_ROUTE_RADIUS_M} m</b> of that spot.` }),
       el('ul', {},
+        el('li', { html: `Each stop is <b>${DAILY_ROUTE_LEG_MIN_M}–${DAILY_ROUTE_LEG_MAX_M} m</b> from the one before, as near to that as the places around you allow.` }),
         el('li', { html: `Walk to them <b>in order</b>. A stop counts as soon as you are within reach of it, the same ${RULES.CAPTURE_RANGE_M} m as everything else (wider during ${RELAX_HOUR_LABEL} or with a Molten Seeker). The next stop pulses and the chip under the timer says how far it is.` }),
         el('li', { html: `Finish all ${DAILY_ROUTE_STOPS} and tap the chip to claim: <b>one incense</b> — 45% Incense, 25% Rare, 15% Set, 10% Shiny, 5% Mysterious — <b>+${DAILY_ROUTE_XP} XP</b>, <b>+${DAILY_ROUTE_STARDUST} stardust</b>, and <b>three creatures</b>: one ordinary wild creature, one of <b>rarity 3 or higher</b> and one of <b>rarity 4 or higher</b>. No discs needed, and the usual shiny odds apply.` }),
         el('li', { html: 'A new route is planned each day. One you finished but did not claim waits for you past midnight, and the next day\'s route appears once it is claimed.' })
