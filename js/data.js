@@ -300,7 +300,7 @@ export const ITEM_DROP_FULL_HEAL_CHANCE = 0.10;
 export const RARITY_WEIGHTS = { 1: 60, 2: 28, 3: 8, 4: 3, 5: 1 };
 
 /** Rare Incense tilts the same roll heavily towards the rarer tiers. */
-export const RARE_INCENSE_WEIGHTS = { 1: 32, 2: 30, 3: 25, 4: 10, 5: 3 };
+export const RARE_INCENSE_WEIGHTS = { 1: 18, 2: 23, 3: 36, 4: 15, 5: 8 };
 
 export const RARITY_NAMES = {
   1: 'Common', 2: 'Uncommon', 3: 'Rare', 4: 'Epic', 5: 'Legendary',
@@ -2123,6 +2123,12 @@ export const fossilFindFor = counter =>
 export const rollFossilPart = () =>
   FOSSIL_PARTS[Math.floor(Math.random() * FOSSIL_PARTS.length)];
 
+/** Fossil Incense: an ordinary incense whose catches can turn up a fossil part. */
+export const FOSSIL_INCENSE_ITEM = 'fossil_incense';
+export const FOSSIL_INCENSE_PART_CHANCE = 0.25;
+/** Chance of a Fossil Incense each time you collect revived fossils from an assistant. */
+export const FOSSIL_INCENSE_COLLECT_CHANCE = 0.15;
+
 /* ---- the revival ---- */
 
 /** The creatures a fossil can come back as. */
@@ -2203,7 +2209,7 @@ export const DAILY_ROUTE_XP = 100;
 export const DAILY_ROUTE_STARDUST = 150;
 /** The one incense the route pays, as weights out of 100. */
 export const DAILY_ROUTE_INCENSE_WEIGHTS = {
-  incense: 45, rare_incense: 25, set_incense: 15, shiny_incense: 10, mysterious_incense: 5
+  incense: 40, rare_incense: 20, set_incense: 15, fossil_incense: 10, shiny_incense: 10, mysterious_incense: 5
 };
 /**
  * The three creatures at the end. Each is a rarity table: an ordinary wild roll,
@@ -2372,6 +2378,63 @@ export const frontierChallengeTagClass = ch => (ch?.type ? `t-${ch.type}` : '');
 export const FRONTIER_DAILY_ID = 'daily';
 export const FRONTIER_DAILY_NAME = 'Daily Challenge';
 export const FRONTIER_DAILY_ART = 'daily challenge.png';
+
+/* ---------------------------------------------------------------
+   Elite Battles
+
+   A random trainer team of strong creatures, fought under different rules for
+   the player: every move costs stamina, and creatures can be switched in and
+   out. The opposing AI fights exactly as it always does.
+   --------------------------------------------------------------- */
+export const ELITE_ID = 'elite';
+export const ELITE_NAME = 'Elite Battles';
+export const ELITE_ART = 'elite battles.png';
+/** Their creatures: base stat total at least this, level in this range. */
+export const ELITE_MIN_BASE_TOTAL = 260;
+export const ELITE_LEVELS = [7, 10];
+/** Stat booster points each of their creatures has, spread at random. */
+export const ELITE_BOOSTS = 20;
+
+/** The player's stamina rules. */
+export const ELITE_STAMINA_START = 10;
+export const ELITE_STAMINA_PER_TURN = 3;
+export const ELITE_STAMINA_KO_BONUS = 2;
+export const ELITE_SWITCH_COST = 5;
+/** What a damaging move costs: a tenth of its power, rounded up. */
+export const eliteMoveCost = move => (move?.power > 0 ? Math.ceil(move.power / 10) : 0);
+
+/** Everything strong enough to be in an Elite team. */
+export const elitePool = () => DB.species.filter(sp =>
+  baseStatTotal(sp) >= ELITE_MIN_BASE_TOTAL && sp.moves?.length > 0);
+
+/** `points` booster points dropped one at a time on random stats. */
+function randomBoosts(points, rng = Math.random) {
+  const out = emptyBoosts();
+  for (let i = 0; i < points; i++) out[STAT_KEYS[Math.floor(rng() * STAT_KEYS.length)]]++;
+  return out;
+}
+
+/** A fresh Elite team: three different creatures, drawn every time. */
+export function rollEliteTeam(rng = Math.random) {
+  const pool = elitePool();
+  if (!pool.length) return null;
+  const team = [];
+  const used = new Set();
+  for (let guard = 0; team.length < FRONTIER_TEAM_SIZE && guard < 200; guard++) {
+    const sp = pool[Math.floor(rng() * pool.length)];
+    if (used.has(sp.id) && used.size < pool.length) continue;
+    used.add(sp.id);
+    const [lo, hi] = ELITE_LEVELS;
+    team.push({
+      speciesId: sp.id,
+      name: sp.name,
+      level: lo + Math.floor(rng() * (hi - lo + 1)),
+      held: null,
+      boosts: randomBoosts(ELITE_BOOSTS, rng)
+    });
+  }
+  return team.length === FRONTIER_TEAM_SIZE ? team : null;
+}
 
 /**
  * The three difficulties, and everything that varies between them: what the
@@ -2554,6 +2617,7 @@ export const frontierTrainerImage = id => {
   if (id === FRONTIER_DAILY_ID) {
     return `${IMAGE_DIR}/${encodeURIComponent(FRONTIER_DAILY_ART)}`;
   }
+  if (id === ELITE_ID) return `${IMAGE_DIR}/${encodeURIComponent(ELITE_ART)}`;
   const ch = frontierChallenge(id);
   return ch ? `${IMAGE_DIR}/${encodeURIComponent(ch.trainer)}` : '';
 };
@@ -3557,7 +3621,8 @@ export const EGG_TYPES = {
   },
   '10km': {
     id: '10km', km: 10, dust: 150, xp: 50, image: '10km_egg.png', bonusCandy: 5,
-    weights: { 1: 32, 2: 30, 3: 25, 4: 10, 5: 3 }
+    // The same odds as a Rare Incense.
+    weights: { 1: 18, 2: 23, 3: 36, 4: 15, 5: 8 }
   },
   /**
    * Only ever dropped by an Exclusive Raid. Hatches from the exclusive pool,
@@ -3718,7 +3783,9 @@ export const SHOP_ITEMS = [
   { id: 'shop_shiny_incense',     item: 'shiny_incense',      qty: 1, coins: 50, limit: 1 },
   { id: 'shop_mysterious_incense', item: 'mysterious_incense', qty: 1, coins: 50, limit: 1 },
   // Narrower than a Mysterious one (a set, not a creature), so half its price.
-  { id: 'shop_set_incense',       item: 'set_incense',        qty: 1, coins: 25, limit: 1 }
+  { id: 'shop_set_incense',       item: 'set_incense',        qty: 1, coins: 25, limit: 1 },
+  // Priced like the Set Incense: an ordinary burn with a side benefit.
+  { id: 'shop_fossil_incense',    item: 'fossil_incense',     qty: 1, coins: 25, limit: 1 }
 ];
 
 export const shopItem = id => SHOP_ITEMS.find(s => s.id === id) || null;
@@ -4098,14 +4165,15 @@ export const MISSIONS = [
   { id: 'fossilHand',  kind: 'fossilPart', part: FOSSIL_HAND,  target: 1, xp: 10, dust: 50, label: 'Collect a fossil hand' },
 
   { id: 'revive1',  kind: 'fossilsRevived', target: 1,  xp: 10, dust: 50,  label: 'Revive 1 fossil' },
-  { id: 'revive5',  kind: 'fossilsRevived', target: 5,  xp: 20, dust: 100, label: 'Revive 5 fossils' },
+  { id: 'revive5',  kind: 'fossilsRevived', target: 5,  xp: 20, dust: 100,
+    items: { fossil_incense: 1 }, label: 'Revive 5 fossils' },
   {
     id: 'revive10', kind: 'fossilsRevived', target: 10, xp: 25, dust: 250,
-    items: { ultra_disc: 1 }, label: 'Revive 10 fossils'
+    items: { ultra_disc: 1, fossil_incense: 1 }, label: 'Revive 10 fossils'
   },
   {
     id: 'revive25', kind: 'fossilsRevived', target: 25, xp: 30, dust: 500,
-    items: { ultra_disc: 1 }, label: 'Revive 25 fossils'
+    items: { ultra_disc: 1, fossil_incense: 2 }, label: 'Revive 25 fossils'
   },
   {
     id: 'revive50', kind: 'fossilsRevived', target: 50, xp: 50, dust: 750,

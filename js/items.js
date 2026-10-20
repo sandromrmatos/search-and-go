@@ -132,6 +132,16 @@ export const ITEMS = {
     pickSet: true,
     blurb: 'Works like an Incense — 20 minutes, a creature every 2 minutes lasting 1 min 30 s, on the usual wild odds — but you choose one of the sets you have unlocked when you light it, and every creature it summons comes from that set. A set you have only partly unlocked summons only the rarities you have opened.'
   },
+  fossil_incense: {
+    id: 'fossil_incense',
+    name: 'Fossil Incense',
+    plural: 'Fossil Incenses',
+    image: 'fossil incense.png',
+    use: 'timed',
+    order: 5.95,
+    durationMs: RULES.INCENSE_DURATION_MS,
+    blurb: 'Works exactly like an Incense — 20 minutes, a creature every 2 minutes lasting 1 min 30 s, on the usual wild odds — but every creature it summons that you catch has a 25% chance of turning up a random fossil part as well.'
+  },
   stardust_magnet: {
     id: 'stardust_magnet',
     name: 'Stardust Magnet',
@@ -312,7 +322,7 @@ export const ITEM_IDS = Object.keys(ITEMS);
  * Every incense variant. They all share the single incense effect slot, so
  * only one can burn at a time — no stacking a Shiny on top of a Rare.
  */
-export const INCENSE_ITEMS = ['incense', 'rare_incense', 'shiny_incense', 'mysterious_incense', 'set_incense'];
+export const INCENSE_ITEMS = ['incense', 'rare_incense', 'shiny_incense', 'mysterious_incense', 'set_incense', 'fossil_incense'];
 
 /** Timed items that need a creature chosen before they can be lit. */
 export const needsSpeciesChoice = itemId => !!ITEMS[itemId]?.pickSpecies;

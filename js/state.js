@@ -44,6 +44,7 @@ import {
   DAILY_ROUTE_STOPS, DAILY_ROUTE_XP, DAILY_ROUTE_STARDUST, DAILY_ROUTE_ENCOUNTERS,
   rollRouteIncense, rollRouteEncounter,
   FOSSIL_PARTS, FOSSIL_FIND_CHANCE, fossilFindFor, rollFossilPart,
+  FOSSIL_INCENSE_PART_CHANCE, FOSSIL_INCENSE_COLLECT_CHANCE,
   FOSSIL_REVIVE_MS, FOSSIL_REVIVE_LEVEL, FOSSIL_REVIVE_BONUS_CANDY, FOSSIL_SHINY_ODDS,
   fossilRevivePool,
   DIAMOND_ITEM, DIAMOND_STARDUST_COST,
@@ -310,6 +311,8 @@ function blankState() {
       adsWatched: 0, shopBuys: 0,
       /** Harvests that paid at least one candy — what the missions count. */
       essenceHarvests: 0,
+      /** Elite Battles won. */
+      eliteWins: 0,
       /** Daily Routes finished and claimed, for the route missions. */
       routesCompleted: 0,
       /** Days in a row with a claimed route, the best run ever, and the last day. */
@@ -452,6 +455,7 @@ export function migrate(raw) {
       frontierWins: Number(raw.stats?.frontierWins) || 0,
       fossilsRevived: Number(raw.stats?.fossilsRevived) || 0,
       routesCompleted: Math.max(0, Math.floor(Number(raw.stats?.routesCompleted) || 0)),
+      eliteWins: Math.max(0, Math.floor(Number(raw.stats?.eliteWins) || 0)),
       routeStreak: Math.max(0, Math.floor(Number(raw.stats?.routeStreak) || 0)),
       routeStreakBest: Math.max(0, Math.floor(Number(raw.stats?.routeStreakBest) || 0)),
       routeLastDay: typeof raw.stats?.routeLastDay === 'string' ? raw.stats.routeLastDay : null,
@@ -3618,6 +3622,13 @@ class Store {
     return { def, missions, done, total: missions.length, complete, claimed, claimable: complete && !claimed };
   }
 
+  /** One more Elite Battle won. */
+  recordEliteWin() {
+    this.s.stats.eliteWins = (this.s.stats.eliteWins || 0) + 1;
+    this.touch('elite', { immediate: true });
+    return this.s.stats.eliteWins;
+  }
+
   /** Pays out a finished custom achievement's title, worn at once if none is. */
   claimCustomAchievement(id) {
     const st = this.customAchievementState(id);
@@ -3803,6 +3814,20 @@ class Store {
     return n;
   }
 
+  /**
+   * A catch from a Fossil Incense spawn: a FOSSIL_INCENSE_PART_CHANCE roll for a
+   * random part, revealed with the usual "found something" dialogue.
+   * @returns the part found, or null
+   */
+  rollFossilIncenseFind() {
+    if (!chance(FOSSIL_INCENSE_PART_CHANCE)) return null;
+    const part = rollFossilPart();
+    this.addFossilPart(part, 1);
+    this.s.fossilPending.push({ part, from: 'fossilIncense', at: Date.now() });
+    this.touch('fossil-find', { immediate: true });
+    return part;
+  }
+
   /** How many of each part is in the bag right now, for the mission chooser. */
   fossilPartCounts() {
     return Object.fromEntries(FOSSIL_PARTS.map(p => [p, this.itemCount(p)]));
@@ -3908,8 +3933,11 @@ class Store {
 
     this.s.fossilDrops = this.s.fossilDrops.filter(d => d.id !== drop.id);
     this.s.stats.fossilsRevived = (this.s.stats.fossilsRevived || 0) + drop.count;
+    // One roll per collection, however many sets were in it.
+    const fossilIncense = chance(FOSSIL_INCENSE_COLLECT_CHANCE);
+    if (fossilIncense) this.addItem('fossil_incense', 1);
     this.touch('fossil-collect', { immediate: true });
-    return { ok: true, results, drop, bonusCandy: FOSSIL_REVIVE_BONUS_CANDY };
+    return { ok: true, results, drop, bonusCandy: FOSSIL_REVIVE_BONUS_CANDY, fossilIncense };
   }
 
   /* ---------------- precious feathers and diamonds ----------------

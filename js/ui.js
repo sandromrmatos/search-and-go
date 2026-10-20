@@ -62,7 +62,14 @@ export function openSheet(id) {
   syncOverlayState();
 }
 export function closeSheet(id) {
-  $('#' + id)?.classList.add('hidden');
+  const wrap = $('#' + id);
+  wrap?.classList.add('hidden');
+  // Many screens draw into the same sheet body, one after another. Any swipe
+  // handler left on it belongs to whatever drew last, so it is dropped on close
+  // — otherwise swiping on the next screen walks the previous one's list.
+  for (const host of wrap?.querySelectorAll('[data-sheet-nav-wired], [data-swipe-wired]') || []) {
+    for (const k of Object.keys(host)) if (k.startsWith('_swipe_')) host[k] = null;
+  }
   syncOverlayState();
 }
 

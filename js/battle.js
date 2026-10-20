@@ -19,7 +19,9 @@ import {
   evaluateAbility, faintDamage, clauseEffectText, clauseConditionText, buffStatsLabel,
   moveEffectText, moveSummaryText,
   STAT_KEYS, STAT_LABELS, BATTLE_TEAM_SIZE, moveLevelFor, heldItem,
-  STATUS_CONDITIONS, moveBuffsSelf, moveDebuffsOpponent
+  STATUS_CONDITIONS, moveBuffsSelf, moveDebuffsOpponent,
+  ELITE_STAMINA_START, ELITE_STAMINA_PER_TURN, ELITE_STAMINA_KO_BONUS, ELITE_SWITCH_COST,
+  eliteMoveCost
 } from './data.js';
 import { store, creatureStats, maxHpOf, hpOf } from './state.js';
 
@@ -243,8 +245,15 @@ export class Battle {
    * @param {string} [opts.kind]     'raid' | 'grunt'
    * @param {function} [opts.rng]
    */
-  constructor({ player, enemy, kind = 'raid', rng = Math.random, env = null }) {
+  constructor({ player, enemy, kind = 'raid', rng = Math.random, env = null, elite = false }) {
     this.kind = kind;
+    /**
+     * Elite rules for the player's side: moves cost stamina and creatures can be
+     * switched. `stamina` belongs to whichever creature is on the field; a
+     * creature coming in (switched or sent after a faint) always starts full.
+     */
+    this.elite = !!elite;
+    this.stamina = ELITE_STAMINA_START;
     this.rng = rng;
     this.player = player;
     this.enemy = enemy;
@@ -682,29 +691,100 @@ export class Battle {
     return events;
   }
 
+  /* ---- Elite rules ---- */
+
+  /** Stamina a move costs the player in an Elite battle; 0 everywhere else. */
+  moveCost(move) { return this.elite ? eliteMoveCost(move) : 0; }
+
+  /** Moves the player can pick right now: allowed by statuses and affordable. */
+  affordableMoves() {
+    return this.usableMoves('player').filter(m => this.moveCost(m) <= this.stamina);
+  }
+
+  /** Bench creatures the player could switch to, by team index. */
+  switchTargets() {
+    if (!this.elite) return [];
+    return this.player
+      .map((b, i) => ({ b, i }))
+      .filter(({ b, i }) => i !== this.playerIndex && !b.fainted)
+      .map(({ i }) => i);
+  }
+
+  canSwitch() {
+    return this.elite && this.stamina >= ELITE_SWITCH_COST && this.switchTargets().length > 0;
+  }
+
+  /**
+   * Stamina up by `n`. No ceiling: a free move on turn one banks the +3, so a
+   * creature can walk into turn two with 13.
+   */
+  _gainStamina(n) {
+    this.stamina += n;
+    return n;
+  }
+
+  /**
+   * A creature leaving the field forgets everything the fight did to it apart
+   * from its HP: buffs, debuffs and status conditions all go.
+   */
+  _resetOnSwitchOut(b) {
+    b.stats = { ...b.baseStats };
+    b.buffs = {};
+    b.status = {};
+    b.lastMove = null;
+  }
+
   /* ---- one turn ---- */
 
   /**
    * Resolves a whole turn and returns the events that happened, so the UI can
    * play them back one at a time.
+   *
+   * `switchTo` (Elite only) is a team index: instead of a move, the player swaps
+   * creatures, and the opponent's move that turn lands on the one coming in.
    */
-  takeTurn(playerMoveIndex) {
+  takeTurn(playerMoveIndex, { switchTo = null } = {}) {
     if (this.over) return [{ type: 'already-over' }];
-    const mine = this.playerActive;
+    let mine = this.playerActive;
     const theirs = this.enemyActive;
     if (!mine || !theirs) return [{ type: 'already-over' }];
 
-    /* Status conditions and abilities can take moves away. The player chooses
-       from what is left; an index of -1 means "pass", which is only accepted
-       when there is genuinely nothing to choose. */
-    const myUsable = this.usableMoves('player');
-    const myMove = playerMoveIndex === -1 ? null : this.availableMoves[playerMoveIndex];
-    if (myMove ? !myUsable.includes(myMove) : myUsable.length) return [{ type: 'invalid-move' }];
+    const switching = switchTo != null;
+    let myMove = null;
+    if (switching) {
+      if (!this.canSwitch() || !this.switchTargets().includes(switchTo)) return [{ type: 'invalid-move' }];
+    } else {
+      /* Status conditions and abilities can take moves away, and in an Elite
+         battle stamina can too. The player chooses from what is left; an index of
+         -1 means "pass", which is only accepted when there is genuinely nothing
+         to choose. */
+      const myUsable = this.elite ? this.affordableMoves() : this.usableMoves('player');
+      myMove = playerMoveIndex === -1 ? null : this.availableMoves[playerMoveIndex];
+      if (myMove ? !myUsable.includes(myMove) : myUsable.length) return [{ type: 'invalid-move' }];
+    }
     const theirUsable = this.usableMoves('enemy');
     const theirMove = theirUsable.length ? chooseAIMove({ moves: theirUsable }, this.rng) : null;
 
     this.turn++;
     const events = [{ type: 'turn', turn: this.turn }];
+
+    if (switching) {
+      // Out first, cleaned, so the incoming creature takes whatever is coming.
+      const out = mine;
+      this.stamina -= ELITE_SWITCH_COST;
+      this._resetOnSwitchOut(out);
+      this.playerIndex = switchTo;
+      mine = this.playerActive;
+      this.stamina = ELITE_STAMINA_START;
+      events.push({ type: 'switch', side: 'player', manual: true,
+        actor: mine.key, label: mine.label, outLabel: out.label });
+    } else if (myMove) {
+      const cost = this.moveCost(myMove);
+      if (cost) {
+        this.stamina -= cost;
+        events.push({ type: 'stamina', change: -cost, stamina: this.stamina, reason: 'move', move: myMove.name });
+      }
+    }
 
     // On the first turn, and after any switch, say what is being carried and
     // what the abilities are doing before anything swings. Both return nothing
@@ -729,13 +809,13 @@ export class Battle {
       first = first === 'player' ? 'enemy' : 'player';
     }
 
-    const order = first === 'player'
-      ? [{ side: 'player', actor: mine, target: theirs, move: myMove },
-         { side: 'enemy', actor: theirs, target: mine, move: theirMove }]
-      : [{ side: 'enemy', actor: theirs, target: mine, move: theirMove },
-         { side: 'player', actor: mine, target: theirs, move: myMove }];
+    const enemyStep = { side: 'enemy', actor: theirs, target: mine, move: theirMove };
+    const playerStep = { side: 'player', actor: mine, target: theirs, move: myMove };
+    // A switch is the player's whole turn, so only the opponent swings.
+    const order = switching ? [enemyStep]
+      : first === 'player' ? [playerStep, enemyStep] : [enemyStep, playerStep];
 
-    events.push({ type: 'order', first });
+    events.push({ type: 'order', first: switching ? 'enemy' : first });
 
     for (const step of order) {
       // A creature knocked out by the first attack never gets to act, even
@@ -748,7 +828,13 @@ export class Battle {
         });
         continue;
       }
+      const foeWasUp = step.side === 'player' && !step.target.fainted;
       events.push(...this.act(step));
+      // Elite: knocking one of theirs out is worth a little stamina back.
+      if (this.elite && foeWasUp && step.target.fainted && !step.actor.fainted) {
+        const got = this._gainStamina(ELITE_STAMINA_KO_BONUS);
+        if (got) events.push({ type: 'stamina', change: got, stamina: this.stamina, reason: 'ko' });
+      }
       /* A hit is what moves the readings abilities watch — how hurt each side is,
          what the opponent has raised, whether anyone is now alone — so any ability
          that has just switched on or off says so here, next to the blow that did
@@ -759,8 +845,18 @@ export class Battle {
     // Abilities that act every turn, and statuses that run out.
     events.push(...this.endOfTurn());
 
+    /* Elite: the creature that chose a move (or waited) gets its breath back. A
+       creature that has just been switched in is already full, so no top-up. */
+    if (this.elite && !switching && !this.playerActive?.fainted) {
+      const got = this._gainStamina(ELITE_STAMINA_PER_TURN);
+      if (got) events.push({ type: 'stamina', change: got, stamina: this.stamina, reason: 'turn' });
+    }
+
     // Bring in replacements
+    const playerBefore = this.playerIndex;
     events.push(...this.handleFaints());
+    // A creature sent in after a faint walks in with full stamina too.
+    if (this.elite && this.playerIndex !== playerBefore) this.stamina = ELITE_STAMINA_START;
     /* And again after a switch: coming in as the last one standing, or against a
        different opponent, can flip an ability that the move loop could not see. */
     events.push(...this.abilityChanges());
@@ -1296,6 +1392,21 @@ export function buildFrontierBattle(creatures, team, rng = Math.random) {
     kind: 'grunt',
     rng,
     env: battleEnv()
+  });
+}
+
+/**
+ * An Elite Battle: a Frontier-style team on the other side, and the stamina and
+ * switching rules on the player's.
+ */
+export function buildEliteBattle(creatures, team, rng = Math.random) {
+  return new Battle({
+    player: creatures.map(battlerFromCreature),
+    enemy: team.map(battlerFromFrontierSpec),
+    kind: 'grunt',
+    rng,
+    env: battleEnv(),
+    elite: true
   });
 }
 

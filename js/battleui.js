@@ -13,6 +13,8 @@ import {
   FRONTIER_GRAND_LABEL, FRONTIER_LEVELS, frontierTeam, frontierTrainerImage,
   frontierLevelRewards, frontierMode, frontierModeAllows, frontierChallenge,
   FRONTIER_DAILY_ID, FRONTIER_DAILY_NAME, FRONTIER_DAILY_ART, IMAGE_DIR,
+  ELITE_ID, ELITE_NAME, ELITE_ART, ELITE_STAMINA_START, ELITE_SWITCH_COST, ELITE_LEVELS,
+  ELITE_MIN_BASE_TOTAL, ELITE_STAMINA_PER_TURN, ELITE_STAMINA_KO_BONUS, rollEliteTeam,
   FEATHER_ITEM, STATUS_CONDITIONS,
   GRUNT_REWARD, WIN_FULL_HEAL_CHANCE, WIN_FULL_HEAL_ITEM, dustBonusFor,
   SET_INCENSE_GRUNT_CHANCE, MYSTERIOUS_INCENSE_GRUNT_CHANCE, familyRarity
@@ -29,7 +31,7 @@ import {
 /** The one sort that only exists in a battle, added to the shared toolbar's. */
 const BATTLE_EXTRA_SORTS = [['ability', 'Ability in this battle']];
 import {
-  Battle, buildRaidBattle, buildGruntBattle, buildFrontierBattle,
+  Battle, buildRaidBattle, buildGruntBattle, buildFrontierBattle, buildEliteBattle,
   battlerFromEnemySpec, battleEnv
 } from './battle.js';
 import { itemImage, itemName } from './items.js';
@@ -74,7 +76,10 @@ export function initBattleUI({ onDone } = {}) {
        so `openFrontierBattle` looked both up, found nothing and refused. It has to
        go back through its own entry point, carrying the `onClose` that owes the
        player their harvest. */
-    if (ctx.frontier?.daily) {
+    if (ctx.frontier?.elite) {
+      // A new team every time, so "try again" is a fresh draw rather than a rematch.
+      openEliteBattle({ onClose: ctx.onClose });
+    } else if (ctx.frontier?.daily) {
       const levelId = ctx.frontier.daily.level.id;
       const onClose = ctx.onClose;
       openFrontierDaily({ levelId, onClose });
@@ -162,6 +167,30 @@ export function openFrontierDaily({ levelId, onClose = null, onWin = null }) {
     restrict: state.mode.id,
     onClose,
     onWin,
+    picked: [],
+    battle: null,
+    result: null
+  };
+  step('preview');
+  renderPreview();
+  $('#battle').classList.remove('hidden');
+}
+
+/**
+ * An Elite Battle: a freshly drawn team of strong creatures, fought with the
+ * stamina and switching rules. No restriction on what you bring.
+ */
+export function openEliteBattle({ onClose = null } = {}) {
+  const team = rollEliteTeam();
+  if (!team) { toast('No Elite team could be drawn', 'bad'); return; }
+  ctx = {
+    point: null,
+    kind: 'frontier',
+    raid: null,
+    grunt: null,
+    frontier: { challengeId: null, elite: true, level: null, modeId: null, team },
+    restrict: null,
+    onClose,
     picked: [],
     battle: null,
     result: null
@@ -264,6 +293,14 @@ function step(name) {
 
 /** The challenge definition behind a Frontier fight, whichever way it was opened. */
 const frontierChallengeOf = c => {
+  if (c?.frontier?.elite) {
+    return {
+      id: ELITE_ID, name: ELITE_NAME, type: null,
+      trainerName: 'Elite Trainer',
+      phrase: 'Every move costs you something here. Spend it wisely.',
+      elite: true
+    };
+  }
   // The Daily Challenge has no entry in the table, so it describes itself.
   if (c?.frontier?.daily) {
     const lvl = c.frontier.daily.level;
@@ -508,9 +545,48 @@ function gruntRewardChips() {
   ];
 }
 
+/** The Elite Battle preview: their team, and the rules you fight under. */
+function renderElitePreview(body) {
+  const { team } = ctx.frontier;
+  $('#bt-title').textContent = ELITE_NAME;
+  body.append(
+    el('div', { class: 'bt-boss frontier' },
+      el('img', { src: `${IMAGE_DIR}/${encodeURIComponent(ELITE_ART)}`, alt: ELITE_NAME }),
+      el('h3', { text: 'Elite Trainer' }),
+      el('div', { class: 'reveal-tags' },
+        el('span', { class: 'tag', text: `Lv ${ELITE_LEVELS[0]}–${ELITE_LEVELS[1]}` }),
+        el('span', { class: 'tag', text: `${ELITE_MIN_BASE_TOTAL}+ base stats` }),
+        el('span', { class: 'tag', text: 'Fully boosted' })
+      )
+    ),
+    el('p', { class: 'bt-quote', text: `"${frontierChallengeOf(ctx).phrase}"` }),
+    el('h4', { class: 'sheet-h4', text: 'Elite rules' }),
+    el('ul', { class: 'hint elite-rules' },
+      el('li', { html: `Each creature comes in with <b>${ELITE_STAMINA_START} stamina</b>.` }),
+      el('li', { html: 'A damaging move costs its <b>power ÷ 10, rounded up</b> — a 67-power move costs 7. Moves with no power are free.' }),
+      el('li', { html: `You get <b>+${ELITE_STAMINA_PER_TURN}</b> at the end of each turn, and <b>+${ELITE_STAMINA_KO_BONUS}</b> for knocking one of theirs out. There is no limit, so a free move now banks stamina for later.` }),
+      el('li', { html: `<b>Switch</b> to another creature for <b>${ELITE_SWITCH_COST} stamina</b>. Their move that turn hits the one coming in, which arrives with full stamina. The one leaving loses its buffs, debuffs and status conditions.` })
+    ),
+    el('h4', { class: 'sheet-h4', text: 'Their team' }),
+    el('div', { class: 'bt-roster' }, ...team.map(t => {
+      const sp = species(t.speciesId);
+      const st = statsFor(sp, t.level, null, t.boosts, null);
+      return el('div', { class: 'cell' },
+        el('span', { class: 'lvl', text: 'Lv' + t.level }),
+        el('img', { src: sp.imagePath, alt: sp.name, loading: 'lazy' }),
+        el('span', { class: 'nm', text: sp.name }),
+        el('span', { class: `sub t-${sp.type}`, text: sp.type }),
+        el('span', { class: 'sub', text: `${st.hp} HP · ${st.attack}A ${st.defence}D ${st.speed}S` }),
+        el('span', { class: 'sub', text: `+${totalBoosts(t.boosts)} boosted` })
+      );
+    }))
+  );
+}
+
 function renderFrontierPreview(body) {
   // The Daily Challenge is a different enough screen to be worth its own.
   if (ctx.frontier.daily) return renderDailyPreview(body);
+  if (ctx.frontier.elite) return renderElitePreview(body);
 
   const { challengeId, level, modeId, team } = ctx.frontier;
   const state = store.frontierChallengeState(challengeId, modeId);
@@ -1099,7 +1175,9 @@ function startFight() {
   ctx.battle = ctx.kind === 'raid'
     ? buildRaidBattle(team, ctx.raid)
     : ctx.kind === 'frontier'
-      ? buildFrontierBattle(team, ctx.frontier.team)
+      ? (ctx.frontier.elite
+        ? buildEliteBattle(team, ctx.frontier.team)
+        : buildFrontierBattle(team, ctx.frontier.team))
       : buildGruntBattle(team, ctx.grunt.team);
 
   const frontierTitle = () => {
@@ -1109,6 +1187,7 @@ function startFight() {
     if (ctx.frontier.daily) {
       return `${FRONTIER_DAILY_NAME} · ${ctx.frontier.daily.level.label}`;
     }
+    if (ctx.frontier.elite) return ELITE_NAME;
     const ch = frontierChallengeOf(ctx);
     return `${ch?.name || 'Frontier'} challenge · Level ${ctx.frontier.level}`;
   };
@@ -1211,9 +1290,32 @@ function renderBuffs(sel, battler) {
 function renderMoves() {
   const host = $('#bt-moves');
   host.innerHTML = '';
-  const moves = ctx.battle.availableMoves;
-  const usable = ctx.battle.usableMoves('player');
+  const b = ctx.battle;
+  const moves = b.availableMoves;
+  const statusOk = b.usableMoves('player');
+  // In an Elite battle a move also has to be affordable.
+  const usable = b.elite ? b.affordableMoves() : statusOk;
+
+  if (b.elite && !b.over) {
+    // The bar is measured against the starting 10, so anything banked beyond it
+    // simply fills the bar.
+    const pct = Math.min(100, Math.round((b.stamina / ELITE_STAMINA_START) * 100));
+    host.append(el('div', { class: 'bt-stamina', title: 'Stamina' },
+      el('span', { text: `⚡ Stamina ${b.stamina}` }),
+      el('span', { class: 'bt-stamina-bar' }, el('i', { style: { width: pct + '%' } }))));
+  }
+
   moves.forEach((m, i) => {
+    const cost = b.moveCost(m);
+    // A move a status allows but stamina cannot pay for says so.
+    if (b.elite && statusOk.includes(m) && cost > b.stamina) {
+      host.append(el('button', {
+        class: 'bt-move blocked', disabled: true, title: 'Not enough stamina'
+      },
+        el('b', { text: m.name }),
+        el('span', { text: `Needs ${cost} stamina · ${Battle.describeMove(m)}` })));
+      return;
+    }
     const ok = usable.includes(m);
     // Say why a move is greyed out, so a status never looks like a bug.
     const why = ok ? null : (() => {
@@ -1229,16 +1331,34 @@ function renderMoves() {
       onclick: () => playTurn(i)
     },
       el('b', { text: m.name }),
-      el('span', { text: why ? `Unavailable · ${why}` : Battle.describeMove(m) })
+      el('span', { text: why ? `Unavailable · ${why}`
+        : (b.elite ? `${cost ? `${cost} stamina` : 'Free'} · ` : '') + Battle.describeMove(m) })
     ));
   });
   // Every move taken away at once: the turn still has to be played.
-  if (!usable.length && !ctx.battle.over) {
+  if (!usable.length && !b.over) {
     host.append(el('button', {
       class: 'bt-move buffmove',
       disabled: busy,
       onclick: () => playTurn(-1)
-    }, el('b', { text: 'Wait' }), el('span', { text: 'No move can be used this turn' })));
+    }, el('b', { text: 'Wait' }), el('span', { text: b.elite
+      ? `Nothing you can afford · rest for +${ELITE_STAMINA_PER_TURN} stamina`
+      : 'No move can be used this turn' })));
+  }
+  // Elite: swap to anyone still standing on the bench.
+  if (b.elite && !b.over) {
+    for (const i of b.switchTargets()) {
+      const mate = b.player[i];
+      host.append(el('button', {
+        class: 'bt-move bt-switch',
+        disabled: busy || !b.canSwitch(),
+        onclick: () => playTurn(null, { switchTo: i })
+      },
+        el('b', { text: `⇄ Switch to ${mate.label}` }),
+        el('span', { text: b.stamina >= ELITE_SWITCH_COST
+          ? `${ELITE_SWITCH_COST} stamina · ${mate.hp}/${mate.maxHp} HP`
+          : `Needs ${ELITE_SWITCH_COST} stamina` })));
+    }
   }
 }
 
@@ -1286,12 +1406,12 @@ function logLine(html, cls = '') {
 }
 
 /** Plays one turn, animating the events in sequence. */
-async function playTurn(moveIndex) {
+async function playTurn(moveIndex, opts = {}) {
   if (busy || ctx.battle.over) return;
   busy = true;
   renderMoves();
 
-  const events = ctx.battle.takeTurn(moveIndex);
+  const events = ctx.battle.takeTurn(moveIndex, opts);
 
   for (const e of events) {
     if (e.type === 'move') {
@@ -1486,9 +1606,17 @@ async function playTurn(moveIndex) {
       refreshHpOnly();
       await sleep(560);
     } else if (e.type === 'switch') {
-      logLine(`${e.side === 'player' ? 'Go' : 'They send out'} <b>${e.label}</b>!`);
+      logLine(e.manual
+        ? `Come back, <b>${e.outLabel}</b>! Go <b>${e.label}</b>!`
+        : `${e.side === 'player' ? 'Go' : 'They send out'} <b>${e.label}</b>!`);
       renderArena();
       await sleep(360);
+    } else if (e.type === 'stamina') {
+      // Spending is shown on the bar; gains are worth a line.
+      if (e.change > 0) {
+        logLine(`<span class="held-log">⚡ +${e.change} stamina${e.reason === 'ko' ? ' for the knockout' : ''} (now ${e.stamina}).</span>`);
+        await sleep(200);
+      }
     } else if (e.type === 'ability') {
       logAbility(e);
       await sleep(520);
@@ -1548,7 +1676,10 @@ async function finishBattle() {
        actually chose, whether or not each one made it onto the field. */
     diamondsDone = store.recordBattleWin(ctx.picked);
 
-    if (ctx.kind === 'frontier' && ctx.frontier.daily) {
+    if (ctx.kind === 'frontier' && ctx.frontier.elite) {
+      // No prize yet, just the tally.
+      store.recordEliteWin();
+    } else if (ctx.kind === 'frontier' && ctx.frontier.daily) {
       /* The Daily Challenge. The feather is rolled here; the harvest is opened by
          whoever launched the fight, once the result screen is closed, because it
          is a second interactive screen rather than a reward chip. */
@@ -1610,6 +1741,11 @@ function renderResult() {
           : 'Your team was wiped out. Heal up and try again before the timer runs out.' })
     )
   );
+
+  if (won && ctx.frontier?.elite) {
+    body.append(el('p', { class: 'hint', text:
+      `Elite Battles won: ${store.s.stats.eliteWins || 0}. Try again for a new team.` }));
+  }
 
   // Won a level that was already cleared on this mode: no reward, and the screen
   // says why rather than showing an empty list.

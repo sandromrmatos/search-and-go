@@ -1814,6 +1814,26 @@ body.overlay-open .essence-arrow-glyph {
 .bt-move.buffmove span { color: #b9ffd0; }
 .bt-move:disabled { opacity: .45; }
 
+/* ---- Elite Battles: stamina and switching ---- */
+.bt-stamina {
+  grid-column: 1 / -1;
+  display: flex; align-items: center; gap: 10px;
+  font-size: 12px; font-weight: 800; color: #ffe08a;
+}
+.bt-stamina-bar {
+  flex: 1; height: 8px; border-radius: 99px; overflow: hidden;
+  background: #ffffff1f; border: 1px solid #ffc75f55;
+}
+.bt-stamina-bar i {
+  display: block; height: 100%;
+  background: linear-gradient(90deg, #ffc75f, #ffe08a);
+  transition: width .25s ease;
+}
+.bt-move.bt-switch { border-color: #56d2f077; }
+.bt-move.bt-switch span { color: #bfefff; }
+.elite-rules { margin: 0 0 6px; padding-left: 18px; }
+.elite-rules li { margin: 3px 0; }
+
 /* ---- result ---- */
 .bt-outcome { text-align: center; padding: 20px 0 6px; }
 .bt-outcome .big { font-size: 30px; font-weight: 900; letter-spacing: 1px; margin-bottom: 6px; }

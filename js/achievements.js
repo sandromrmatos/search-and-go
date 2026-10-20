@@ -162,10 +162,12 @@ function renderCustomSheet(id) {
   // Swipe between the custom achievements, like the family sheets do.
   const ids = CUSTOM_ACHIEVEMENTS.map(a => a.id);
   const at = ids.indexOf(id);
+  // Same key as the creature and collection sheets: they all draw into
+  // #sheet-body, and a separate key left this one's handler firing on theirs.
   wireSwipe(body, {
     onLeft: () => (ids[at + 1] ? renderCustomSheet(ids[at + 1]) : bumpEl(body, 'left')),
     onRight: () => (at > 0 ? renderCustomSheet(ids[at - 1]) : bumpEl(body, 'right'))
-  });
+  }, { key: 'sheetNav' });
 
   const art = DB.byName.get(def.art.toLowerCase());
   const claim = () => {
@@ -255,7 +257,7 @@ function renderFamilySheet(rootId) {
   wireSwipe(body, {
     onLeft: () => go(at >= 0 ? walk[at + 1] : null, 'left'),
     onRight: () => go(at > 0 ? walk[at - 1] : null, 'right')
-  });
+  }, { key: 'sheetNav' });
 
   const members = (DB.familyMembers.get(rootId) || [rootId]).map(species).filter(Boolean);
   const tierLabel = ACHIEVEMENT_TIERS.find(t => t.id === st.tier)?.label;

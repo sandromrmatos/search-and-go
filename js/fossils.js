@@ -80,7 +80,10 @@ export function showFossilReveal() {
       source
         ? el('p', { class: 'hint', text: `Fossil parts turn up ${source.label}, `
           + `about ${Math.round(FOSSIL_FIND_CHANCE * 100)}% of the time.` })
-        : null,
+        : next.from === 'fossilIncense'
+          ? el('p', { class: 'hint', text: 'Your Fossil Incense turned it up — every creature it '
+            + 'summons that you catch has a 25% chance of bringing a part with it.' })
+          : null,
       partTallyRow(tally),
       el('p', { class: 'hint', text: tally.sets > 0
         ? `That is a complete set. Take it to a pharmacy or hospital — look for the ✚ on your map.`
@@ -338,6 +341,7 @@ async function collectFossils(id) {
     });
     if (res.levelUp?.levelledUp) toast(`Player level ${res.levelUp.to}!`, 'good', 3200);
   }
+  if (r.fossilIncense) toast('The assistant also handed you a Fossil Incense!', 'good', 4200);
   refresh?.();
 }
 

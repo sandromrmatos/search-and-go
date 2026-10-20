@@ -835,6 +835,16 @@ async function doCapture(live) {
     ];
     if (res.shiny) rewards.unshift({ icon: '✨', label: 'Shiny!' });
 
+    // A Fossil Incense spawn can bring a part with it. Rolled now, revealed by
+    // the loop once the capture animation is out of the way.
+    if (live.source === 'incense' && live.poiKindValue === 'fossil_incense') {
+      const part = store.rollFossilIncenseFind();
+      if (part) {
+        dlog(`Fossil Incense turned up a ${itemName(part)}`);
+        rewards.push({ icon: '🦴', label: `A ${itemName(part)}!` });
+      }
+    }
+
     await playCapture({ sp: res.sp, isNew: res.isNew, rewards, imageSrc: sprite,
       shiny: res.shiny, newShiny: res.newShiny });
 

@@ -58,12 +58,14 @@ import {
   FEATHERS_PER_DIAMOND, DIAMOND_ITEM, DIAMOND_STARDUST_COST, DIAMOND_POWER_BONUS,
   DIAMOND_WINS_NEEDED, DIAMOND_METRES_NEEDED, STATUS_CONDITIONS,
   DAILY_ROUTE_STOPS, DAILY_ROUTE_START_M, DAILY_ROUTE_RADIUS_M, DAILY_ROUTE_XP, DAILY_ROUTE_STARDUST,
-  DAILY_ROUTE_LEG_MIN_M, DAILY_ROUTE_LEG_MAX_M
+  DAILY_ROUTE_LEG_MIN_M, DAILY_ROUTE_LEG_MAX_M,
+  ELITE_NAME, ELITE_ART, ELITE_MIN_BASE_TOTAL, ELITE_LEVELS, ELITE_STAMINA_START,
+  ELITE_STAMINA_PER_TURN, ELITE_STAMINA_KO_BONUS, ELITE_SWITCH_COST
 } from './data.js';
 import { store, maxHpOf, hpOf, isFainted } from './state.js';
 import { itemImage, itemName, ITEMS, itemsInOrder } from './items.js';
 import { pickerFilterSort, renderPickerTools, heldBadge } from './views.js';
-import { openFrontierBattle, openFrontierGrand, openFrontierDaily } from './battleui.js';
+import { openFrontierBattle, openFrontierGrand, openFrontierDaily, openEliteBattle } from './battleui.js';
 const DEBUG_TRAINER_NAME = 'Test123';
 import {
   $, $$, el, appendAll, toast, openSheet, closeSheet, num, timeLeftLabel,
@@ -619,6 +621,29 @@ function renderBattleFrontier(inRange) {
       })
     ));
   }
+
+  // Elite Battles, last: a fresh strong team every time, under stamina rules.
+  const eliteWins = store.s.stats.eliteWins || 0;
+  body.append(el('button', {
+    class: 'cell item-cell tappable frontier-card',
+    disabled: !inRange,
+    onclick: () => {
+      if (store.battleReady().length < FRONTIER_TEAM_SIZE) {
+        toast(`You need ${FRONTIER_TEAM_SIZE} creatures able to battle`, 'bad', 4000);
+        return;
+      }
+      closeSheet('battle-frontier');
+      openEliteBattle({ onClose: () => { if (store.s.battleFrontier) openBattleFrontier({ inRange: true }); } });
+    }
+  },
+    eliteWins ? el('span', { class: 'qty', text: `★${eliteWins}` }) : null,
+    el('img', { src: `${IMAGE_DIR}/${encodeURIComponent(ELITE_ART)}`, alt: ELITE_NAME }),
+    el('span', { class: 'nm', text: ELITE_NAME }),
+    el('span', { class: 'sub', text: 'Stamina and switching' }),
+    el('span', { class: 'use-hint', text: eliteWins
+      ? `${eliteWins} won · a new team every time`
+      : 'A new strong team every time' })
+  ));
 
   if (anyLoaded) {
     body.append(
@@ -1994,7 +2019,7 @@ function renderInfo(tab = 'basics') {
       el('ul', {},
         el('li', { html: `Each stop is <b>${DAILY_ROUTE_LEG_MIN_M}–${DAILY_ROUTE_LEG_MAX_M} m</b> from the one before, as near to that as the places around you allow.` }),
         el('li', { html: `Walk to them <b>in order</b>. A stop counts as soon as you are within reach of it, the same ${RULES.CAPTURE_RANGE_M} m as everything else (wider during ${RELAX_HOUR_LABEL} or with a Molten Seeker). The next stop pulses and the chip under the timer says how far it is.` }),
-        el('li', { html: `Finish all ${DAILY_ROUTE_STOPS} and tap the chip to claim: <b>one incense</b> — 45% Incense, 25% Rare, 15% Set, 10% Shiny, 5% Mysterious — <b>+${DAILY_ROUTE_XP} XP</b>, <b>+${DAILY_ROUTE_STARDUST} stardust</b>, and <b>three creatures</b>: one ordinary wild creature, one of <b>rarity 3 or higher</b> and one of <b>rarity 4 or higher</b>. No discs needed, and the usual shiny odds apply.` }),
+        el('li', { html: `Finish all ${DAILY_ROUTE_STOPS} and tap the chip to claim: <b>one incense</b> — 40% Incense, 20% Rare, 15% Set, 10% Fossil, 10% Shiny, 5% Mysterious — <b>+${DAILY_ROUTE_XP} XP</b>, <b>+${DAILY_ROUTE_STARDUST} stardust</b>, and <b>three creatures</b>: one ordinary wild creature, one of <b>rarity 3 or higher</b> and one of <b>rarity 4 or higher</b>. No discs needed, and the usual shiny odds apply.` }),
         el('li', { html: 'A new route is planned each day. One you finished but did not claim waits for you past midnight, and the next day\'s route appears once it is claimed.' }),
         el('li', { html: '<b>Lifetime missions</b> count the routes you claim — 1, 5, 10, 25, 50 and 100 — and there is one for claiming a route <b>7 days in a row</b>. A day counts by the route\'s own date, so claiming yesterday\'s just after midnight keeps the run going.' })
       ),
@@ -2109,7 +2134,8 @@ function renderInfo(tab = 'basics') {
           [1, 2, 3, 4, 5].map(r => `<b>${RARITY_NAMES[r]}</b> ${pct(MYSTERIOUS_INCENSE_RAID_CHANCE[r])}`).join(' · ')
         }.` }),
         el('li', { html: `A <b>${itemName('strength_reroll')}</b> draws one creature's <b>stat modifier</b> again — the stat that is 10% up and the stat that is 10% down. The new pair is <b>guaranteed to differ</b> from the old one on both counts: whatever was going up will not be going up, and whatever was going down will not be going down. You do not get to pick what it becomes, so it is a way out of a bad roll rather than a way to build a perfect creature. It is applied to the base stats, so every figure moves at once, and a creature on <b>full HP stays on full</b> even if its maximum changes. Handed out from <b>level ${levelUpTiers().at(-1)?.from ?? MAX_PLAYER_LEVEL} onwards</b> on every level-up.` }),
-        el('li', { html: `Only one incense and one Stardust Magnet can run at a time. <b>Rare</b>, <b>Shiny</b>, <b>${itemName('mysterious_incense')}</b> and <b>${itemName('set_incense')}</b> all share the single incense slot, so no two different incenses can ever stack.` }),
+        el('li', { html: `Only one incense and one Stardust Magnet can run at a time. <b>Rare</b>, <b>Shiny</b>, <b>${itemName('mysterious_incense')}</b>, <b>${itemName('set_incense')}</b> and <b>${itemName('fossil_incense')}</b> all share the single incense slot, so no two different incenses can ever stack.` }),
+        el('li', { html: `A <b>${itemName('fossil_incense')}</b> is an ordinary Incense — same 20 minutes, same wild odds — except that every creature it summons that you catch has a <b>25%</b> chance of bringing a <b>random fossil part</b> with it. It is in the <b>Shop</b>, one a day; an assistant hands you one <b>15%</b> of the time when you collect revived fossils; the <b>Revive 5, 10 and 25 fossils</b> missions pay one, one and two; and it is one of the incenses a <b>Daily Route</b> can pay.` }),
         el('li', { html: `You <b>can</b> top up the one that is running with <b>another of the same item</b>: open it in your Items while it burns and tap <b>Add … min to it</b>. Its full length is added on top of whatever is left — another 20 minutes on an Incense, another 15 on a Molten Seeker. A <b>${itemName('mysterious_incense')}</b> keeps summoning the same creature and a <b>${itemName('set_incense')}</b> the same set. A different item still has to wait, so a Rare Incense cannot be added to a plain one.` }),
         el('li', { html: `A <b>${itemName('set_incense')}</b> is an ordinary Incense with one difference: when you light it you choose one of the sets you have unlocked, and every creature it summons comes from that set, on the usual wild odds. A set you have only partly unlocked only summons the rarities you have opened. It ignores the weekly Take Overs, since you have already picked the set. It is in the <b>Shop</b>, one a day, drops from <b>grunt</b> wins (<b>${pct(SET_INCENSE_GRUNT_CHANCE)}</b>), and can drop from a <b>${FRONTIER_DAILY_NAME}</b> win.` }),
         el('li', { html: `<b>Rare Incense</b> spawns on the same 2-minute rhythm but with far better odds: ${rareIncenseLine()}. Compare that to a wild spawn at ${wildOddsLine()}.` }),
@@ -2248,6 +2274,14 @@ function renderInfo(tab = 'basics') {
         el('li', { html: `Clear all ${FRONTIER_LEVELS} levels on one mode and that challenge's <b>${FRONTIER_GRAND_LABEL}</b> opens — effectively a level ${FRONTIER_GRAND_LEVEL}. It is a <b>level ${FRONTIER_RAID_LEVEL}</b> boss with full <b>Exclusive Raid</b> strength, fought under the <b>same restriction</b>, and you catch it with an <b>Ultra Capture Disc</b> on the usual raid shiny odds.` }),
         el('li', { html: `The Grand Raid boss joins your <b>${EXCLUSIVE_SET_NAME}</b> collection and exists <b>nowhere else in the game</b> — no raid, no egg, no incense can produce one. Each type challenge has its own, and it is the <b>same boss on every mode</b>, so clearing the same ladder under a different restriction is a chance to catch it again. A <b>set challenge</b> has no boss of its own: clearing it on a mode draws one of the type challenges' legendaries at random, and that draw is fixed for that mode.` }),
         el('li', { html: 'Progress lives in your save rather than in the building, so <b>Move Battle Frontier</b> re-pins it anywhere without costing you a single clear.' })
+      ),
+      el('h4', { text: ELITE_NAME }),
+      el('p', { html: `At the end of the Battle Frontier list. Each one is a <b>freshly drawn team</b> of three creatures with at least <b>${ELITE_MIN_BASE_TOTAL}</b> total base stats, at <b>level ${ELITE_LEVELS[0]}–${ELITE_LEVELS[1]}</b>, each with <b>20 boost points</b> spread at random. They fight as normal. You fight under different rules:` }),
+      el('ul', {},
+        el('li', { html: `A creature comes onto the field with <b>${ELITE_STAMINA_START} stamina</b>. A damaging move costs its <b>power ÷ 10, rounded up</b> — 67 power costs 7, 23 costs 3. A move with no power costs nothing.` }),
+        el('li', { html: `At the end of each turn you get <b>+${ELITE_STAMINA_PER_TURN}</b>, and knocking one of theirs out gives <b>+${ELITE_STAMINA_KO_BONUS}</b>. There is <b>no limit</b>, so a free move such as a buff on turn one means starting turn two with ${ELITE_STAMINA_START + ELITE_STAMINA_PER_TURN}. With nothing affordable you can <b>Wait</b> a turn to recover.` }),
+        el('li', { html: `<b>Switch</b> to another creature that is still standing for <b>${ELITE_SWITCH_COST} stamina</b>. That is your whole turn: their move lands on the creature coming in, using its type and stats. It arrives with full stamina and does not get the end-of-turn +${ELITE_STAMINA_PER_TURN}. The one going back to the bench loses every buff, debuff and status condition.` }),
+        el('li', { html: 'A creature sent in after a knockout also starts with full stamina. Losing costs nothing but the damage your team took, and every attempt draws a new team.' })
       ),
       el('h4', { text: `The ${FRONTIER_DAILY_NAME}` }),
       el('p', { html: `Above the ${FRONTIER_CHALLENGES.length} challenges sits the <b>${FRONTIER_DAILY_NAME}</b>: <b>${FRONTIER_DAILY_LEVELS.length} fights</b> — ${FRONTIER_DAILY_LEVELS.map(l => `<b>${l.label}</b>`).join(', ')} — that are <b>drawn fresh every day</b> and gone at midnight. Unlike the ladders, nothing here has to be unlocked in order: all three are open from the moment you walk in.` }),
