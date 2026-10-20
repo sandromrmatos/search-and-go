@@ -293,7 +293,12 @@
 
       <div class="card">
         <div class="profile-top">
-          <div class="lvl-badge big" id="p-level">1</div>
+          <!-- Tap to choose an avatar. The level sits on its corner. -->
+          <button id="btn-avatar" class="avatar-btn" type="button" aria-label="Choose your avatar">
+            <img id="p-avatar" class="hidden" alt="Your avatar" />
+            <span id="p-avatar-empty" class="avatar-empty">＋<small>Avatar</small></span>
+            <div class="lvl-badge avatar-lvl" id="p-level">1</div>
+          </button>
           <div class="profile-meta">
             <div class="nick-row">
               <b id="p-nickname">—</b>

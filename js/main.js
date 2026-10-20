@@ -37,7 +37,8 @@ import {
   renderHUD, renderStorage, renderCollection, renderProfile, renderSaveStatus,
   initCollectionFilters, refreshAll, renderView, renderStorageTabs,
   renderEffectChips, openNicknamePrompt, setViewHooks, enterMultiSelect,
-  renderWeatherChip, setStorageSearch, setStorageFamilyAll, openStorageSearchHelp
+  renderWeatherChip, setStorageSearch, setStorageFamilyAll, openStorageSearchHelp,
+  openAvatarPicker
 } from './views.js';
 import {
   initExtras, renderMissions, renderMissionBadge, openBreeding, openResearchLab,
@@ -1443,6 +1444,7 @@ function initUI() {
 
   // ---- nickname ----
   $('#btn-edit-nick').addEventListener('click', () => openNicknamePrompt({ firstRun: false }));
+  $('#btn-avatar').addEventListener('click', openAvatarPicker);
 
   // ---- storage sorting ----
   $('#storage-sort').addEventListener('change', e => {

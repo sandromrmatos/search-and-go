@@ -26,7 +26,7 @@ import {
   GALACTIC_SET_NAME, MYTHICAL_RARITY, unlockedGalacticRarities,
   TEMPORAL_SET_NAME, unlockedTemporalRarities, unlockedCrystalRarities,
   discoverableSpeciesCount, shinyObtainableSpeciesCount,
-  setIncenseOptions, releaseCandyFor
+  setIncenseOptions, releaseCandyFor, AVATAR_COUNT, avatarImage
 } from './data.js';
 import { renderEggs, renderEggTabBadge, openEggPickerFor } from './eggs.js';
 import { renderProfileTitle, renderAchievementBadge, renderAchievements } from './achievements.js';
@@ -3284,6 +3284,47 @@ function openBuddyPicker() {
 /* ===============================================================
    PROFILE
    =============================================================== */
+
+/** The picture on the Profile, or a "+ Avatar" prompt until one is chosen. */
+function renderProfileAvatar() {
+  const n = store.avatar;
+  const img = $('#p-avatar');
+  if (!img) return;
+  img.classList.toggle('hidden', !n);
+  $('#p-avatar-empty')?.classList.toggle('hidden', !!n);
+  if (n) img.src = avatarImage(n);
+}
+
+/** All the avatars in a grid; tapping one wears it straight away. */
+export function openAvatarPicker() {
+  const body = $('#sheet-body');
+  body.innerHTML = '';
+  const current = store.avatar;
+  appendAll(body,
+    el('h3', { text: 'Choose your avatar' }),
+    el('p', { class: 'muted small', text: 'Tap one to wear it. You can change it whenever you like.' }),
+    el('div', { class: 'avatar-grid' },
+      ...Array.from({ length: AVATAR_COUNT }, (_, i) => i + 1).map(n => el('button', {
+        class: 'avatar-opt' + (n === current ? ' picked' : ''),
+        'aria-label': `Avatar ${n}`,
+        onclick: () => {
+          store.setAvatar(n);
+          closeSheet('sheet');
+          renderProfileAvatar();
+          toast('Avatar updated', 'good');
+        }
+      }, el('img', { src: avatarImage(n), alt: '', loading: 'lazy' })))),
+    current
+      ? el('div', { class: 'btn-row', style: { marginTop: '12px' } },
+        el('button', {
+          class: 'btn ghost',
+          onclick: () => { store.setAvatar(null); closeSheet('sheet'); renderProfileAvatar(); }
+        }, 'Remove avatar'))
+      : null
+  );
+  openSheet('sheet');
+}
+
 export function renderProfile() {
   renderBuddy();
   const p = store.progress;
@@ -3292,6 +3333,7 @@ export function renderProfile() {
   // Lights the Achievements button when the Profile badge brought you here.
   renderAchievementBadge();
   $('#p-level').textContent = p.level;
+  renderProfileAvatar();
   $('#p-xp').textContent = num(store.s.xp);
   $('#p-xp-fill').style.width = p.pct + '%';
   $('#p-next').textContent = p.max

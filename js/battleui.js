@@ -78,7 +78,7 @@ export function initBattleUI({ onDone } = {}) {
        player their harvest. */
     if (ctx.frontier?.elite) {
       // A new team every time, so "try again" is a fresh draw rather than a rematch.
-      openEliteBattle({ onClose: ctx.onClose });
+      openEliteBattle({ onClose: ctx.onClose, practice: ctx.frontier.practice });
     } else if (ctx.frontier?.daily) {
       const levelId = ctx.frontier.daily.level.id;
       const onClose = ctx.onClose;
@@ -180,7 +180,7 @@ export function openFrontierDaily({ levelId, onClose = null, onWin = null }) {
  * An Elite Battle: a freshly drawn team of strong creatures, fought with the
  * stamina and switching rules. No restriction on what you bring.
  */
-export function openEliteBattle({ onClose = null } = {}) {
+export function openEliteBattle({ onClose = null, practice = true } = {}) {
   const team = rollEliteTeam();
   if (!team) { toast('No Elite team could be drawn', 'bad'); return; }
   ctx = {
@@ -188,7 +188,9 @@ export function openEliteBattle({ onClose = null } = {}) {
     kind: 'frontier',
     raid: null,
     grunt: null,
-    frontier: { challengeId: null, elite: true, level: null, modeId: null, team },
+    // `practice` is what keeps the fight off every tally. The Frontier's Elite
+    // Battles are practice; other uses of Elite rules can pass false.
+    frontier: { challengeId: null, elite: true, practice, level: null, modeId: null, team },
     restrict: null,
     onClose,
     picked: [],
@@ -547,9 +549,14 @@ function gruntRewardChips() {
 
 /** The Elite Battle preview: their team, and the rules you fight under. */
 function renderElitePreview(body) {
-  const { team } = ctx.frontier;
-  $('#bt-title').textContent = ELITE_NAME;
+  const { team, practice } = ctx.frontier;
+  $('#bt-title').textContent = practice ? `${ELITE_NAME} · Practice` : ELITE_NAME;
   body.append(
+    practice
+      ? el('p', { class: 'hint elite-practice', html: '<b>Practice only.</b> Nothing here counts: '
+        + 'no achievements, no Precious Diamond progress and no rewards. Your creatures do keep '
+        + 'any damage they take.' })
+      : null,
     el('div', { class: 'bt-boss frontier' },
       el('img', { src: `${IMAGE_DIR}/${encodeURIComponent(ELITE_ART)}`, alt: ELITE_NAME }),
       el('h3', { text: 'Elite Trainer' }),
@@ -1187,7 +1194,7 @@ function startFight() {
     if (ctx.frontier.daily) {
       return `${FRONTIER_DAILY_NAME} · ${ctx.frontier.daily.level.label}`;
     }
-    if (ctx.frontier.elite) return ELITE_NAME;
+    if (ctx.frontier.elite) return ctx.frontier.practice ? `${ELITE_NAME} · Practice` : ELITE_NAME;
     const ch = frontierChallengeOf(ctx);
     return `${ch?.name || 'Frontier'} challenge · Level ${ctx.frontier.level}`;
   };
@@ -1650,16 +1657,23 @@ async function finishBattle() {
   // Damage always carries out of the battle.
   store.applyBattleDamage(b.playerResults());
 
-  /* Achievements: damage counts win or lose, the win only for the families that
-     dealt some. A Grand Raid is a raid; every Frontier trainer fight, the Daily
-     Challenge included, counts as a grunt battle. */
-  store.recordBattleAchievements(ctx.kind === 'raid' ? 'raid' : 'grunt', b.damageByUid, won);
-  // Custom achievements look at the whole team rather than who dealt damage.
-  const raidRarity = ctx.kind === 'raid'
-    ? Number(ctx.raid?.rarity) || familyRarity(ctx.raid?.speciesId) || 0
-    : 0;
-  store.recordCustomAchievements(ctx.kind === 'raid' ? 'raid' : 'grunt',
-    b.playerResults().map(r => r.uid), { won, raidRarity });
+  /* A practice fight — the Elite Battles at the Frontier — counts for nothing:
+     no achievements, no Precious Diamond wins. Elite Battles used elsewhere can
+     open with `practice: false` and be scored like any other fight. */
+  const practice = !!ctx.frontier?.practice;
+
+  if (!practice) {
+    /* Achievements: damage counts win or lose, the win only for the families that
+       dealt some. A Grand Raid is a raid; every Frontier trainer fight, the Daily
+       Challenge included, counts as a grunt battle. */
+    store.recordBattleAchievements(ctx.kind === 'raid' ? 'raid' : 'grunt', b.damageByUid, won);
+    // Custom achievements look at the whole team rather than who dealt damage.
+    const raidRarity = ctx.kind === 'raid'
+      ? Number(ctx.raid?.rarity) || familyRarity(ctx.raid?.speciesId) || 0
+      : 0;
+    store.recordCustomAchievements(ctx.kind === 'raid' ? 'raid' : 'grunt',
+      b.playerResults().map(r => r.uid), { won, raidRarity });
+  }
 
   let rewards = null;
   /** Set when a Frontier level was won that had already been won on this mode. */
@@ -1674,7 +1688,7 @@ async function finishBattle() {
        here rather than in applyBattleDamage, which also runs on a loss and on
        the mid-fight bail-out. `ctx.picked` is the three creatures the player
        actually chose, whether or not each one made it onto the field. */
-    diamondsDone = store.recordBattleWin(ctx.picked);
+    if (!practice) diamondsDone = store.recordBattleWin(ctx.picked);
 
     if (ctx.kind === 'frontier' && ctx.frontier.elite) {
       // No prize yet, just the tally.
@@ -1742,9 +1756,11 @@ function renderResult() {
     )
   );
 
-  if (won && ctx.frontier?.elite) {
-    body.append(el('p', { class: 'hint', text:
-      `Elite Battles won: ${store.s.stats.eliteWins || 0}. Try again for a new team.` }));
+  if (ctx.frontier?.elite && ctx.frontier.practice) {
+    body.append(el('p', { class: 'hint elite-practice', text:
+      (won ? `Practice wins: ${store.s.stats.eliteWins || 0}. ` : '')
+      + 'This was practice, so it did not count towards achievements or Precious Diamonds. '
+      + 'Try again for a new team.' }));
   }
 
   // Won a level that was already cleared on this mode: no reward, and the screen

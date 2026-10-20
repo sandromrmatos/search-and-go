@@ -2375,6 +2375,12 @@ export const frontierChallengeTagClass = ch => (ch?.type ? `t-${ch.type}` : '');
    picks, so closing the game and coming back gives the identical fight.
    --------------------------------------------------------------- */
 
+/* ---------------------------------------------------------------
+   Profile avatars — cut from images/all avatars.jpg into images/avatars/
+   --------------------------------------------------------------- */
+export const AVATAR_COUNT = 24;
+export const avatarImage = n => `${IMAGE_DIR}/avatars/avatar${String(n).padStart(2, '0')}.png`;
+
 export const FRONTIER_DAILY_ID = 'daily';
 export const FRONTIER_DAILY_NAME = 'Daily Challenge';
 export const FRONTIER_DAILY_ART = 'daily challenge.png';

@@ -44,7 +44,7 @@ import {
   DAILY_ROUTE_STOPS, DAILY_ROUTE_XP, DAILY_ROUTE_STARDUST, DAILY_ROUTE_ENCOUNTERS,
   rollRouteIncense, rollRouteEncounter,
   FOSSIL_PARTS, FOSSIL_FIND_CHANCE, fossilFindFor, rollFossilPart,
-  FOSSIL_INCENSE_PART_CHANCE, FOSSIL_INCENSE_COLLECT_CHANCE,
+  FOSSIL_INCENSE_PART_CHANCE, FOSSIL_INCENSE_COLLECT_CHANCE, AVATAR_COUNT,
   FOSSIL_REVIVE_MS, FOSSIL_REVIVE_LEVEL, FOSSIL_REVIVE_BONUS_CANDY, FOSSIL_SHINY_ODDS,
   fossilRevivePool,
   DIAMOND_ITEM, DIAMOND_STARDUST_COST,
@@ -162,6 +162,8 @@ function blankState() {
     version: SAVE_VERSION,
     createdAt: Date.now(),
     nickname: null,
+    /** Profile picture, 1 to AVATAR_COUNT, or null for none chosen yet. */
+    avatar: null,
 
     xp: 0,
     stardust: 0,
@@ -512,6 +514,10 @@ export function migrate(raw) {
   s.stardust = Number(s.stardust) || 0;
   s.coins = Math.max(0, Math.floor(Number(s.coins) || 0));
   s.nickname = typeof s.nickname === 'string' && s.nickname.trim() ? s.nickname.trim() : null;
+  {
+    const a = Math.floor(Number(s.avatar));
+    s.avatar = a >= 1 && a <= AVATAR_COUNT ? a : null;
+  }
 
   // ---- creatures ----
   s.storage = s.storage
@@ -1102,6 +1108,17 @@ class Store {
   get progress() { return playerProgress(this.s.xp); }
   get level() { return this.progress.level; }
   get nickname() { return this.s.nickname; }
+
+  /** The chosen avatar, 1 to AVATAR_COUNT, or null for none. */
+  get avatar() { return this.s.avatar; }
+
+  setAvatar(n) {
+    const v = n == null ? null : Math.floor(Number(n));
+    if (v != null && !(v >= 1 && v <= AVATAR_COUNT)) return false;
+    this.s.avatar = v;
+    this.touch('avatar', { immediate: true });
+    return true;
+  }
 
   setNickname(name) {
     const clean = String(name || '').trim().slice(0, 20);

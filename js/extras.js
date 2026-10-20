@@ -639,10 +639,10 @@ function renderBattleFrontier(inRange) {
     eliteWins ? el('span', { class: 'qty', text: `★${eliteWins}` }) : null,
     el('img', { src: `${IMAGE_DIR}/${encodeURIComponent(ELITE_ART)}`, alt: ELITE_NAME }),
     el('span', { class: 'nm', text: ELITE_NAME }),
-    el('span', { class: 'sub', text: 'Stamina and switching' }),
+    el('span', { class: 'sub', text: 'Practice · stamina and switching' }),
     el('span', { class: 'use-hint', text: eliteWins
-      ? `${eliteWins} won · a new team every time`
-      : 'A new strong team every time' })
+      ? `${eliteWins} practice wins · does not count for achievements`
+      : 'Practice only · does not count for achievements' })
   ));
 
   if (anyLoaded) {
@@ -2281,7 +2281,8 @@ function renderInfo(tab = 'basics') {
         el('li', { html: `A creature comes onto the field with <b>${ELITE_STAMINA_START} stamina</b>. A damaging move costs its <b>power ÷ 10, rounded up</b> — 67 power costs 7, 23 costs 3. A move with no power costs nothing.` }),
         el('li', { html: `At the end of each turn you get <b>+${ELITE_STAMINA_PER_TURN}</b>, and knocking one of theirs out gives <b>+${ELITE_STAMINA_KO_BONUS}</b>. There is <b>no limit</b>, so a free move such as a buff on turn one means starting turn two with ${ELITE_STAMINA_START + ELITE_STAMINA_PER_TURN}. With nothing affordable you can <b>Wait</b> a turn to recover.` }),
         el('li', { html: `<b>Switch</b> to another creature that is still standing for <b>${ELITE_SWITCH_COST} stamina</b>. That is your whole turn: their move lands on the creature coming in, using its type and stats. It arrives with full stamina and does not get the end-of-turn +${ELITE_STAMINA_PER_TURN}. The one going back to the bench loses every buff, debuff and status condition.` }),
-        el('li', { html: 'A creature sent in after a knockout also starts with full stamina. Losing costs nothing but the damage your team took, and every attempt draws a new team.' })
+        el('li', { html: 'A creature sent in after a knockout also starts with full stamina. Losing costs nothing but the damage your team took, and every attempt draws a new team.' }),
+        el('li', { html: 'At the Battle Frontier these are <b>practice</b>: they do not count towards <b>achievements</b> (family or custom) or <b>Precious Diamond</b> wins, and pay no rewards. Damage your creatures take does stay with them.' })
       ),
       el('h4', { text: `The ${FRONTIER_DAILY_NAME}` }),
       el('p', { html: `Above the ${FRONTIER_CHALLENGES.length} challenges sits the <b>${FRONTIER_DAILY_NAME}</b>: <b>${FRONTIER_DAILY_LEVELS.length} fights</b> — ${FRONTIER_DAILY_LEVELS.map(l => `<b>${l.label}</b>`).join(', ')} — that are <b>drawn fresh every day</b> and gone at midnight. Unlike the ladders, nothing here has to be unlocked in order: all three are open from the moment you walk in.` }),
