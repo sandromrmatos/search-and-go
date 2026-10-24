@@ -130,7 +130,9 @@ const blankWeekly = () => ({
   /** 1 once the game has been opened this week. */
   loggedIn: 0,
   /** Essence harvests that paid candy this week. */
-  essenceWeek: 0
+  essenceWeek: 0,
+  /** Raids won this week. */
+  raidsWeek: 0
 });
 
 /**
@@ -164,6 +166,8 @@ function blankState() {
     nickname: null,
     /** Profile picture, 1 to AVATAR_COUNT, or null for none chosen yet. */
     avatar: null,
+    /** The stage-1 species marked on the radar, or null. Its wild spawns sparkle in rainbow colours. */
+    radarSpecies: null,
 
     xp: 0,
     stardust: 0,
@@ -366,7 +370,7 @@ function blankState() {
  * and the next open simply plans a new one.
  */
 /** Bumped when route planning changes in a way worth re-planning an unstarted route for. */
-export const ROUTE_PLAN_VERSION = 2;
+export const ROUTE_PLAN_VERSION = 3;
 
 function normaliseRoute(r) {
   if (!r || typeof r !== 'object' || typeof r.day !== 'string') return null;
@@ -381,8 +385,9 @@ function normaliseRoute(r) {
   // Any length up to today's: a route planned when it was five stops long is
   // still walked (and claimed) as five, rather than being thrown away.
   if (stops.length < 2 || stops.length > DAILY_ROUTE_STOPS) return null;
-  // Routes planned before legs had a minimum length were often a two-minute
-  // stroll. One that has not been started yet is dropped so it is planned again.
+  // Routes planned under older rules (v1: legs with no minimum length; v2: legs
+  // that could cross water or double back). One that has not been started yet
+  // is dropped so it is planned again.
   const v = Number(r.v) || 1;
   if (v < ROUTE_PLAN_VERSION && !(Number(r.reached) > 0) && !r.completedAt) return null;
   const anchor = r.anchor && isFinite(r.anchor.lat) && isFinite(r.anchor.lng)
@@ -517,6 +522,13 @@ export function migrate(raw) {
   {
     const a = Math.floor(Number(s.avatar));
     s.avatar = a >= 1 && a <= AVATAR_COUNT ? a : null;
+  }
+  // Kept only while it names a real stage-1 species. Whether that species is
+  // unlocked is checked live (radarSpecies getter), because the spawn pools are
+  // not rebuilt from the save until after migrate runs.
+  {
+    const r = typeof s.radarSpecies === 'string' ? DB.byId.get(s.radarSpecies) : null;
+    s.radarSpecies = r && r.stage === 1 ? r.id : null;
   }
 
   // ---- creatures ----
@@ -1117,6 +1129,29 @@ class Store {
     if (v != null && !(v >= 1 && v <= AVATAR_COUNT)) return false;
     this.s.avatar = v;
     this.touch('avatar', { immediate: true });
+    return true;
+  }
+
+  /**
+   * Whether a species can go on the radar: stage 1 and unlocked, meaning it is
+   * in play and can turn up on the map (DB.stage1 leaves out locked rarities of
+   * the later sets, exclusives, mythicals and fossils). Registered or not.
+   */
+  canRadar(speciesId) {
+    return (DB.stage1 || []).some(sp => sp.id === speciesId);
+  }
+
+  /** The species on the radar, or null. A species that has stopped being eligible reads as none. */
+  get radarSpecies() {
+    const id = this.s.radarSpecies;
+    return id && this.canRadar(id) ? id : null;
+  }
+
+  /** Puts a species on the radar, replacing any other, or clears it with null. */
+  setRadar(speciesId) {
+    if (speciesId != null && !this.canRadar(speciesId)) return false;
+    this.s.radarSpecies = speciesId || null;
+    this.touch('radar', { immediate: true });
     return true;
   }
 
@@ -2133,6 +2168,9 @@ class Store {
     const levelUp = this.addXP(xp);
     this.s.stats.raidsWon++;
     this.bumpDaily('raidsToday');
+    // The weekly raid mission. Rolled first, like every other weekly writer.
+    if (this.s.weekly.week !== weekKey()) this.s.weekly = blankWeekly();
+    this.s.weekly.raidsWeek = (Number(this.s.weekly.raidsWeek) || 0) + 1;
 
     // Track wins per boss rarity so the "defeat a Rarity N raid" missions work.
     const rarity = Number(raid.rarity) || 0;
@@ -4374,6 +4412,7 @@ class Store {
       case 'essenceToday':
         return this.s.daily.date === dayKey() ? (this.s.daily.essenceToday || 0) : 0;
       case 'essenceWeek': return this.weekly.essenceWeek || 0;
+      case 'raidsWeek': return this.weekly.raidsWeek || 0;
       // Opening the game is the whole task, so this is stamped at boot.
       case 'loggedInThisWeek': return this.weekly.loggedIn || 0;
       // The daily equivalent: reading this at all means the game is open, and the

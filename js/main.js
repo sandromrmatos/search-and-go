@@ -8,14 +8,15 @@ import {
   isCreatureSpotlight, spotlightSpecies, SPOTLIGHT_LABEL, SPOTLIGHT_BONUS_CANDY,
   SPOTLIGHT_SPAWN_MS, scanIntervalLabel,
   annualEvent, EVENT_SPAWN_MS, eventRewardBonus,
-  DAILY_ROUTE_STOPS, DAILY_ROUTE_XP, DAILY_ROUTE_STARDUST, DAILY_ROUTE_ENCOUNTERS
+  DAILY_ROUTE_STOPS, DAILY_ROUTE_XP, DAILY_ROUTE_STARDUST, DAILY_ROUTE_ENCOUNTERS,
+  dailyRouteStopCount
 } from './data.js';
 import { planDailyRoute } from './route.js';
 import { Weather, weatherContext } from './weather.js';
 import { Battery } from './battery.js';
 import { Place } from './place.js';
 import { Persist, progressOf, readMarker } from './persist.js';
-import { store } from './state.js';
+import { store, dayKey } from './state.js';
 import { Geo, distance, parseCoords, formatDistance, offsetMeters } from './geo.js';
 import { fetchPOIs, clearPOICache, lastPOIsWereStale } from './osm.js';
 import { describeDrop, itemImage, itemName } from './items.js';
@@ -913,6 +914,8 @@ function syncMap() {
   // still hold their spot against new spawns — the map is just not told to
   // draw them, and syncPoints removes any marker it no longer hears about.
   const shown = store.s.ui.hideCollectedPoints ? active.filter(p => !p.collected) : active;
+  // Before the points, so a marker created now is drawn with the radar already.
+  GameMap.setRadar(store.radarSpecies);
   GameMap.syncPoints(shown);
   GameMap.syncBreeding(store.s.breedings);
   GameMap.syncResearchLab(store.s.researchLab);
@@ -947,7 +950,7 @@ function tickDailyRoute(now = Date.now()) {
       const first = route.stops[0];
       dlog(`Daily Route planned: ${route.stops.map(s => s.name).join(' → ')}`);
       syncMap();
-      toast(`🧭 Today's route is on your map — ${DAILY_ROUTE_STOPS} numbered stops. `
+      toast(`🧭 Today's route is on your map — ${route.stops.length} numbered stops. `
         + `Start at 1: ${first.name}, ${formatDistance(distance(pos, first))} away.`, 'good', 6500);
     });
   }
@@ -1005,7 +1008,7 @@ function openRouteSheet(focusIndex = null) {
     body.append(el('div', { style: { padding: '8px 0' } },
       el('h3', { text: '🧭 Daily Route' }),
       el('p', { class: 'muted', text: `Your route for today has not been planned yet. It appears the first `
-        + `time the game has your location, using ${DAILY_ROUTE_STOPS} places around you. If there are not `
+        + `time the game has your location, using ${dailyRouteStopCount(dayKey())} places around you. If there are not `
         + 'enough places nearby it tries again in a few minutes.' }),
       el('button', { class: 'btn primary wide', onclick: () => closeSheet('sheet') }, 'OK')));
     openSheet('sheet');
@@ -1589,6 +1592,8 @@ function initUI() {
     renderAchievementBadge();
     syncDebugButton();
     if (reason === 'save-blocked') warnSaveBlocked();
+    // The radar is set from the Collection, so the map hears about it here.
+    if (reason === 'radar') GameMap.setRadar(store.radarSpecies);
   });
   syncDebugButton();
 }

@@ -2889,6 +2889,7 @@ export function renderCollection() {
   const grid = $('#collection-grid');
   grid.innerHTML = '';
   const frag = document.createDocumentFragment();
+  const radarId = store.radarSpecies;
   for (const s of list) {
     const known = store.isRegistered(s.id);
     const got = have(s);
@@ -2912,6 +2913,7 @@ export function renderCollection() {
     },
       s.rarity ? el('span', { class: `rar r-${s.rarity}`, text: s.rarity }) : null,
       shinyMode && got ? el('span', { class: 'shiny-star', text: '★' }) : null,
+      radarId === s.id ? el('span', { class: 'radar-badge', title: 'On your radar', text: '📡' }) : null,
       img,
       el('span', { class: 'nm', text: s.name }),
       el('span', {
@@ -3006,6 +3008,30 @@ function renderSpeciesSheet(speciesId) {
     : null;
   paintArt();
 
+  /* The radar: any unlocked stage-1 creature, registered or not. Only one at a
+     time, so turning it on here moves it off whatever it was on before. */
+  const radarOn = store.radarSpecies === s.id;
+  const radarBtn = store.canRadar(s.id)
+    ? el('button', {
+        class: 'btn ghost shiny-toggle radar-toggle' + (radarOn ? ' fav-active' : ''),
+        'aria-pressed': radarOn ? 'true' : 'false',
+        title: radarOn ? 'Turn the radar off' : 'Mark this creature on the radar',
+        onclick: () => {
+          const before = store.radarSpecies;
+          store.setRadar(radarOn ? null : s.id);
+          if (radarOn) toast('📡 Radar off', '', 2400);
+          else {
+            const prev = before && before !== s.id ? species(before) : null;
+            toast(`📡 Radar on: ${known ? s.name : 'this creature'} will sparkle in rainbow colours on the map`
+              + (prev && store.isRegistered(prev.id) ? ` (replaces ${prev.name})` : ''), 'good', 3600);
+          }
+          renderSpeciesSheet(s.id);
+          // The grid behind the sheet shows a 📡 on the marked creature.
+          renderCollection();
+        }
+      }, radarOn ? '📡 Radar on' : '📡 Radar')
+    : null;
+
   // Prev / next along whatever the Collection is currently showing. Falls back
   // to no navigation if the sheet was opened from somewhere else entirely.
   const navIdx = sortedCollection.findIndex(x => x.id === s.id);
@@ -3042,7 +3068,9 @@ function renderSpeciesSheet(speciesId) {
           el('span', { class: 'tag', text: known ? 'Registered' : 'Not registered' }),
           hasShiny ? el('span', { class: 'tag r-5', text: '★ Shiny caught' }) : null
         ),
-        shinyBtn
+        (shinyBtn || radarBtn)
+          ? el('div', { class: 'det-toggles' }, shinyBtn, radarBtn)
+          : null
       )
     ),
 

@@ -448,6 +448,7 @@ export const GameMap = {
         + (point.collected ? ' collected' : '');
       root.innerHTML =
         `<div class="spawn-timer">--:--</div>${iconFor(point)}<div class="tick">✓</div>`;
+      this._paintRadar(root, point);
 
       const marker = L.marker([point.lat, point.lng], {
         icon: L.divIcon({ className: '', html: root, iconSize: [54, 66], iconAnchor: [27, 60] }),
@@ -483,6 +484,37 @@ export const GameMap = {
    * whole subtree outright, and the marker keeps its place on the map, so panning
    * back shows it again instantly with nothing to rebuild.
    */
+  /* ---------------------------------------------------------------
+     Radar
+
+     One stage-1 species the player has marked in the Collection. A wild
+     creature of that species gets rainbow stars and six rainbow sparks instead
+     of the gold / green ones, so it stands out before it is tapped. The sparks
+     are only added to matching markers, never to every creature on the map.
+     --------------------------------------------------------------- */
+  radarSpecies: null,
+
+  setRadar(speciesId) {
+    const id = speciesId || null;
+    if (id === this.radarSpecies) return;
+    this.radarSpecies = id;
+    for (const rec of this.markers.values()) this._paintRadar(rec.el, rec.point);
+  },
+
+  _paintRadar(root, point) {
+    const on = !!this.radarSpecies && point.kind === 'creature' && point.speciesId === this.radarSpecies;
+    root.classList.toggle('radar', on);
+    const sparks = root.querySelector('.radar-sparks');
+    if (on && !sparks) {
+      const host = document.createElement('div');
+      host.className = 'radar-sparks';
+      host.innerHTML = [1, 2, 3, 4, 5, 6].map(n => `<i class="rs${n}"></i>`).join('');
+      root.append(host);
+    } else if (!on && sparks) {
+      sparks.remove();
+    }
+  },
+
   _cullMarkers() {
     if (!this.map || !this.markers.size) return;
     /* A map on a tab the player is not looking at has no size, and so no

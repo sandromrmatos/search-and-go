@@ -593,6 +593,64 @@ a { color: var(--accent); }
   .spawn-marker.kind-feather .feather-sparks i { animation: none; opacity: .8; }
 }
 
+/* ---- radar ----
+   The creature marked on the radar in the Collection. Its stars cycle through
+   the rainbow instead of the gold (out of range) or green (in range) — and over
+   an incense's purple too — with six rainbow sparks flashing round it, the
+   same sparks as the feather. Placed after every other star rule so it wins.
+   `color` / `text-shadow` animate on the main thread, which is fine here: only
+   the few markers of one species ever carry the class. */
+.spawn-marker.radar .stars .s {
+  animation: twinkle 1.5s ease-in-out infinite, radarHue 1.8s linear infinite;
+}
+.spawn-marker.radar .stars .s2 { animation-delay: .35s, -.3s; }
+.spawn-marker.radar .stars .s3 { animation-delay: .7s, -.6s; }
+.spawn-marker.radar .stars .s4 { animation-delay: 1.05s, -.9s; }
+.spawn-marker.radar .stars .s5 { animation-delay: .5s, -1.2s; }
+@keyframes radarHue {
+  0%, 100% { color: #ff8a8a; text-shadow: 0 0 9px #ff6b6b, 0 0 18px #ff6b6b88; }
+  17%      { color: #ffe08a; text-shadow: 0 0 9px #ffd166, 0 0 18px #ffd16688; }
+  33%      { color: #9df5bf; text-shadow: 0 0 9px #6ee7a0, 0 0 18px #6ee7a088; }
+  50%      { color: #8fe3f7; text-shadow: 0 0 9px #56d2f0, 0 0 18px #56d2f088; }
+  67%      { color: #a9b4ff; text-shadow: 0 0 9px #7b8cff, 0 0 18px #7b8cff88; }
+  83%      { color: #e6b3ff; text-shadow: 0 0 9px #d68cff, 0 0 18px #d68cff88; }
+}
+.spawn-marker.radar .glow {
+  background: radial-gradient(circle, #ffffff55 0%, #d68cff33 40%, transparent 72%);
+}
+.spawn-marker.radar.out-range { opacity: 1; }
+.spawn-marker.radar .radar-sparks {
+  position: absolute; left: 50%; bottom: 26px;
+  width: 0; height: 0; pointer-events: none;
+}
+.spawn-marker.radar .radar-sparks i {
+  position: absolute; width: 6px; height: 6px; margin: -3px 0 0 -3px;
+  border-radius: 50%; background: currentColor;
+  box-shadow: 0 0 7px 2px currentColor, 0 0 14px currentColor;
+  opacity: 0;
+  animation: featherSpark 1.4s ease-in-out infinite;
+}
+.spawn-marker.radar .radar-sparks .rs1 { color: #ff6b6b; left: 0;     top: -22px; animation-delay: 0s; }
+.spawn-marker.radar .radar-sparks .rs2 { color: #ffd166; left: 19px;  top: -12px; animation-delay: .23s; }
+.spawn-marker.radar .radar-sparks .rs3 { color: #6ee7a0; left: 21px;  top: 7px;   animation-delay: .46s; }
+.spawn-marker.radar .radar-sparks .rs4 { color: #56d2f0; left: 0;     top: 15px;  animation-delay: .7s; }
+.spawn-marker.radar .radar-sparks .rs5 { color: #7b8cff; left: -21px; top: 7px;   animation-delay: .93s; }
+.spawn-marker.radar .radar-sparks .rs6 { color: #d68cff; left: -19px; top: -12px; animation-delay: 1.16s; }
+.spawn-marker.radar.collected .radar-sparks { display: none; }
+.spawn-marker.radar.collected .stars .s { animation: twinkle 1.5s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .spawn-marker.radar .radar-sparks i { animation: none; opacity: .8; }
+  .spawn-marker.radar .stars .s { animation: none; color: #e6b3ff; text-shadow: 0 0 9px #ff6b6b, 0 0 14px #56d2f0; }
+}
+
+/* The radar toggle on the species sheet, and the 📡 on its Collection cell. */
+.det-toggles { display: flex; flex-wrap: wrap; gap: 6px; }
+.radar-toggle.fav-active {
+  background: linear-gradient(90deg, #ff6b6b33, #ffd16633, #6ee7a033, #56d2f033, #d68cff33);
+  border-color: #d68cff88; color: #f3e6ff;
+}
+.cell .radar-badge { position: absolute; top: 4px; left: 5px; font-size: 12px; line-height: 1; }
+
 /* ---- fossils ---- */
 /* The reveal. Big and centred, because the beat between "something" and "what"
    is the whole appeal. */

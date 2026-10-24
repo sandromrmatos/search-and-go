@@ -615,6 +615,78 @@ function normalise(json, origin, radius) {
   return out;
 }
 
+/* ---------------------------------------------------------------
+   Water, for the Daily Route
+
+   The route is drawn as straight lines between stops, so a leg that crosses a
+   canal or a river is a leg nobody can walk. Planning asks for the water around
+   it once and refuses any leg that crosses it. Lakes, ponds and wide rivers come
+   as areas (their outline is what a leg must not cross); rivers, canals and
+   streams also come as centre lines. Anything in a culvert or tunnel is left
+   out, because you walk over it.
+
+   Asked for once a day at most, so it is cached in memory only.
+   --------------------------------------------------------------- */
+const WATER_TTL_MS = 6 * 60 * 60_000;
+const waterCache = new Map(); // key -> { at, centre, radius, lines }
+
+function buildWaterQuery(lat, lng, radius) {
+  const la = lat.toFixed(7), ln = lng.toFixed(7);
+  // Clip returned geometry to the circle's bounding box, so a river relation
+  // hundreds of kilometres long comes back as just the stretch that matters.
+  const dLat = radius / 110_540;
+  const dLng = radius / (111_320 * Math.cos(lat * Math.PI / 180));
+  const bbox = [lat - dLat, lng - dLng, lat + dLat, lng + dLng].map(v => v.toFixed(6)).join(',');
+  return `[out:json][timeout:25];
+(
+  way["natural"="water"](around:${radius},${la},${ln});
+  relation["natural"="water"](around:${radius},${la},${ln});
+  way["waterway"~"^(river|canal|stream|riverbank|dock)$"](around:${radius},${la},${ln});
+  relation["waterway"~"^(river|canal|riverbank)$"](around:${radius},${la},${ln});
+  way["landuse"~"^(reservoir|basin)$"](around:${radius},${la},${ln});
+);
+out tags geom(${bbox});`;
+}
+
+/** Overpass `out geom` JSON → a list of polylines, each [{lat,lng}, ...]. */
+function waterLines(json) {
+  const lines = [];
+  const take = geom => {
+    if (!Array.isArray(geom)) return;
+    const pts = geom.filter(g => g && isFinite(g.lat) && isFinite(g.lon)).map(g => ({ lat: g.lat, lng: g.lon }));
+    if (pts.length >= 2) lines.push(pts);
+  };
+  for (const el of json.elements || []) {
+    const tags = el.tags || {};
+    // Underground: a culverted stream or a canal tunnel is walked over.
+    if (tags.tunnel && tags.tunnel !== 'no') continue;
+    if (tags.location === 'underground') continue;
+    if (el.type === 'way') take(el.geometry);
+    else if (el.type === 'relation') {
+      for (const m of el.members || []) if (m.type === 'way') take(m.geometry);
+    }
+  }
+  return lines;
+}
+
+/**
+ * The water around a point, as polylines. Throws when every mirror fails, so the
+ * caller can wait and try again rather than plan a route across a canal.
+ */
+export function fetchWater(lat, lng, radius = 400) {
+  const now = Date.now();
+  for (const e of waterCache.values()) {
+    if (now - e.at < WATER_TTL_MS && distance({ lat, lng }, e.centre) + radius <= e.radius) return Promise.resolve(e.lines);
+  }
+  return oneAtATime(async () => {
+    const json = await queryOverpass(buildWaterQuery(lat, lng, radius));
+    const lines = waterLines(json);
+    waterCache.set(cacheKey(lat, lng, radius), { at: Date.now(), centre: { lat, lng }, radius, lines });
+    while (waterCache.size > 4) waterCache.delete(waterCache.keys().next().value);
+    return lines;
+  });
+}
+
 /** Splits a POI list into the loot-bearing points and the green space. */
 export function splitPOIs(pois) {
   return {

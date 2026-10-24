@@ -2188,13 +2188,31 @@ export const fossilRevivePool = () => DB.fossil.filter(s => s.stage === 1);
 /* ---------------------------------------------------------------
    Daily Route
 
-   Once a day, the first time the game is opened, five real places nearby are
-   strung together into a walk. Stop 1 is within DAILY_ROUTE_START_M of where
+   Once a day, the first time the game is opened, 8 to 10 real places nearby are
+   strung together into a walk (see route.js for the rules). Stop 1 is within DAILY_ROUTE_START_M of where
    you opened the game, and every stop is within DAILY_ROUTE_RADIUS_M of that
    same spot, so the whole loop is a short walk round the neighbourhood rather
    than a trek. They have to be visited in order.
    --------------------------------------------------------------- */
+/** The most stops a route can have. Each day's count is between MIN and this. */
 export const DAILY_ROUTE_STOPS = 10;
+export const DAILY_ROUTE_STOPS_MIN = 8;
+/**
+ * How many stops a given day's route has, 8 to 10. Worked out from the date
+ * rather than rolled, so re-planning the same day (after a failed lookup, say)
+ * never changes the answer.
+ */
+export function dailyRouteStopCount(day) {
+  let h = 2166136261;
+  for (const ch of String(day)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+  const span = DAILY_ROUTE_STOPS - DAILY_ROUTE_STOPS_MIN + 1;
+  return DAILY_ROUTE_STOPS_MIN + (h % span);
+}
+/**
+ * Every leg moves the walk forward along the day's heading by at least this
+ * much, so the route never doubles back on itself.
+ */
+export const DAILY_ROUTE_MIN_FORWARD_M = 15;
 export const DAILY_ROUTE_START_M = 150;
 export const DAILY_ROUTE_RADIUS_M = 400;
 /** No two stops closer than this, so five stops are five places, not one corner. */
@@ -4241,6 +4259,13 @@ export const WEEKLY_MISSIONS = [
     id: 'weekEssence20', kind: 'essenceWeek', target: 20, xp: 20, dust: 150,
     items: { molten_seeker: 1 },
     label: 'Get candies through Essence Harvesting 20 times this week'
+  },
+
+  // ---- raids ----
+  {
+    id: 'weekRaid5', kind: 'raidsWeek', target: 5, xp: 50, dust: 500,
+    items: { ultra_disc: 2, fossil_incense: 1 },
+    label: 'Complete 5 raids this week'
   }
 ];
 

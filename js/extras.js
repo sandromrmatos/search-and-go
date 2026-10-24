@@ -57,7 +57,7 @@ import {
   FEATHER_ITEM, FEATHER_POINTS_PER_DAY, FEATHER_MIN_M, FEATHER_MAX_M,
   FEATHERS_PER_DIAMOND, DIAMOND_ITEM, DIAMOND_STARDUST_COST, DIAMOND_POWER_BONUS,
   DIAMOND_WINS_NEEDED, DIAMOND_METRES_NEEDED, STATUS_CONDITIONS,
-  DAILY_ROUTE_STOPS, DAILY_ROUTE_START_M, DAILY_ROUTE_RADIUS_M, DAILY_ROUTE_XP, DAILY_ROUTE_STARDUST,
+  DAILY_ROUTE_STOPS, DAILY_ROUTE_STOPS_MIN, DAILY_ROUTE_START_M, DAILY_ROUTE_RADIUS_M, DAILY_ROUTE_XP, DAILY_ROUTE_STARDUST,
   DAILY_ROUTE_LEG_MIN_M, DAILY_ROUTE_LEG_MAX_M,
   ELITE_NAME, ELITE_ART, ELITE_MIN_BASE_TOTAL, ELITE_LEVELS, ELITE_STAMINA_START,
   ELITE_STAMINA_PER_TURN, ELITE_STAMINA_KO_BONUS, ELITE_SWITCH_COST
@@ -104,7 +104,7 @@ export function initExtras({ onChange, onMapChange } = {}) {
 
 const MISSION_ICON = {
   registered: '📖', captures: '🎯', capturesToday: '📅',
-  raidsWon: '🔥', raidRarity: '💎', gruntsBeaten: '🧍',
+  raidsWon: '🔥', raidsWeek: '🔥', raidRarity: '💎', gruntsBeaten: '🧍',
   exclusiveRaidsWon: '💠', exclusiveRaidRarity: '💠',
   registeredInSet: '🌌',
   essenceHarvests: '🔮', essenceToday: '🔮', essenceWeek: '🔮',
@@ -1930,6 +1930,7 @@ function renderInfo(tab = 'basics') {
       el('p', { html: '<b>Tap the chip</b> for the rest of the reading: conditions, cloud cover, humidity, precipitation, wind speed and direction, and whether it is currently day or night. Only the temperature gets permanent space in the HUD.' }),
       el('h4', { text: 'What each icon means' }),
       keyline('✦', 'Flickering stars — a wild creature. You only see which one after you catch it.'),
+      keyline('📡', 'Rainbow stars with rainbow sparks — the creature on your <b>radar</b>. Open any unlocked <b>Stage 1</b> creature in the Collection, registered or not, and tap <b>📡 Radar</b>. From then on every wild one of it on the map sparkles in rainbow colours instead of gold or green, so you know what it is before you tap it. One creature at a time: marking another moves the radar to it, and tapping <b>📡 Radar on</b> turns it off.'),
       keyline('◉', `Spinning disc — Capturing Discs, and occasionally an Ultra Capture Disc. During a <b>${RAID_INVASION_LABEL}</b> every one of these also carries an Ultra Capture Disc.`),
       keyline('!', 'Rotating exclamation — a Potion or a Revive.'),
       keyline('🔥', 'Bright orange flame — a raid boss. Battle it with three creatures.'),
@@ -2015,11 +2016,12 @@ function renderInfo(tab = 'basics') {
         el('li', { html: 'There are <b>lifetime missions</b> for finding your first of each part and for reviving 1, 5, 10, 25 and 50 fossils. The part ones count <b>every part you have ever found</b>, so spending them on a revival does not un-complete a mission.' })
       ),
       el('h4', { text: '🧭 Daily Route' }),
-      el('p', { html: `Once a day, the first time the game has your location, <b>${DAILY_ROUTE_STOPS} real places</b> around you are joined into a walk and drawn on the map as <b>numbered stops</b> with a dashed gold line. Stop 1 is within <b>${DAILY_ROUTE_START_M} m</b> of where you opened the game, and every stop is within <b>${DAILY_ROUTE_RADIUS_M} m</b> of that spot.` }),
+      el('p', { html: `Once a day, the first time the game has your location, <b>${DAILY_ROUTE_STOPS_MIN} to ${DAILY_ROUTE_STOPS} real places</b> (how many changes day to day) around you are joined into a walk and drawn on the map as <b>numbered stops</b> with a dashed gold line. Stop 1 is within <b>${DAILY_ROUTE_START_M} m</b> of where you opened the game, and every stop is within <b>${DAILY_ROUTE_RADIUS_M} m</b> of that spot.` }),
       el('ul', {},
         el('li', { html: `Each stop is <b>${DAILY_ROUTE_LEG_MIN_M}–${DAILY_ROUTE_LEG_MAX_M} m</b> from the one before, as near to that as the places around you allow.` }),
+        el('li', { html: 'The walk heads <b>one way</b>, zigzagging from side to side, so it never sends you back and forth. No line between stops crosses another, and none crosses <b>water</b> such as a river, canal or lake.' }),
         el('li', { html: `Walk to them <b>in order</b>. A stop counts as soon as you are within reach of it, the same ${RULES.CAPTURE_RANGE_M} m as everything else (wider during ${RELAX_HOUR_LABEL} or with a Molten Seeker). The next stop pulses and the chip under the timer says how far it is.` }),
-        el('li', { html: `Finish all ${DAILY_ROUTE_STOPS} and tap the chip to claim: <b>one incense</b> — 40% Incense, 20% Rare, 15% Set, 10% Fossil, 10% Shiny, 5% Mysterious — <b>+${DAILY_ROUTE_XP} XP</b>, <b>+${DAILY_ROUTE_STARDUST} stardust</b>, and <b>three creatures</b>: one ordinary wild creature, one of <b>rarity 3 or higher</b> and one of <b>rarity 4 or higher</b>. No discs needed, and the usual shiny odds apply.` }),
+        el('li', { html: `Finish every stop and tap the chip to claim: <b>one incense</b> — 40% Incense, 20% Rare, 15% Set, 10% Fossil, 10% Shiny, 5% Mysterious — <b>+${DAILY_ROUTE_XP} XP</b>, <b>+${DAILY_ROUTE_STARDUST} stardust</b>, and <b>three creatures</b>: one ordinary wild creature, one of <b>rarity 3 or higher</b> and one of <b>rarity 4 or higher</b>. No discs needed, and the usual shiny odds apply.` }),
         el('li', { html: 'A new route is planned each day. One you finished but did not claim waits for you past midnight, and the next day\'s route appears once it is claimed.' }),
         el('li', { html: '<b>Lifetime missions</b> count the routes you claim — 1, 5, 10, 25, 50 and 100 — and there is one for claiming a route <b>7 days in a row</b>. A day counts by the route\'s own date, so claiming yesterday\'s just after midnight keeps the run going.' })
       ),
