@@ -31,7 +31,9 @@ import {
   FEATHER_POINTS_PER_DAY, FEATHER_MIN_M, FEATHER_MAX_M, FEATHER_ITEM, FEATHER_REWARD,
   FOSSIL_POI_VALUES, FOSSIL_REVIVE_MS,
   essenceEligible, ESSENCE_MAX_RARITY,
-  SPOTLIGHT_LABEL, SPOTLIGHT_SPAWN_MS, ESSENCE_SPAWN_MS
+  SPOTLIGHT_LABEL, SPOTLIGHT_SPAWN_MS, ESSENCE_SPAWN_MS,
+  rollTeleportOutcome, rollTeleportSpecies, rollTeleportRaid, buildTeleportGruntTeam,
+  teleportCity, cityNow, SHINY_ODDS
 } from './data.js';
 import { distance, offsetMeters } from './geo.js';
 import { fetchPOIs, splitPOIs } from './osm.js';
@@ -159,15 +161,44 @@ export function buildGruntTeam(playerLevel) {
   return team;
 }
 
-function makeGruntPoint(poi, now, playerLevel) {
+function makeGruntPoint(poi, now, playerLevel, tp = null) {
   const character = GRUNT_CHARACTERS[Math.floor(Math.random() * GRUNT_CHARACTERS.length)];
   return {
     ...basePoint('grunt', poi, now),
+    ...(tp ? { teleport: true } : {}),
     grunt: {
       character: character.id,
       characterLabel: character.label,
       phrase: GRUNT_PHRASES[Math.floor(Math.random() * GRUNT_PHRASES.length)],
-      team: buildGruntTeam(playerLevel),
+      // A teleport grunt: chosen sets, full boosters, held items, one strong creature.
+      team: tp ? buildTeleportGruntTeam(tp.sets, playerLevel) : buildGruntTeam(playerLevel),
+      teleport: !!tp,
+      defeated: false
+    }
+  };
+}
+
+/* ---- teleport points ----
+   Everything is drawn from the sets chosen for the visit, judged against the
+   city's own clock, with base shiny odds and none of the events. */
+const teleportClock = (tp, now) => cityNow(teleportCity(tp.cityId)?.timeZone || 'UTC', now);
+
+function makeTeleportCreaturePoint(poi, now, tp) {
+  const sp = rollTeleportSpecies(tp.sets, teleportClock(tp, now), { poi });
+  if (!sp) return null;
+  return { ...basePoint('creature', poi, now), speciesId: sp.id, teleport: true };
+}
+
+function makeTeleportRaidPoint(poi, now, tp) {
+  const raid = rollTeleportRaid(tp.sets, teleportClock(tp, now), { poi });
+  if (!raid) return null;
+  return {
+    ...basePoint('raid', poi, now),
+    speciesId: raid.speciesId,
+    teleport: true,
+    raid: {
+      ...raid,
+      shiny: store.s.debug.shinyBoost ? chance(0.5) : chance(SHINY_ODDS.normal.raid),
       defeated: false
     }
   };
@@ -243,6 +274,9 @@ export async function runScan(pos, { force = false, forceKind = null, alwaysGrun
   if (!pos) throw new Error('No location yet');
   if (scanning) return { created: [], pois: 0, busy: true, counts: {}, skipped: {} };
   scanning = true;
+  // Read before the lookup, so a teleport that starts or ends while it is out
+  // can be told apart afterwards.
+  const tp = store.teleportSession;
   try {
     const pois = await fetchPOIs(pos.lat, pos.lng, RULES.SCAN_RADIUS_M, { force });
     const { places, parks } = splitPOIs(pois);
@@ -250,8 +284,11 @@ export async function runScan(pos, { force = false, forceKind = null, alwaysGrun
     /* Remember the pharmacies and hospitals. They take part in the ordinary loot
        roll below like any other amenity; this list is only so the map can put a
        cross on them, because they are also the fossil hand-in. */
-    medicalPOIs = pois.filter(p =>
-      p.kind === 'amenity' && FOSSIL_POI_VALUES.includes(p.kindValue));
+    // A teleport is a different city: fossils are only handed in at home.
+    if (!tp) {
+      medicalPOIs = pois.filter(p =>
+        p.kind === 'amenity' && FOSSIL_POI_VALUES.includes(p.kindValue));
+    }
 
     const now = Date.now();
     // One clock reading for the whole scan, so a scan that straddles the end of
@@ -285,11 +322,20 @@ export async function runScan(pos, { force = false, forceKind = null, alwaysGrun
       if (occupiedPOIs.has(poi.id)) { skipped.occupied++; continue; }
       if (tooClose(poi, taken, RULES.MIN_SPAWN_SEPARATION_M)) { skipped.tooClose++; continue; }
 
-      const kind = forceKind || rollPOIOutcome(nowDate);
+      // In a teleport every POI spawns: a creature or a raid, nothing else.
+      const kind = tp
+        ? (['creature', 'raid', 'grunt'].includes(forceKind) ? forceKind : rollTeleportOutcome())
+        : (forceKind || rollPOIOutcome(nowDate));
       if (kind === 'nothing') { skipped.nothing++; continue; }
 
       let point = null;
-      if (kind === 'creature') point = makeCreaturePoint(poi, now);
+      if (tp && kind === 'creature') point = makeTeleportCreaturePoint(poi, now, tp);
+      else if (tp && kind === 'raid') point = makeTeleportRaidPoint(poi, now, tp);
+      else if (tp && kind === 'grunt') {
+        if (tooClose(poi, gruntSpots, RULES.MIN_GRUNT_SEPARATION_M)) { skipped.gruntTooClose++; continue; }
+        point = { ...makeGruntPoint(poi, now, store.level, tp), source: 'poi' };
+      }
+      else if (kind === 'creature') point = makeCreaturePoint(poi, now);
       else if (kind === 'discs') point = makeDiscPoint(poi, now);
       else if (kind === 'items') point = makeItemPoint(poi, now);
       else if (kind === 'raid') point = makeRaidPoint(poi, now);
@@ -355,7 +401,7 @@ export async function runScan(pos, { force = false, forceKind = null, alwaysGrun
 
         // Override the POI lat/lng: the park's own centre is not usable.
         const point = {
-          ...makeGruntPoint({ ...park, lat: spawnPt.lat, lng: spawnPt.lng }, now, store.level),
+          ...makeGruntPoint({ ...park, lat: spawnPt.lat, lng: spawnPt.lng }, now, store.level, tp),
           source: 'park'
         };
         created.push(point);
@@ -364,6 +410,12 @@ export async function runScan(pos, { force = false, forceKind = null, alwaysGrun
         taken.push(spawnPt);
         gruntSpots.push(spawnPt);
       }
+    }
+
+    /* The lookup took a while and you teleported, or came home, in the meantime:
+       these points belong to the other place, so none of them are kept. */
+    if ((store.teleportSession?.startedAt ?? null) !== (tp?.startedAt ?? null)) {
+      return { created: [], pois: pois.length, places: places.length, parks: parks.length, counts, skipped, stale: true };
     }
 
     store.s.lastScanAt = now;

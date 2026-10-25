@@ -2460,6 +2460,188 @@ export function rollEliteTeam(rng = Math.random) {
   return team.length === FRONTIER_TEAM_SIZE ? team : null;
 }
 
+/* ---------------------------------------------------------------
+   Teleport
+
+   A 15-minute visit to one of five famous streets, paid for with points earned
+   by walking. You move with arrows along the real streets, and everything you
+   meet comes from the sets you chose. No items, no events, and every fight is
+   under Elite rules. See teleport.js for the movement and main.js for the mode.
+   --------------------------------------------------------------- */
+export const TELEPORT_MIN_LEVEL = 6;
+export const TELEPORT_COST = 5;
+export const TELEPORT_MAX_POINTS = 25;
+/** One point per this many metres walked for real. */
+export const TELEPORT_METRES_PER_POINT = 1000;
+export const TELEPORT_SESSION_MS = 15 * 60_000;
+/** How far from the start you can walk; the street map covers this circle. */
+export const TELEPORT_RADIUS_M = 1000;
+/** One tap of an arrow. Holding one walks at TELEPORT_HOLD_SPEED_MS metres a second. */
+export const TELEPORT_STEP_M = 10;
+export const TELEPORT_HOLD_SPEED_MS = 5;
+
+export const TELEPORT_CITIES = [
+  { id: 'madrid', city: 'Madrid', place: 'Gran Vía', lat: 40.42010, lng: -3.70580, timeZone: 'Europe/Madrid', flag: '🇪🇸' },
+  { id: 'barcelona', city: 'Barcelona', place: 'Las Ramblas', lat: 41.38070, lng: 2.17340, timeZone: 'Europe/Madrid', flag: '🇪🇸' },
+  { id: 'london', city: 'London', place: 'Oxford Street', lat: 51.51520, lng: -0.14190, timeZone: 'Europe/London', flag: '🇬🇧' },
+  { id: 'newyork', city: 'New York', place: 'Times Square', lat: 40.75800, lng: -73.98550, timeZone: 'America/New_York', flag: '🇺🇸' },
+  { id: 'tokyo', city: 'Tokyo', place: 'Shibuya Crossing', lat: 35.65950, lng: 139.70050, timeZone: 'Asia/Tokyo', flag: '🇯🇵' }
+];
+export const teleportCity = id => TELEPORT_CITIES.find(c => c.id === id) || null;
+
+/** The sets a teleport can be built from: the four main ones. */
+export const TELEPORT_SET_NAMES = [SET_NAME, GALACTIC_SET_NAME, TEMPORAL_SET_NAME, CRYSTAL_SET_NAME];
+/** Sets with at least one unlocked rarity, i.e. something that can spawn. */
+export const teleportSetOptions = () =>
+  TELEPORT_SET_NAMES.filter(name => (DB.spawnable || []).some(sp => setNameOf(sp) === name));
+
+/**
+ * POI odds in a teleport. The weekday table without discs, items, Exclusive Raids
+ * or the empty slice: creature 22 and raid 5, scaled up to fill every POI.
+ */
+export const TELEPORT_POI_OUTCOMES = [
+  { kind: 'creature', weight: 22 },
+  { kind: 'raid', weight: 5 }
+];
+export const rollTeleportOutcome = () => weightedPick(TELEPORT_POI_OUTCOMES).kind;
+
+/** Capture levels: [level, weight]. Wild spawns, then raid bosses. */
+export const TELEPORT_WILD_LEVELS = [[1, 75], [2, 20], [3, 5]];
+export const TELEPORT_RAID_LEVELS = [[3, 75], [4, 20], [5, 5]];
+export const rollTeleportLevel = table =>
+  weightedPick(table.map(([level, weight]) => ({ level, weight }))).level;
+
+/** A wild disc throw fails this often in a teleport, and the creature is gone. */
+export const TELEPORT_FLEE_CHANCE = 0.25;
+/** On top of what the same catch pays at home. */
+export const TELEPORT_BONUS_CANDY = 2;
+export const TELEPORT_DUST_MULTIPLIER = 1.2;
+
+/** A teleport grunt win also pays candy of one of the six creatures in the fight. */
+export const TELEPORT_GRUNT_CANDY = [[1, 50], [2, 30], [3, 10], [5, 7], [10, 3]];
+export const rollTeleportGruntCandy = () =>
+  weightedPick(TELEPORT_GRUNT_CANDY.map(([n, weight]) => ({ n, weight }))).n;
+/** At least one creature in a teleport grunt's team has this base stat total. */
+export const TELEPORT_GRUNT_STRONG_TOTAL = 300;
+
+/**
+ * A Date whose getHours / getDay read the city's local clock. Spawn conditions
+ * read the clock off the Date they are given, so this is all it takes for a
+ * Tokyo night creature to come out at night in Tokyo.
+ */
+export function cityNow(timeZone, at = Date.now()) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric',
+      hour: 'numeric', minute: 'numeric', second: 'numeric'
+    }).formatToParts(new Date(at));
+    const n = t => Number(parts.find(p => p.type === t)?.value);
+    return new Date(n('year'), n('month') - 1, n('day'), n('hour') % 24, n('minute'), n('second'));
+  } catch {
+    return new Date(at);
+  }
+}
+
+/** "14:05" in that city. */
+export const cityClockLabel = (timeZone, at = Date.now()) => {
+  const d = cityNow(timeZone, at);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+
+/** Stage-1 creatures of the chosen sets that may appear right now, by rarity. */
+export function teleportPoolByRarity(sets, now = new Date(), { poi = null } = {}) {
+  const want = new Set(sets || []);
+  const out = { 1: [], 2: [], 3: [], 4: [], 5: [] };
+  for (const r of [1, 2, 3, 4, 5]) {
+    out[r] = (DB.byRarity[r] || []).filter(sp => want.has(setNameOf(sp)) && canSpawnNow(sp, now, { poi }));
+  }
+  return out;
+}
+
+/** A wild creature from the chosen sets, on the ordinary wild odds. */
+export function rollTeleportSpecies(sets, now = new Date(), { poi = null, weights = RARITY_WEIGHTS } = {}) {
+  const buckets = teleportPoolByRarity(sets, now, { poi });
+  for (let i = 0; i < 6; i++) {
+    const pool = buckets[rollRarityWith(weights)];
+    if (pool?.length) return pool[Math.floor(Math.random() * pool.length)];
+  }
+  const flat = Object.values(buckets).flat();
+  if (flat.length) return flat[Math.floor(Math.random() * flat.length)];
+  // Nothing in season at all: anything from the sets, ignoring conditions.
+  const any = (DB.spawnable || []).filter(sp => (sets || []).includes(setNameOf(sp)));
+  return any.length ? any[Math.floor(Math.random() * any.length)] : null;
+}
+
+/**
+ * A teleport raid. The boss you fight is the last form of the line; what you
+ * catch afterwards is the Stage 1 (`speciesId`). Normal raid tiers otherwise.
+ */
+export function rollTeleportRaid(sets, now = new Date(), { poi = null } = {}) {
+  const rarity = rollRaidRarity();
+  const pool = teleportPoolByRarity(sets, now, { poi })[rarity];
+  const sp = pool?.length ? pool[Math.floor(Math.random() * pool.length)] : rollTeleportSpecies(sets, now, { poi });
+  if (!sp) return null;
+  const tier = RAID_TIERS[rarity];
+  const boss = finalEvolutionOf(sp.id) || sp;
+  return {
+    speciesId: sp.id,
+    bossId: boss.id,
+    rarity,
+    level: randInt(tier.levels[0], tier.levels[1]),
+    xp: tier.xp,
+    dustRange: tier.dust,
+    teleport: true
+  };
+}
+
+/** The held item a teleport grunt's creature carries: its type's trinket, sometimes something better. */
+export function pickTeleportHeldItem(sp, level, rng = Math.random) {
+  const special = [];
+  if (level >= 8) special.push('strength_sigil');
+  if (sp.stage === 2) special.push('growth_crystal');
+  if (special.length && rng() < 0.25) return special[Math.floor(rng() * special.length)];
+  const suffix = ['gem', 'shield', 'cog'][Math.floor(rng() * 3)];
+  const id = `${String(sp.type).toLowerCase()}_${suffix}`;
+  return isHeldItem(id) ? id : null;
+}
+
+/**
+ * A teleport grunt's team: three creatures from the chosen sets (any stage), each
+ * with all twenty Stat Boosters and a held item, and at least one with a base
+ * stat total of TELEPORT_GRUNT_STRONG_TOTAL or more. Levels as at home.
+ */
+export function buildTeleportGruntTeam(sets, playerLevel, rng = Math.random) {
+  const want = new Set(sets || []);
+  let pool = (DB.available || []).filter(sp => want.has(setNameOf(sp)) && sp.moves?.length);
+  if (pool.length < FRONTIER_TEAM_SIZE) pool = (DB.available || []).filter(sp => sp.moves?.length);
+  let strong = pool.filter(sp => baseStatTotal(sp) >= TELEPORT_GRUNT_STRONG_TOTAL);
+  // A set with nothing that strong still has to field one: the rule wins over the set.
+  if (!strong.length) {
+    strong = (DB.available || []).filter(sp => baseStatTotal(sp) >= TELEPORT_GRUNT_STRONG_TOTAL && sp.moves?.length);
+  }
+  const [lo, hi] = gruntLevelRange(playerLevel);
+  const used = new Set();
+  const make = sp => {
+    used.add(sp.id);
+    const level = lo + Math.floor(rng() * (hi - lo + 1));
+    return { speciesId: sp.id, name: sp.name, level, held: pickTeleportHeldItem(sp, level, rng),
+      boosts: randomBoosts(MAX_STAT_BOOSTS, rng) };
+  };
+  const team = [];
+  if (strong.length) team.push(make(strong[Math.floor(rng() * strong.length)]));
+  for (let guard = 0; team.length < FRONTIER_TEAM_SIZE && guard < 200; guard++) {
+    const sp = pool[Math.floor(rng() * pool.length)];
+    if (!sp || (used.has(sp.id) && used.size < pool.length)) continue;
+    team.push(make(sp));
+  }
+  // Shuffled so the strong one is not always first out.
+  for (let i = team.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [team[i], team[j]] = [team[j], team[i]];
+  }
+  return team;
+}
+
 /**
  * The three difficulties, and everything that varies between them: what the
  * trainer brings, and what winning is worth.
@@ -5998,6 +6180,8 @@ export const familyRootsMatching = text =>
      speed > 120               by any of the four stats, as they are right now
      buff = attack             the stat its +10% roll landed on
      debuff = speed            and the stat that took the -10%
+     set = elemental awakening by set (part of the name is enough)
+     can level up              enough candy and stardust for the next level
 
    Several are joined with `&` and all of them have to hold, so
    `type = mystic & attack > 70` is the two conditions together. Anything without
@@ -6020,8 +6204,43 @@ const STORAGE_QUERY_FIELDS = {
   debuff: 'debuff',
   debuffed: 'debuff',
   rarity: 'rarity',
-  stage: 'stage'
+  stage: 'stage',
+  set: 'set'
 };
+
+/**
+ * The set a species belongs to, by name — the same split as the Collection's
+ * tabs (speciesForSet), checked in the same order.
+ */
+export function setNameOf(sp) {
+  if (!sp) return null;
+  if (sp.galactic) return GALACTIC_SET_NAME;
+  if (sp.temporal) return TEMPORAL_SET_NAME;
+  if (sp.crystal) return CRYSTAL_SET_NAME;
+  if (sp.exclusive) return EXCLUSIVE_SET_NAME;
+  if (sp.fossil) return FOSSIL_SET_NAME;
+  if (sp.mythical) return MYTHICAL_SET_NAME;
+  return SET_NAME;
+}
+
+/** Lower case, letters and digits only, so "Elemental-Awakening" still matches. */
+const squash = v => String(v ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/**
+ * The set names a typed value means. Whole name first; failing that, any set
+ * whose name contains it ("galactic", "exclusives" → Exclusive).
+ */
+function resolveSetNames(value) {
+  const names = SETS.filter(s => s.setName).map(s => s.setName);
+  const q = squash(value);
+  if (!q) return [];
+  const exact = names.filter(n => squash(n) === q);
+  if (exact.length) return exact;
+  return names.filter(n => squash(n).includes(q) || q.includes(squash(n)));
+}
+
+/** "can level up", any case or spacing: enough candy and stardust for the next level. */
+const CAN_LEVEL_RE = /^can\s*level\s*-?\s*up$/i;
 
 /** Comparisons, longest first so `>=` is read before `>`. */
 const STORAGE_QUERY_OPS = ['>=', '<=', '==', '!=', '=', '>', '<'];
@@ -6052,7 +6271,10 @@ function parseStorageTerm(raw) {
     const i = text.indexOf(candidate);
     if (i > 0 && (at === -1 || i < at)) { op = candidate; at = i; }
   }
-  if (!op) return { kind: 'name', text: text.toLowerCase() };
+  if (!op) {
+    if (CAN_LEVEL_RE.test(text)) return { kind: 'canLevel', text };
+    return { kind: 'name', text: text.toLowerCase() };
+  }
 
   const rawField = text.slice(0, at).trim().toLowerCase();
   const rawValue = text.slice(at + op.length).trim();
@@ -6088,6 +6310,18 @@ function parseStorageTerm(raw) {
       resolved.push(hit);
     }
     return { kind: 'type', values: resolved, negate, text };
+  }
+
+  if (field === 'set') {
+    const resolved = [];
+    for (const v of values) {
+      const hit = resolveSetNames(v);
+      if (!hit.length) {
+        return fail(`"${v}" is not a set — try ${SETS.filter(s => s.setName).map(s => s.setName).join(', ')}`);
+      }
+      for (const n of hit) if (!resolved.includes(n)) resolved.push(n);
+    }
+    return { kind: 'set', values: resolved, negate, text };
   }
 
   // buff / debuff name one of the four stats.
@@ -6135,6 +6369,8 @@ export function storageTermLabel(term) {
     case 'level': return `level ${term.op} ${term.value}`;
     case 'rarity': return `rarity ${term.op} ${term.value}`;
     case 'stage': return `stage ${term.op} ${term.value}`;
+    case 'set': return `set ${term.negate ? '≠' : '='} ${term.values.join(' / ')}`;
+    case 'canLevel': return 'can level up';
     default: return '';
   }
 }
@@ -6148,6 +6384,8 @@ export const STORAGE_QUERY_HELP = [
   { example: 'debuff = speed', means: 'the stat that took the −10%.' },
   { example: 'rarity = 5', means: 'by rarity, 1 to 6.' },
   { example: 'stage = 2', means: 'by evolution stage.' },
+  { example: 'set = elemental awakening', means: 'by set, as in the Collection tabs. Part of the name works too: set = galactic.' },
+  { example: 'can level up', means: 'only creatures you have enough candy and stardust to level up right now.' },
   { example: 'type = mystic & attack > 70', means: 'join filters with & and all of them have to hold.' },
   { example: 'toxi & level > 5', means: 'a plain name still works, on its own or as one of the terms.' }
 ];

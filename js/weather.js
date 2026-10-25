@@ -152,6 +152,20 @@ async function fetchCurrent(lat, lng) {
   }
 }
 
+/**
+ * The weather somewhere else — the teleport city picker. Its own small cache, so
+ * it never disturbs the reading for where the player actually is.
+ */
+const elsewhere = new Map(); // "lat,lng" -> { at, reading }
+export async function weatherAt(lat, lng) {
+  const key = `${lat.toFixed(COORD_DECIMALS)},${lng.toFixed(COORD_DECIMALS)}`;
+  const hit = elsewhere.get(key);
+  if (hit && Date.now() - hit.at < REFRESH_MS) return hit.reading;
+  const reading = await fetchCurrent(Number(lat.toFixed(COORD_DECIMALS)), Number(lng.toFixed(COORD_DECIMALS)));
+  elsewhere.set(key, { at: Date.now(), reading });
+  return reading;
+}
+
 export const Weather = {
   /** Last known temperature in whole degrees Celsius, or null if unknown. */
   get celsius() { return reading ? Math.round(reading.celsius) : null; },

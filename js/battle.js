@@ -135,9 +135,10 @@ export function battlerFromCreature(c) {
 
 /** Raid boss: levelled stats with tripled HP and 10% more of everything else. */
 export function battlerFromRaid(raid) {
-  const sp = species(raid.speciesId);
+  // A teleport raid is fought against the last form of the line.
+  const sp = species(raid.bossId || raid.speciesId);
   return new Battler({
-    speciesId: raid.speciesId,
+    speciesId: sp.id,
     level: raid.level,
     shiny: !!raid.shiny,
     stats: raidBossStats(sp, raid.level, !!raid.exclusive),
@@ -1364,7 +1365,9 @@ export function buildRaidBattle(creatures, raid, rng = Math.random) {
     enemy: [battlerFromRaid(raid)],
     kind: 'raid',
     rng,
-    env: battleEnv()
+    env: battleEnv(),
+    // Teleport raids are fought under Elite rules.
+    elite: !!raid.teleport
   });
 }
 

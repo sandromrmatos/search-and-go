@@ -11,7 +11,7 @@ import {
   familyRootsMatching,
   heldItem, heldItemImage, heldItemRequirement, heldStatBonus,
   fullLearnset, finalEvolutionOf, evolutionTargets, spawnRestrictionState,
-  parseStorageQuery, storageTermLabel, compareWithOp, STORAGE_QUERY_HELP,
+  parseStorageQuery, storageTermLabel, compareWithOp, STORAGE_QUERY_HELP, setNameOf,
   moveForCreature, moveBoostFor, movesForCreature,
   DIAMOND_ITEM, DIAMOND_STARDUST_COST, DIAMOND_POWER_BONUS,
   DIAMOND_WINS_NEEDED, DIAMOND_METRES_NEEDED,
@@ -336,6 +336,14 @@ function termHit(term, c) {
       return compareWithOp(Number(s.stage) || 1, term.op, term.value);
     case 'stat':
       return compareWithOp(creatureStats(c)[term.stat] ?? 0, term.op, term.value);
+    case 'set': {
+      const hit = term.values.includes(setNameOf(s));
+      return term.negate ? !hit : hit;
+    }
+    // The same check as the Level up button: candy and stardust in hand, not
+    // maxed, not breeding.
+    case 'canLevel':
+      return !!store.canLevelUp(c.uid)?.ok;
     case 'buff': {
       const hit = term.stats.includes(c.statMod?.up);
       return term.negate ? !hit : hit;
@@ -1305,7 +1313,10 @@ export function openItemSheet(itemId) {
       onclick: () => { closeSheet('sheet'); openCreaturePicker(itemId); }
     }, label));
   }
-  if (def.use === 'timed') {
+  if (def.use === 'timed' && store.isTeleporting) {
+    // Incense, the Stardust Magnet and the Molten Seeker stay at home.
+    actions.push(el('button', { class: 'btn primary', disabled: true }, 'Not while teleported'));
+  } else if (def.use === 'timed') {
     // Every incense type shares the one incense slot; the magnet and the
     // Molten Seeker each have their own, so they can all burn together.
     const kind = effectSlotForItem(itemId);
@@ -1974,7 +1985,7 @@ const SPECIES_SORTERS = {
 };
 
 /** The filter terms that mean anything without an individual creature. */
-const SPECIES_TERM_KINDS = ['name', 'type', 'rarity', 'stage'];
+const SPECIES_TERM_KINDS = ['name', 'type', 'rarity', 'stage', 'set'];
 
 /** Does one parsed term hold for a species? The species-only subset of termHit. */
 function speciesTermHit(term, s) {
@@ -1989,6 +2000,10 @@ function speciesTermHit(term, s) {
       return compareWithOp(s.rarity || familyRarity(s.id) || 1, term.op, term.value);
     case 'stage':
       return compareWithOp(Number(s.stage) || 1, term.op, term.value);
+    case 'set': {
+      const hit = term.values.includes(setNameOf(s));
+      return term.negate ? !hit : hit;
+    }
     default:
       return true;
   }
@@ -3022,7 +3037,7 @@ function renderSpeciesSheet(speciesId) {
           if (radarOn) toast('📡 Radar off', '', 2400);
           else {
             const prev = before && before !== s.id ? species(before) : null;
-            toast(`📡 Radar on: ${known ? s.name : 'this creature'} will sparkle in rainbow colours on the map`
+            toast(`📡 Radar on: ${known ? s.name : 'this creature'} will sparkle in rainbow colours on the map, raids included`
               + (prev && store.isRegistered(prev.id) ? ` (replaces ${prev.name})` : ''), 'good', 3600);
           }
           renderSpeciesSheet(s.id);

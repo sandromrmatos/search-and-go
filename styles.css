@@ -637,6 +637,14 @@ a { color: var(--accent); }
 .spawn-marker.radar .radar-sparks .rs5 { color: #7b8cff; left: -21px; top: 7px;   animation-delay: .93s; }
 .spawn-marker.radar .radar-sparks .rs6 { color: #d68cff; left: -19px; top: -12px; animation-delay: 1.16s; }
 .spawn-marker.radar.collected .radar-sparks { display: none; }
+/* A raid keeps its flame; the sparks sit a little wider round the bigger icon. */
+.spawn-marker.kind-raid.radar .radar-sparks i { width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; }
+.spawn-marker.kind-raid.radar .radar-sparks .rs1 { top: -26px; }
+.spawn-marker.kind-raid.radar .radar-sparks .rs4 { top: 18px; }
+.spawn-marker.kind-raid.radar .radar-sparks .rs2,
+.spawn-marker.kind-raid.radar .radar-sparks .rs3 { left: 24px; }
+.spawn-marker.kind-raid.radar .radar-sparks .rs5,
+.spawn-marker.kind-raid.radar .radar-sparks .rs6 { left: -24px; }
 .spawn-marker.radar.collected .stars .s { animation: twinkle 1.5s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) {
   .spawn-marker.radar .radar-sparks i { animation: none; opacity: .8; }
@@ -1177,6 +1185,52 @@ body.overlay-open .essence-arrow-glyph {
 .nick-error { color: #ffb3b3; font-size: 12px; margin: 8px 0 0; }
 .nick-row { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
 .nick-row b { font-size: 18px; }
+
+/* ---- teleport ---- */
+.tp-btn { position: relative; font-size: 14px; line-height: 1; }
+.tp-btn.locked { filter: grayscale(1); opacity: .55; }
+.tp-btn.active { border-color: #b07cff; box-shadow: 0 0 10px #b07cff88; }
+.tp-btn .tp-badge {
+  position: absolute; top: -6px; right: -6px; min-width: 15px; height: 15px; padding: 0 3px;
+  border-radius: 99px; font-size: 9.5px; font-style: normal; font-weight: 800; line-height: 15px;
+  background: #b07cff; color: #fff; text-align: center;
+}
+.tp-btn .tp-badge:empty { display: none; }
+.teleport-banner {
+  margin-top: 38px; display: flex; align-items: center; gap: 8px; max-width: 100%;
+  padding: 6px 10px; border-radius: 99px; font: inherit; font-size: 12.5px; font-weight: 700;
+  color: #f3e6ff; background: linear-gradient(90deg, #3b1f6bdd, #1b2450dd);
+  border: 1px solid #b07cff88; box-shadow: 0 2px 10px #0007; cursor: pointer;
+  pointer-events: auto;
+}
+.teleport-banner .tp-banner-go { font-size: 11px; padding: 2px 8px; border-radius: 99px; background: #ffffff22; }
+.teleport-banner:not(.hidden) + .effect-chips { margin-top: 0; }
+.tp-arrows-icon { pointer-events: none; }
+.tp-arrows { position: relative; width: 0; height: 0; pointer-events: none; }
+.tp-arrow {
+  position: absolute; width: 36px; height: 36px; border-radius: 50%; pointer-events: auto;
+  display: grid; place-items: center; touch-action: none; user-select: none; -webkit-user-select: none;
+  background: #b07cffdd; color: #fff; border: 2px solid #fff; box-shadow: 0 2px 8px #0008;
+  font-size: 15px; cursor: pointer;
+}
+.tp-arrow:active { transform: scale(.9); background: #8f5cf0; }
+.tp-arrow span { display: block; line-height: 1; }
+.tp-points { margin: 4px 0 6px; }
+.tp-sets { display: flex; flex-wrap: wrap; gap: 8px; }
+.tp-set {
+  display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 99px;
+  border: 1px solid var(--line); background: #ffffff0d; font-size: 13px;
+}
+.tp-cities { display: flex; flex-direction: column; gap: 6px; }
+.tp-city {
+  display: flex; align-items: center; gap: 10px; text-align: left; width: 100%;
+  padding: 8px 10px; border-radius: 12px; font: inherit; color: var(--txt);
+  border: 1px solid var(--line); background: #ffffff0a; cursor: pointer;
+}
+.tp-city.picked { border-color: #b07cff; background: #b07cff22; }
+.tp-city.visited { opacity: .5; cursor: not-allowed; }
+.tp-flag { font-size: 24px; }
+.tp-city-main { display: flex; flex-direction: column; gap: 2px; }
 
 /* ---- active effect chips ---- */
 .effect-chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 38px; }

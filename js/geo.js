@@ -48,10 +48,14 @@ export const Geo = {
   error: null,
   listeners: new Set(),
 
-  get usingFake() { return !!this.fake; },
+  /** Teleport mode's position, which wins over everything, debug included. */
+  teleport: null,
 
-  /** The position the game should use right now (fake wins). */
+  get usingFake() { return !!this.fake || !!this.teleport; },
+
+  /** The position the game should use right now (teleport, then fake, then GPS). */
   get current() {
+    if (this.teleport) return { lat: this.teleport.lat, lng: this.teleport.lng, accuracy: 5, at: Date.now(), fake: true, teleport: true };
     if (this.fake) return { lat: this.fake.lat, lng: this.fake.lng, accuracy: 5, at: Date.now(), fake: true };
     return this.position;
   },
@@ -98,6 +102,11 @@ export const Geo = {
 
   setFake(point) {
     this.fake = point ? { lat: point.lat, lng: point.lng } : null;
+    this._emit();
+  },
+
+  setTeleport(point) {
+    this.teleport = point ? { lat: point.lat, lng: point.lng } : null;
     this._emit();
   },
 

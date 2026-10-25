@@ -485,11 +485,74 @@ export const GameMap = {
    * back shows it again instantly with nothing to rebuild.
    */
   /* ---------------------------------------------------------------
+     Teleport arrows
+
+     One button per street leaving where you stand, laid out round the blue dot
+     at that street's bearing. They live in map space on purpose: when the map
+     is rotated the arrows turn with the streets they point down.
+     --------------------------------------------------------------- */
+  teleportArrows: null,
+  teleportRing: null,
+  _arrowKey: null,
+
+  setTeleportArrows(pos, dirs, onPress) {
+    if (!this.map) return;
+    if (!pos || !dirs?.length) { this.clearTeleportArrows(); return; }
+    const key = dirs.map(d => `${d.from}>${d.to}`).join('|');
+    if (this.teleportArrows && key === this._arrowKey) {
+      this.teleportArrows.setLatLng([pos.lat, pos.lng]);
+      return;
+    }
+    this.clearTeleportArrows();
+    this._arrowKey = key;
+    const host = document.createElement('div');
+    host.className = 'tp-arrows';
+    const R = 54;
+    dirs.forEach(d => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'tp-arrow';
+      b.setAttribute('aria-label', `Walk ${Math.round(d.bearing)}°`);
+      const rad = d.bearing * Math.PI / 180;
+      b.style.left = `${Math.sin(rad) * R - 18}px`;
+      b.style.top = `${-Math.cos(rad) * R - 18}px`;
+      b.innerHTML = `<span style="transform:rotate(${d.bearing}deg)">▲</span>`;
+      const stop = e => { e.stopPropagation(); };
+      b.addEventListener('pointerdown', e => { stop(e); e.preventDefault(); onPress(d); });
+      for (const t of ['mousedown', 'touchstart', 'click', 'dblclick']) b.addEventListener(t, stop);
+      host.append(b);
+    });
+    this.teleportArrows = L.marker([pos.lat, pos.lng], {
+      icon: L.divIcon({ className: 'tp-arrows-icon', html: host, iconSize: [0, 0], iconAnchor: [0, 0] }),
+      interactive: false,
+      keyboard: false,
+      zIndexOffset: 1000
+    }).addTo(this.map);
+  },
+
+  clearTeleportArrows() {
+    if (this.teleportArrows) this.map?.removeLayer(this.teleportArrows);
+    this.teleportArrows = null;
+    this._arrowKey = null;
+  },
+
+  /** The edge of the walkable area, so you can see where the streets stop. */
+  setTeleportRing(centre, radius) {
+    if (!this.map) return;
+    if (this.teleportRing) { this.map.removeLayer(this.teleportRing); this.teleportRing = null; }
+    if (!centre) return;
+    this.teleportRing = L.circle([centre.lat, centre.lng], {
+      radius, color: '#b07cff', weight: 2, opacity: .6, dashArray: '6 8', fill: false, interactive: false
+    }).addTo(this.map);
+  },
+
+  /* ---------------------------------------------------------------
      Radar
 
      One stage-1 species the player has marked in the Collection. A wild
      creature of that species gets rainbow stars and six rainbow sparks instead
-     of the gold / green ones, so it stands out before it is tapped. The sparks
+     of the gold / green ones, so it stands out before it is tapped. A raid with
+     that boss keeps its flame and gets the rainbow sparks round it. The sparks
      are only added to matching markers, never to every creature on the map.
      --------------------------------------------------------------- */
   radarSpecies: null,
@@ -502,7 +565,9 @@ export const GameMap = {
   },
 
   _paintRadar(root, point) {
-    const on = !!this.radarSpecies && point.kind === 'creature' && point.speciesId === this.radarSpecies;
+    // Wild creatures and raids. A raid boss is drawn from the same stage-1 pools.
+    const on = !!this.radarSpecies && (point.kind === 'creature' || point.kind === 'raid')
+      && point.speciesId === this.radarSpecies;
     root.classList.toggle('radar', on);
     const sparks = root.querySelector('.radar-sparks');
     if (on && !sparks) {

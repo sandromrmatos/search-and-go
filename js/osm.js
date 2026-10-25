@@ -687,6 +687,39 @@ export function fetchWater(lat, lng, radius = 400) {
   });
 }
 
+/* ---------------------------------------------------------------
+   Streets, for Teleport mode
+
+   Every way you can walk along inside the circle: streets, footways and
+   pedestrian areas. Motorways and trunk roads are left out, and so is anything
+   marked private. Comes back as ways with their node ids (to join them up) and
+   their geometry (to draw and walk them). Cached in memory per spot.
+   --------------------------------------------------------------- */
+const streetCache = new Map();
+const WALKABLE = 'residential|living_street|pedestrian|footway|path|steps|primary|primary_link|secondary|'
+  + 'secondary_link|tertiary|tertiary_link|unclassified|service|cycleway|track|corridor';
+
+export function fetchStreets(lat, lng, radius = 1000) {
+  const key = cacheKey(lat, lng, radius);
+  if (streetCache.has(key)) return Promise.resolve(streetCache.get(key));
+  const la = lat.toFixed(7), ln = lng.toFixed(7);
+  const q = `[out:json][timeout:40];
+way["highway"~"^(${WALKABLE})$"]["access"!~"^(private|no)$"]["foot"!~"^(no|private)$"]["service"!~"^(parking_aisle|driveway)$"](around:${radius},${la},${ln});
+out skel geom;`;
+  return oneAtATime(async () => {
+    const json = await queryOverpass(q);
+    const ways = [];
+    for (const el of json.elements || []) {
+      if (el.type !== 'way' || !Array.isArray(el.nodes) || !Array.isArray(el.geometry)) continue;
+      if (el.nodes.length !== el.geometry.length || el.nodes.length < 2) continue;
+      ways.push({ nodes: el.nodes, geometry: el.geometry.map(g => ({ lat: g.lat, lng: g.lon })) });
+    }
+    if (!ways.length) throw new Error('No streets came back');
+    streetCache.set(key, ways);
+    return ways;
+  });
+}
+
 /** Splits a POI list into the loot-bearing points and the green space. */
 export function splitPOIs(pois) {
   return {

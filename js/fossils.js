@@ -245,7 +245,8 @@ function giveFossils() {
 
   const r = store.startFossilRevive(n, spot);
   if (!r.ok) {
-    toast(r.reason === 'parts' ? 'You do not have that many complete sets'
+    toast(r.reason === 'teleport' ? 'Fossils can only be left at home, not while teleported'
+      : r.reason === 'parts' ? 'You do not have that many complete sets'
       : r.reason === 'noSpecies' ? 'No fossil creatures are loaded'
       : 'Could not leave them', 'bad');
     return;

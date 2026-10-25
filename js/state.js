@@ -54,7 +54,11 @@ import {
   ACHIEVEMENT_MISSIONS, ACHIEVEMENT_TIERS, ACHIEVEMENT_DAMAGE_TYPES,
   achievementCandy, achievementTierFor,
   CUSTOM_ACHIEVEMENTS, CUSTOM_ACHIEVEMENT_MISSIONS, CUSTOM_ACHIEVEMENT_BIG_RAID,
-  CUSTOM_TITLE_PREFIX, isCustomTitleId, customAchievement
+  CUSTOM_TITLE_PREFIX, isCustomTitleId, customAchievement,
+  TELEPORT_MIN_LEVEL, TELEPORT_COST, TELEPORT_MAX_POINTS, TELEPORT_METRES_PER_POINT,
+  TELEPORT_SESSION_MS, TELEPORT_CITIES, teleportCity, teleportSetOptions,
+  TELEPORT_BONUS_CANDY, TELEPORT_DUST_MULTIPLIER, TELEPORT_RAID_LEVELS, rollTeleportLevel,
+  rollTeleportGruntCandy, SHINY_ODDS, cityNow
 } from './data.js';
 import { ITEMS, item as itemDef } from './items.js';
 import { elevationNow } from './weather.js';
@@ -168,6 +172,12 @@ function blankState() {
     avatar: null,
     /** The stage-1 species marked on the radar, or null. Its wild spawns sparkle in rainbow colours. */
     radarSpecies: null,
+    /**
+     * Teleport mode. `points` are earned by walking (`metres` is the part-walked
+     * kilometre), `visits` is which cities were used this week, and `session` is
+     * the running visit — with `home`, everything parked while away.
+     */
+    teleport: { points: 0, metres: 0, visits: { week: null, cities: {} }, session: null },
 
     xp: 0,
     stardust: 0,
@@ -529,6 +539,33 @@ export function migrate(raw) {
   {
     const r = typeof s.radarSpecies === 'string' ? DB.byId.get(s.radarSpecies) : null;
     s.radarSpecies = r && r.stage === 1 ? r.id : null;
+  }
+  {
+    const t = raw.teleport && typeof raw.teleport === 'object' ? raw.teleport : {};
+    const v = t.visits && typeof t.visits === 'object' ? t.visits : {};
+    const cities = {};
+    for (const [id, at] of Object.entries(v.cities || {})) if (teleportCity(id)) cities[id] = Number(at) || Date.now();
+    const sess = t.session && typeof t.session === 'object' && teleportCity(t.session.cityId)
+      && isFinite(t.session.endsAt) && t.session.pos && isFinite(t.session.pos.lat) && isFinite(t.session.pos.lng)
+      ? {
+        cityId: t.session.cityId,
+        sets: Array.isArray(t.session.sets) ? t.session.sets.filter(x => typeof x === 'string') : [],
+        startedAt: Number(t.session.startedAt) || Date.now(),
+        endsAt: Number(t.session.endsAt),
+        pos: { lat: Number(t.session.pos.lat), lng: Number(t.session.pos.lng) },
+        home: {
+          points: Array.isArray(t.session.home?.points) ? t.session.home.points : [],
+          effects: t.session.home?.effects && typeof t.session.home.effects === 'object' ? t.session.home.effects : {},
+          lastScanAt: Number(t.session.home?.lastScanAt) || 0
+        }
+      }
+      : null;
+    s.teleport = {
+      points: Math.max(0, Math.min(TELEPORT_MAX_POINTS, Math.floor(Number(t.points) || 0))),
+      metres: Math.max(0, Math.min(TELEPORT_METRES_PER_POINT, Number(t.metres) || 0)),
+      visits: { week: typeof v.week === 'string' ? v.week : null, cities },
+      session: sess
+    };
   }
 
   // ---- creatures ----
@@ -1155,6 +1192,110 @@ class Store {
     return true;
   }
 
+  /* ---------------- teleport ---------------- */
+
+  get teleportPoints() { return this.s.teleport.points; }
+  get teleportUnlocked() { return this.level >= TELEPORT_MIN_LEVEL; }
+  /** The running visit, or null. Stays set past its end until endTeleport runs. */
+  get teleportSession() { return this.s.teleport.session; }
+  get isTeleporting() { return !!this.s.teleport.session; }
+
+  /**
+   * Real walking only (addWalk is never fed while teleported). A point per
+   * kilometre, nothing at all while the bag is full.
+   */
+  addTeleportWalk(metres) {
+    const t = this.s.teleport;
+    if (t.points >= TELEPORT_MAX_POINTS) { t.metres = 0; return 0; }
+    t.metres += metres;
+    let gained = 0;
+    while (t.metres >= TELEPORT_METRES_PER_POINT && t.points < TELEPORT_MAX_POINTS) {
+      t.metres -= TELEPORT_METRES_PER_POINT;
+      t.points++;
+      gained++;
+    }
+    if (t.points >= TELEPORT_MAX_POINTS) t.metres = 0;
+    return gained;
+  }
+
+  /** Cities already visited this week (the week resets on Monday). */
+  teleportVisitedThisWeek(cityId) {
+    const v = this.s.teleport.visits;
+    return v.week === weekKey() && !!v.cities[cityId];
+  }
+
+  /** Why a teleport to this city cannot start, or null when it can. */
+  teleportBlocker(cityId, sets = []) {
+    if (!this.teleportUnlocked) return 'level';
+    if (this.isTeleporting) return 'active';
+    if (!teleportCity(cityId)) return 'city';
+    if (this.teleportVisitedThisWeek(cityId)) return 'visited';
+    if (this.s.teleport.points < TELEPORT_COST) return 'points';
+    const ok = teleportSetOptions();
+    if (!sets.length || !sets.every(x => ok.includes(x))) return 'sets';
+    return null;
+  }
+
+  /**
+   * Starts a visit. Everything at home is parked: the map points, and any
+   * incense, magnet or seeker, which resume with the time they had left.
+   */
+  startTeleport({ cityId, sets, pos, now = Date.now() }) {
+    const why = this.teleportBlocker(cityId, sets);
+    if (why) return { ok: false, reason: why };
+    const t = this.s.teleport;
+    t.points -= TELEPORT_COST;
+    if (t.visits.week !== weekKey()) t.visits = { week: weekKey(), cities: {} };
+    t.visits.cities[cityId] = now;
+
+    const effects = {};
+    for (const kind of EFFECT_KINDS) {
+      const fx = this.s.effects[kind];
+      if (fx && fx.endsAt > now) effects[kind] = { ...fx, remainingMs: fx.endsAt - now };
+      this.s.effects[kind] = null;
+    }
+    t.session = {
+      cityId, sets: [...sets], startedAt: now, endsAt: now + TELEPORT_SESSION_MS,
+      pos: { lat: pos.lat, lng: pos.lng },
+      home: { points: this.s.points, effects, lastScanAt: this.s.lastScanAt || 0 }
+    };
+    this.s.points = [];
+    this.s.lastScanAt = 0;
+    this.touch('teleport', { immediate: true });
+    return { ok: true, session: t.session };
+  }
+
+  /** Where you are standing in the city, saved as you move. */
+  setTeleportPos(pos) {
+    const sess = this.s.teleport.session;
+    if (!sess || !pos) return;
+    sess.pos = { lat: pos.lat, lng: pos.lng };
+    this.touch('teleport-move');
+  }
+
+  /**
+   * Back home. Effects resume with their remaining time. Of the parked points
+   * only the ones that are yours whatever the scan — an essence, a feather, the
+   * trainer who found you — come back, and only if still live; the rest of the
+   * home map is re-rolled straight away.
+   */
+  endTeleport(now = Date.now()) {
+    const sess = this.s.teleport.session;
+    if (!sess) return { ok: false };
+    for (const [kind, fx] of Object.entries(sess.home.effects || {})) {
+      if (!EFFECT_KINDS.includes(kind) || !(fx.remainingMs > 0)) continue;
+      const { remainingMs, ...rest } = fx;
+      this.s.effects[kind] = { ...rest, endsAt: now + remainingMs, lastSpawnAt: rest.lastSpawnAt == null ? null : 0 };
+    }
+    const keep = p => p && p.expiresAt > now && !p.collected
+      && (p.kind === 'essence' || p.kind === 'feather' || (p.kind === 'grunt' && p.source === 'window'));
+    this.s.points = (sess.home.points || []).filter(keep);
+    this.s.lastScanAt = 0;
+    this.s.teleport.session = null;
+    this.touch('teleport', { immediate: true });
+    return { ok: true, cityId: sess.cityId };
+  }
+
   setNickname(name) {
     const clean = String(name || '').trim().slice(0, 20);
     if (!clean) return false;
@@ -1193,7 +1334,9 @@ class Store {
    */
   addStardust(n) {
     const raw = Number(n) || 0;
-    const amount = raw > 0 ? Math.round(raw * stardustMultiplier()) : raw;
+    // Stardust Sunday is an event, and events do not reach a teleport.
+    const mult = this.isTeleporting ? 1 : stardustMultiplier();
+    const amount = raw > 0 ? Math.round(raw * mult) : raw;
     this.s.stardust = Math.max(0, this.s.stardust + amount);
     return amount;
   }
@@ -1220,7 +1363,9 @@ class Store {
     // Precious Diamonds count the player's own walking, so they ride along here
     // with the buddy and the eggs rather than having their own hook.
     const diamonds = this.addDiamondWalk(metres);
+    const teleportPoints = this.isTeleporting ? 0 : this.addTeleportWalk(metres);
     return {
+      teleportPoints,
       changed: stepsMoved || walked.candy > 0 || walked.progressed || eggs.moved
         || missionDone || diamonds.moved,
       buddyCandy: walked.candy,
@@ -1964,6 +2109,7 @@ class Store {
   startEffect(kind, now = Date.now(), useItemId = null, { speciesId = null, setName = null } = {}) {
     const slot = EFFECT_SLOTS[kind];
     if (!slot) return { ok: false, reason: 'unknown' };
+    if (this.isTeleporting) return { ok: false, reason: 'teleport' };
     const itemId = useItemId || slot.defaultItem;
     if (this.effect(kind, now)) return { ok: false, reason: 'active' };
     if (!this.hasItem(itemId)) return { ok: false, reason: 'noItem' };
@@ -2079,7 +2225,10 @@ class Store {
       shiny: shiny == null
         ? (this.s.debug.shinyBoost
           ? chance(0.5)
-          : rollShiny(origin === 'raid' ? 'raid' : 'spawn', new Date(), this.shinyOpts()))
+          // A teleport gets the base odds only: no Bonanza, no Shiny Incense.
+          : this.isTeleporting
+            ? chance(SHINY_ODDS.normal[origin === 'raid' ? 'raid' : 'spawn'])
+            : rollShiny(origin === 'raid' ? 'raid' : 'spawn', new Date(), this.shinyOpts()))
         : !!shiny,
       statMod: rollStatModifier(),
       moveUnlock: unlock || rollMoveUnlock(),
@@ -2118,15 +2267,21 @@ class Store {
     // Sweet Toothsday doubles the lot, bonuses included: the raid capture's +2
     // and an egg's bonus candy are as much "candy from this catch" as the base
     // roll is. Applied last, like the Stardust Sunday multiplier.
-    const sweet = isSweetToothsday();
-    const candy = Math.round((candyForCapture(rarity) + (opts.bonusCandy || 0)) * candyMultiplier());
+    // A teleport catch: no events (so no Sweet Toothsday), +2 candy and +20%
+    // stardust on top of what the same catch pays at home.
+    const teleport = !!opts.teleport;
+    const sweet = !teleport && isSweetToothsday();
+    const candy = teleport
+      ? candyForCapture(rarity) + (opts.bonusCandy || 0) + TELEPORT_BONUS_CANDY
+      : Math.round((candyForCapture(rarity) + (opts.bonusCandy || 0)) * candyMultiplier());
     // `bonusStardust` is an annual event's flat top-up. Added before the Stardust
     // Sunday multiplier for the same reason bonus candy is added before the Sweet
     // Toothsday one: it is stardust from this reward like any other.
-    const dust = (opts.dust != null
+    const baseDust = (opts.dust != null
       ? opts.dust + dustBonusFor(this.level)
       : dustForCapture(rarity, this.level) + (magnet ? RULES.MAGNET_BONUS_MULTIPLIER * this.level : 0))
       + (opts.bonusStardust || 0);
+    const dust = teleport ? Math.round(baseDust * TELEPORT_DUST_MULTIPLIER) : baseDust;
     const xp = opts.xp != null ? opts.xp : xpForCapture(rarity);
 
     const isNew = this.register(sp.id);
@@ -2152,7 +2307,8 @@ class Store {
     this.touch('capture', { immediate: true });
     return {
       creature, sp, isNew, candy, dust: dustGained, xp, candyTotal, levelUp, rarity,
-      shiny: creature.shiny, newShiny, magnet, origin, sunday: isStardustSunday(),
+      shiny: creature.shiny, newShiny, magnet, origin, sunday: !this.isTeleporting && isStardustSunday(),
+      teleport,
       // True when the candy figure above has already been doubled, so the
       // reward screens can say why rather than just showing a bigger number.
       sweet
@@ -2188,6 +2344,13 @@ class Store {
         const exByRarity = this.s.stats.exclusiveRaidsByRarity;
         exByRarity[rarity] = (exByRarity[rarity] || 0) + 1;
       }
+    }
+
+    // A teleport raid pays XP and stardust only: no items of any kind.
+    if (raid.teleport) {
+      this.touch('raid-win', { immediate: true });
+      return { xp, dust, levelUp, items: {}, exclusive: false, egg: null, eggBlocked: false,
+        heldDrop: null, sunday: false, teleport: true };
     }
 
     // Guaranteed loot, then the rarity-dependent drops. Rarity 4 and 5 bosses
@@ -2246,6 +2409,19 @@ class Store {
   captureRaidBoss(raid) {
     if (!this.hasItem('ultra_disc')) return { ok: false, reason: 'noItem' };
     this.spendItem('ultra_disc');
+    // A teleport raid: the Stage 1 comes home at level 3 to 5, with the teleport
+    // bonuses and none of the event ones.
+    if (raid.teleport) {
+      const res = this.capture(raid.speciesId, {
+        origin: 'raid',
+        level: rollTeleportLevel(TELEPORT_RAID_LEVELS),
+        shiny: !!raid.shiny,
+        bonusCandy: RAID_CAPTURE_BONUS_CANDY,
+        teleport: true
+      });
+      return { ok: true, ...res, bonusCandy: RAID_CAPTURE_BONUS_CANDY + TELEPORT_BONUS_CANDY,
+        event: { candy: 0, stardust: 0, from: [] } };
+    }
     // An annual event tops this up on top of the raid's own two candy.
     const event = eventRewardBonus('catch');
     const res = this.capture(raid.speciesId, {
@@ -2259,8 +2435,23 @@ class Store {
   }
 
   /** Stardust for beating a grunt, plus a small chance of a bonus item. */
-  rewardGruntWin() {
+  rewardGruntWin({ teleport = false, candyFrom = [] } = {}) {
     const dust = this.addStardust(dustInRange(GRUNT_REWARD.dust, this.level));
+    /* A teleport grunt pays stardust and, instead of items, candy of one of the
+       six creatures that were in the fight, picked at random. */
+    if (teleport) {
+      const pick = candyFrom.length ? candyFrom[Math.floor(Math.random() * candyFrom.length)] : null;
+      let candy = null;
+      if (pick && species(pick)) {
+        const n = rollTeleportGruntCandy();
+        this.addCandy(pick, n);
+        candy = { speciesId: pick, n };
+      }
+      this.s.stats.gruntsBeaten++;
+      this.bumpDaily('gruntsToday');
+      this.touch('grunt-win', { immediate: true });
+      return { dust, bonus: null, items: {}, sunday: false, teleport: true, candy };
+    }
     const bonus = weightedPick(GRUNT_REWARD.bonus).item;
     if (bonus) this.addItem(bonus, 1);
 
@@ -2817,6 +3008,7 @@ class Store {
 
   /** As many as you like, so a badly placed one is never a dead end. */
   placeBreedingCentre(lat, lng) {
+    if (this.isTeleporting) return { ok: false, reason: 'teleport' };
     if (!this.hasItem('breeding_center')) return { ok: false, reason: 'noItem' };
     this.spendItem('breeding_center');
     const centre = { id: newBuildingId(), lat, lng, placedAt: Date.now(), slots: [] };
@@ -2894,6 +3086,7 @@ class Store {
   /* ---------------- research lab ---------------- */
 
   placeResearchLab(lat, lng) {
+    if (this.isTeleporting) return { ok: false, reason: 'teleport' };
     if (this.s.researchLab) return { ok: false, reason: 'placed' };
     if (!this.hasItem('research_lab')) return { ok: false, reason: 'noItem' };
     this.spendItem('research_lab');
@@ -2915,6 +3108,7 @@ class Store {
 
   /** Pinned exactly like the lab: one of them, anywhere, moveable any time. */
   placeBattleFrontier(lat, lng) {
+    if (this.isTeleporting) return { ok: false, reason: 'teleport' };
     if (this.s.battleFrontier) return { ok: false, reason: 'placed' };
     if (!this.hasItem('battle_frontier')) return { ok: false, reason: 'noItem' };
     this.spendItem('battle_frontier');
@@ -3920,6 +4114,7 @@ class Store {
    */
   startFossilRevive(count, spot, now = Date.now()) {
     const n = Math.max(1, Math.floor(Number(count) || 1));
+    if (this.isTeleporting) return { ok: false, reason: 'teleport' };
     const check = this.canReviveFossils();
     if (!check.ok) return check;
     if (n > check.sets) return { ok: false, reason: 'parts', sets: check.sets };
@@ -4705,8 +4900,10 @@ class Store {
    * quietly come to disagree about what the temperature is.
    */
   ambientContext(now = new Date()) {
+    // In a teleport the clock is the city's, like its weather.
+    const city = this.isTeleporting ? teleportCity(this.s.teleport.session.cityId) : null;
     return {
-      now,
+      now: city ? cityNow(city.timeZone, now.getTime()) : now,
       weather: this._spawnWeather || null,
       daily: this.dailyCounters,
       world: this.worldReadings

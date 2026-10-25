@@ -402,13 +402,15 @@ function renderPreview() {
 
   if (ctx.kind === 'raid') {
     const raid = ctx.raid;
-    const sp = species(raid.speciesId);
+    // A teleport raid is fought against the line's final form.
+    const sp = species(raid.bossId || raid.speciesId);
+    const catchSp = species(raid.speciesId);
     const exclusive = !!raid.exclusive;
     const stats = raidBossStats(sp, raid.level, exclusive);
     const mods = raidModifiers(exclusive);
     $('#bt-title').textContent = exclusive
       ? `Rarity ${raid.rarity} Exclusive Raid`
-      : `Rarity ${raid.rarity} Raid`;
+      : `Rarity ${raid.rarity} ${raid.teleport ? 'Teleport ' : ''}Raid`;
 
     body.append(
       el('div', { class: `bt-boss${exclusive ? ' exclusive' : ''}` },
@@ -431,6 +433,12 @@ function renderPreview() {
       exclusive
         ? el('p', { class: 'hint', text: 'An Exclusive Raid. This creature cannot be found any other way, and the boss hits harder than a normal raid of the same rarity.' })
         : null,
+      raid.teleport
+        ? el('p', { class: 'hint elite-practice', html: `<b>Teleport raid · Elite rules.</b> Your moves cost stamina and you can switch. `
+          + (sp.id !== catchSp.id ? `You fight <b>${sp.name}</b>, the last form of the line; win and an Ultra Capture Disc catches <b>${catchSp.name}</b> for sure, at level 3 to 5.`
+            : `Win and an Ultra Capture Disc catches it for sure, at level 3 to 5.`)
+          + ' Items do not drop here.' })
+        : null,
       el('div', { class: 'det-rows' },
         statLine('HP', stats.hp, `×${mods.hp} for a raid`),
         statLine('Attack', stats.attack, bossPct('attack', exclusive)),
@@ -445,6 +453,9 @@ function renderPreview() {
         exclusive
           ? el('span', { class: 'reward' }, el('span', { text: '✨' }),
             el('span', { text: `${Math.round(EXCLUSIVE_RAID_REWARD.shinyIncenseChance * 100)}% a Shiny Incense` }))
+          : null,
+        raid.teleport
+          ? el('span', { class: 'reward' }, el('span', { text: CANDY_ICON }), el('span', { text: '+2 extra candy and +20% stardust on the catch' }))
           : null,
         exclusive
           ? el('span', { class: 'reward' }, el('span', { text: '🥚' }),
@@ -478,19 +489,37 @@ function renderPreview() {
       ),
       el('p', { class: 'bt-quote', text: `“${g.phrase}”` }),
       el('h4', { class: 'sheet-h4', text: 'Their team' }),
+      g.teleport
+        ? el('p', { class: 'hint elite-practice', html: '<b>Teleport grunt · Elite rules.</b> Your moves cost stamina and you can switch. '
+          + 'Every creature they bring has all 20 Stat Boosters and a held item.' })
+        : null,
       el('div', { class: 'bt-roster' }, ...g.team.map(t => {
         const sp = species(t.speciesId);
-        const st = statsFor(sp, t.level, null);
+        const st = statsFor(sp, t.level, null, t.boosts || null,
+          t.held ? heldStatBonus({ speciesId: t.speciesId, level: t.level, held: t.held }, sp) : null);
+        const held = t.held ? heldItem(t.held) : null;
         return el('div', { class: 'cell' },
           el('span', { class: 'lvl', text: 'Lv' + t.level }),
           el('img', { src: sp.imagePath, alt: sp.name, loading: 'lazy' }),
           el('span', { class: 'nm', text: sp.name }),
           el('span', { class: `sub t-${sp.type}`, text: sp.type }),
-          el('span', { class: 'sub', text: `${st.hp} HP` })
+          el('span', { class: 'sub', text: g.teleport ? `${st.hp} HP · ${st.attack}A ${st.defence}D ${st.speed}S` : `${st.hp} HP` }),
+          held
+            ? el('span', { class: 'sub frontier-held' },
+              el('img', { src: heldItemImage(held.id), alt: '' }),
+              el('span', { text: held.name }))
+            : null,
+          t.boosts ? el('span', { class: 'sub', text: `+${totalBoosts(t.boosts)} boosted` }) : null
         );
       })),
       el('h4', { class: 'sheet-h4', text: 'If you win' }),
-      el('div', { class: 'rewards' }, ...gruntRewardChips())
+      el('div', { class: 'rewards' }, ...(g.teleport
+        ? [
+          el('span', { class: 'reward' }, el('span', { text: DUST_ICON }), el('span', { text: 'Stardust' })),
+          el('span', { class: 'reward' }, el('span', { text: CANDY_ICON }),
+            el('span', { text: 'Candy of one of the six creatures in the fight: 1, 2, 3, 5 or 10' }))
+        ]
+        : gruntRewardChips()))
     );
   }
 
@@ -819,7 +848,7 @@ let outlookCache = new Map();
 function battleOpponents() {
   if (!ctx) return [];
   if (ctx.kind === 'raid') {
-    const sp = ctx.raid ? species(ctx.raid.speciesId) : null;
+    const sp = ctx.raid ? species(ctx.raid.bossId || ctx.raid.speciesId) : null;
     return sp ? [sp] : [];
   }
   return (ctx.grunt?.team || []).map(t => species(t.speciesId)).filter(Boolean);
@@ -1179,13 +1208,17 @@ function startFight() {
   // Remembered for the picker's "Last team" button, whatever kind of fight is next.
   store.setUI({ lastBattleTeam: [...ctx.picked] });
 
+  // Teleport raids and grunts are fought under Elite rules (buildRaidBattle reads
+  // `raid.teleport` itself).
   ctx.battle = ctx.kind === 'raid'
     ? buildRaidBattle(team, ctx.raid)
     : ctx.kind === 'frontier'
       ? (ctx.frontier.elite
         ? buildEliteBattle(team, ctx.frontier.team)
         : buildFrontierBattle(team, ctx.frontier.team))
-      : buildGruntBattle(team, ctx.grunt.team);
+      : ctx.grunt.teleport
+        ? buildEliteBattle(team, ctx.grunt.team)
+        : buildGruntBattle(team, ctx.grunt.team);
 
   const frontierTitle = () => {
     // The Daily Challenge names itself: "Daily Challenge · Hard" rather than the
@@ -1199,14 +1232,14 @@ function startFight() {
     return `${ch?.name || 'Frontier'} challenge · Level ${ctx.frontier.level}`;
   };
   $('#bt-arena-title').textContent = ctx.kind === 'raid'
-    ? `${ctx.grand ? FRONTIER_GRAND_LABEL : ctx.raid.exclusive ? 'Exclusive Raid' : 'Raid'} · ${species(ctx.raid.speciesId).name}`
+    ? `${ctx.grand ? FRONTIER_GRAND_LABEL : ctx.raid.exclusive ? 'Exclusive Raid' : ctx.raid.teleport ? 'Teleport Raid · Elite' : 'Raid'} · ${species(ctx.raid.bossId || ctx.raid.speciesId).name}`
     : ctx.kind === 'frontier'
       ? frontierTitle()
-      : `${ctx.grunt.characterLabel || 'Grunt'} battle`;
+      : `${ctx.grunt.characterLabel || 'Grunt'} battle${ctx.grunt.teleport ? ' · Elite' : ''}`;
 
   $('#bt-log').innerHTML = '';
   logLine(ctx.kind === 'raid'
-    ? `A rarity ${ctx.raid.rarity}${ctx.raid.exclusive ? ' exclusive' : ''} ${species(ctx.raid.speciesId).name} towers over you.`
+    ? `A rarity ${ctx.raid.rarity}${ctx.raid.exclusive ? ' exclusive' : ''} ${species(ctx.raid.bossId || ctx.raid.speciesId).name} towers over you.`
     : ctx.kind === 'frontier'
       ? `“${frontierChallengeOf(ctx)?.phrase || 'Let us begin.'}”`
       : `“${ctx.grunt.phrase}”`);
@@ -1711,6 +1744,14 @@ async function finishBattle() {
       // A Grand Raid is scored against the ladder as well as paying the raid
       // table, and only on a win — losing leaves it open to try again.
       if (ctx.grand) store.recordFrontierGrandWin(ctx.grand.challengeId, ctx.grand.modeId);
+    } else if (ctx.grunt.teleport) {
+      // Candy of one of the six creatures in the fight: theirs or yours.
+      const candyFrom = [
+        ...ctx.grunt.team.map(t => t.speciesId),
+        ...ctx.picked.map(uid => store.creature(uid)?.speciesId).filter(Boolean)
+      ];
+      rewards = store.rewardGruntWin({ teleport: true, candyFrom });
+      ctx.grunt.defeated = true;
     } else {
       rewards = store.rewardGruntWin();
       ctx.grunt.defeated = true;
@@ -1734,7 +1775,7 @@ function renderResult() {
   const body = $('#bt-result-body');
   body.innerHTML = '';
 
-  const sp = ctx.kind === 'raid' ? species(ctx.raid.speciesId) : null;
+  const sp = ctx.kind === 'raid' ? species(ctx.raid.bossId || ctx.raid.speciesId) : null;
   const frontier = ctx.kind === 'frontier';
   const trainer = frontier ? frontierChallengeOf(ctx) : null;
 
@@ -1814,6 +1855,9 @@ function renderResult() {
         ? { icon: DUST_ICON, label: `+${num(rewards.dust)} stardust${rewards.sunday ? ' (Sunday ×2)' : ''}` }
         : null,
       rewards.bonus ? { icon: '🎁', label: `Bonus ${itemName(rewards.bonus)}` } : null,
+      rewards.candy
+        ? { icon: CANDY_ICON, label: `+${rewards.candy.n} ${familyName(rewards.candy.speciesId)} candy` }
+        : null,
       // Guaranteed drops: raid revives + incubator, grunt potions/revives
       ...Object.entries(rewards.items || {}).map(([id, n]) => ({ img: itemImage(id), label: `+${n} ${itemName(id, n)}` })),
       rewards.egg ? { icon: '🥚', label: `A ${eggLabel(rewards.egg.type)}` } : null,
@@ -1907,8 +1951,8 @@ async function throwUltraDisc() {
     $('#battle').classList.add('hidden');
 
     const rewards = [
-      { icon: CANDY_ICON, label: `+${res.candy} ${familyName(res.sp.id)} candy (incl. +2 raid bonus)${res.sweet ? ', Tuesday ×2' : ''}` },
-      { icon: DUST_ICON, label: `+${num(res.dust)} stardust` },
+      { icon: CANDY_ICON, label: `+${res.candy} ${familyName(res.sp.id)} candy (incl. +${res.bonusCandy} ${res.teleport ? 'raid and teleport' : 'raid'} bonus)${res.sweet ? ', Tuesday ×2' : ''}` },
+      { icon: DUST_ICON, label: `+${num(res.dust)} stardust${res.teleport ? ' (+20% teleport)' : ''}` },
       { icon: '⭐', label: `+${res.xp} XP` },
       { icon: '📈', label: `Level ${res.creature.level}` }
     ];

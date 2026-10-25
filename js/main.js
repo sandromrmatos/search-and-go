@@ -9,9 +9,14 @@ import {
   SPOTLIGHT_SPAWN_MS, scanIntervalLabel,
   annualEvent, EVENT_SPAWN_MS, eventRewardBonus,
   DAILY_ROUTE_STOPS, DAILY_ROUTE_XP, DAILY_ROUTE_STARDUST, DAILY_ROUTE_ENCOUNTERS,
-  dailyRouteStopCount
+  dailyRouteStopCount,
+  teleportCity, TELEPORT_RADIUS_M, TELEPORT_WILD_LEVELS, TELEPORT_FLEE_CHANCE, rollTeleportLevel
 } from './data.js';
 import { planDailyRoute } from './route.js';
+import {
+  Streets, initTeleport, openTeleportSheet, renderTeleportBanner, renderTeleportButton,
+  pressArrow, stopHold
+} from './teleport.js';
 import { Weather, weatherContext } from './weather.js';
 import { Battery } from './battery.js';
 import { Place } from './place.js';
@@ -81,6 +86,8 @@ function pushSpawnWeather() {
 
 let capturing = false;
 let lastPOIs = [];
+/** When to next try loading a teleport's streets again after a failure. */
+let streetRetryAt = 0;
 let scanCooldownUntil = 0; // backs off automatic retries after a failed lookup
 let scanFailures = 0;      // consecutive failures, for an escalating backoff
 let lastScanError = null;  // shown on the chip so a failure is not silent
@@ -309,6 +316,10 @@ async function boot() {
     Battery.start();
     Battery.onChange(() => store.syncSpawnConditions());
 
+    // Mid-teleport when the game was closed: back to the city, or home if the
+    // fifteen minutes ran out meanwhile. Before GPS so the first fix is the city.
+    resumeTeleport();
+
     Geo.onChange(onLocation);
     Geo.start();
 
@@ -421,6 +432,11 @@ function trackSteps(pos) {
 
   store.touch('steps');
   if (document.querySelector('.view.active')?.id === 'view-profile') renderProfile();
+
+  if (walk.teleportPoints > 0) {
+    toast(`🌀 +${walk.teleportPoints} teleport point — ${store.teleportPoints} now`, 'good', 3200);
+    renderTeleportButton();
+  }
 
   // A walk mission can finish mid-stride, so light the badge immediately.
   if (walk.walkMissionDone) {
@@ -619,6 +635,7 @@ function placeBattleFrontier() {
 
 /** Routes the Buildings list's one "place this" button to the right flow. */
 function placeBuilding(itemId) {
+  if (store.isTeleporting) { toast('Buildings can only be placed at home, not while teleported', 'bad', 3600); return; }
   if (itemId === 'research_lab') return placeResearchLab();
   if (itemId === 'battle_frontier') return placeBattleFrontier();
   if (itemId === 'breeding_center') return placeBreedingCentre();
@@ -656,6 +673,8 @@ function placeBreedingCentre() {
  */
 function interactRange(now = new Date()) {
   if (debugAllowed() && store.s.debug.ignoreRange) return Infinity;
+  // Relax and Good Night is an event, and the Seeker is parked at home.
+  if (store.isTeleporting) return RULES.CAPTURE_RANGE_M;
   // Relax Hour and a Molten Seeker can overlap. Take whichever reaches further
   // rather than letting one shrink the other — losing reach you had a second
   // ago because you burned an item would be the wrong way round.
@@ -811,6 +830,41 @@ async function doCapture(live) {
     store.spendItem('capture_disc');
     syncMap();
 
+    /* A teleport catch. One throw in four, it gets away and the disc is gone.
+       Otherwise it can arrive a level or two up, with +2 candy and +20%
+       stardust, and none of the event bonuses. */
+    if (live.teleport) {
+      const sp = species(live.speciesId);
+      if (Math.random() < TELEPORT_FLEE_CHANCE) {
+        dlog(`Teleport: ${sp?.name} fled`);
+        const body = $('#sheet-body');
+        body.innerHTML = '';
+        body.append(el('div', { style: { textAlign: 'center', padding: '12px 0' } },
+          el('img', { src: sp?.imagePath, alt: '', class: store.isRegistered(sp?.id) ? '' : 'locked',
+            style: { width: '110px', height: '110px', objectFit: 'contain', opacity: '.55' } }),
+          el('h3', { text: 'It fled!' }),
+          el('p', { class: 'muted', text: 'Creatures in a teleport are warier. The disc was used, and this one is gone.' }),
+          el('button', { class: 'btn primary wide', onclick: () => closeSheet('sheet') }, 'OK')));
+        openSheet('sheet');
+        refreshAll();
+        return;
+      }
+      const res = store.capture(live, { origin: 'wild', level: rollTeleportLevel(TELEPORT_WILD_LEVELS), teleport: true });
+      dlog(`Teleport catch: ${res.sp.name} Lv${res.creature.level} +${res.candy} candy +${res.dust} dust`);
+      const rewards = [
+        { icon: CANDY_ICON, label: `+${res.candy} ${familyName(res.sp.id)} candy (incl. +2 teleport)` },
+        { icon: DUST_ICON, label: `+${num(res.dust)} stardust (+20% teleport)` },
+        { icon: '⭐', label: `+${res.xp} XP` },
+        { icon: '📈', label: `Level ${res.creature.level}` }
+      ];
+      if (res.shiny) rewards.unshift({ icon: '✨', label: 'Shiny!' });
+      await playCapture({ sp: res.sp, isNew: res.isNew, rewards, imageSrc: res.sp.spritePath(res.shiny),
+        shiny: res.shiny, newShiny: res.newShiny });
+      if (res.levelUp.levelledUp) showLevelUpPopup(res.levelUp);
+      refreshAll();
+      return;
+    }
+
     // The spotlight creature pays bonus candy during its hour, however you met
     // it — a wild point, an incense spawn or the one that came to you. Other
     // creatures caught in the same hour are unaffected.
@@ -924,7 +978,7 @@ function syncMap() {
   // a fossil, plus anything of yours already waiting at one.
   syncMedicalSpots();
   GameMap.syncFossilDrops(store.fossilDrops());
-  GameMap.syncRoute(store.dailyRoute());
+  GameMap.syncRoute(store.isTeleporting ? null : store.dailyRoute());
   renderRouteChip();
   // Straight away rather than on the next tick, so playing a harvest clears the
   // arrow the moment the sheet closes.
@@ -982,7 +1036,7 @@ function renderRouteChip(now = Date.now()) {
   const chip = $('#route-chip');
   if (!chip) return;
   const route = store.dailyRoute(new Date(now));
-  if (!route || route.claimedAt) { chip.classList.add('hidden'); return; }
+  if (!route || route.claimedAt || store.isTeleporting) { chip.classList.add('hidden'); return; }
   chip.classList.remove('hidden');
   const done = !!route.completedAt;
   chip.classList.toggle('done', done);
@@ -1125,6 +1179,90 @@ const anySheetOpen = () =>
  * point of the cross is to show you where to walk to, so it has to appear before
  * you are standing on it. Talking to the assistant still needs the usual 25 m.
  */
+/* ===============================================================
+   Teleport mode
+   =============================================================== */
+
+/** Redraws the arrows round the dot for wherever you now stand. */
+function syncTeleportArrows() {
+  if (!store.isTeleporting || !Streets.ready) { GameMap.clearTeleportArrows(); return; }
+  GameMap.setTeleportArrows(Streets.position(), Streets.directions(), dir => pressArrow(dir, onTeleportMoved));
+}
+
+/** After every step: move the dot, save the spot, redraw the arrows. */
+function onTeleportMoved() {
+  const pos = Streets.position();
+  if (!pos || !store.isTeleporting) return;
+  Geo.setTeleport(pos);
+  store.setTeleportPos(pos);
+  syncTeleportArrows();
+}
+
+/** Into a city. Nothing is spent until the street map has loaded. */
+async function enterTeleport(cityId, sets) {
+  const city = teleportCity(cityId);
+  const why = store.teleportBlocker(cityId, sets);
+  if (why || !city) return;
+  toast(`🌀 Teleporting to ${city.city}…`, '', 3000);
+  try {
+    await Streets.load(cityId, city);
+  } catch (e) {
+    dlog(`Teleport street lookup failed: ${e.message}`);
+    toast('Could not load the streets there. No points were spent — try again in a moment.', 'bad', 5000);
+    return;
+  }
+  const pos = Streets.position();
+  const r = store.startTeleport({ cityId, sets, pos });
+  if (!r.ok) { toast('Could not teleport', 'bad'); return; }
+  Geo.setTeleport(pos);
+  GameMap.setTeleportRing(city, TELEPORT_RADIUS_M);
+  GameMap.recenter();
+  syncTeleportArrows();
+  syncMap();
+  refreshAll();
+  dlog(`Teleported to ${city.city} (${sets.join(', ')})`);
+  toast(`🌀 Welcome to ${city.place}, ${city.city}! Use the arrows to walk the streets.`, 'good', 5000);
+  doScan({ reason: 'teleport' });
+}
+
+/** Home again, early or because the time ran out. */
+function leaveTeleport(reason = 'time') {
+  if (!store.isTeleporting) return;
+  const city = teleportCity(store.teleportSession.cityId);
+  stopHold();
+  store.endTeleport();
+  Streets.clear();
+  GameMap.clearTeleportArrows();
+  GameMap.setTeleportRing(null);
+  Geo.setTeleport(null);
+  GameMap.recenter();
+  syncMap();
+  refreshAll();
+  dlog(`Back from ${city?.city} (${reason})`);
+  toast(reason === 'time' ? `🌀 Time's up in ${city?.city} — you're back home` : '🌀 Back home', 'good', 4200);
+  if (Geo.current) doScan({ reason: 'back from teleport' });
+}
+
+/**
+ * The game was reopened mid-visit: put you back where you were standing, or
+ * bring you home if the time ran out while it was closed.
+ */
+async function resumeTeleport() {
+  const sess = store.teleportSession;
+  if (!sess) return;
+  if (Date.now() >= sess.endsAt) { store.endTeleport(); return; }
+  const city = teleportCity(sess.cityId);
+  Geo.setTeleport(sess.pos);
+  GameMap.setTeleportRing(city, TELEPORT_RADIUS_M);
+  try {
+    await Streets.load(sess.cityId, sess.pos);
+    if (store.isTeleporting) { Geo.setTeleport(Streets.position()); syncTeleportArrows(); }
+  } catch (e) {
+    dlog(`Teleport streets did not load on resume: ${e.message}`);
+    toast('The streets here did not load, so the arrows are missing. They retry in a moment.', 'bad', 4500);
+  }
+}
+
 function syncMedicalSpots() {
   const pos = Geo.current;
   if (!pos) { GameMap.syncMedical([]); return; }
@@ -1151,10 +1289,25 @@ function startLoop() {
     // stationary device may not emit another location event for a long time.
     if (Geo.current) Weather.refresh(Geo.current);
 
+    /* Teleport mode. Time up means home — but never in the middle of a catch or
+       a fight; those finish first. Everything below that only belongs at home
+       (the trainer who finds you, spotlights, events, feathers, essences,
+       incense, the Daily Route) waits until you are back. */
+    if (store.isTeleporting) {
+      if (now >= store.teleportSession.endsAt && !capturing && !isBattleOpen()) leaveTeleport('time');
+      else if (!Streets.ready && now >= streetRetryAt) {
+        streetRetryAt = now + 30_000;
+        resumeTeleport();
+      }
+    }
+    renderTeleportBanner(now);
+    renderTeleportButton();
+    const home = !store.isTeleporting;
+
     // One trainer walks up to you per 8-hour window. Checked on the loop
     // rather than only at boot, so a window that rolls over while the game is
     // open still gets its grunt.
-    if (Geo.current) {
+    if (home && Geo.current) {
       const trainer = spawnWindowGrunt(Geo.current, now);
       if (trainer) {
         dlog(`A trainer found you (${Math.round(RULES.WINDOW_GRUNT_MS / 60_000)} min)`);
@@ -1166,7 +1319,7 @@ function startLoop() {
     // During the Creature Spotlight hour the featured creature walks up to you
     // on a fixed schedule. Checked on the loop so a slot that comes round while
     // the game is open still fires.
-    if (Geo.current) {
+    if (home && Geo.current) {
       const star = spawnSpotlightCreature(Geo.current, now);
       if (star) {
         const sp = species(star.speciesId);
@@ -1178,7 +1331,7 @@ function startLoop() {
 
     // During an annual event a creature comes to you on the hour. Checked on the
     // loop so an hour that turns over while the game is open still pays out.
-    if (Geo.current) {
+    if (home && Geo.current) {
       const gift = spawnEventCreature(Geo.current, now);
       if (gift) {
         const sp = species(gift.speciesId);
@@ -1192,7 +1345,7 @@ function startLoop() {
     // The three Precious Feather places of the day, the first time the game is
     // open. Fire-and-forget: it does its own Overpass lookup at a wider radius,
     // so it must not hold up the once-a-second loop.
-    if (Geo.current && store.canPlaceFeathers()) {
+    if (home && Geo.current && store.canPlaceFeathers()) {
       spawnDailyFeathers(Geo.current, now).then(points => {
         if (!points.length) return;
         dlog(`${points.length} Precious Feather place(s) marked for today`);
@@ -1204,7 +1357,7 @@ function startLoop() {
 
     // Essence Harvesting: one registered creature turns up in the scan radius
     // per two-hour block, the first time the game is open during it.
-    if (Geo.current) {
+    if (home && Geo.current) {
       const essence = spawnEssence(Geo.current, now);
       if (essence) {
         dlog(`Essence Harvesting: ${species(essence.speciesId)?.name} appeared`);
@@ -1215,7 +1368,7 @@ function startLoop() {
 
     // Incense drops a creature at the player's feet every two minutes.
     if (store.clearExpiredEffects(now)) refreshAll();
-    if (store.isIncenseActive(now) && Geo.current) {
+    if (home && store.isIncenseActive(now) && Geo.current) {
       const p = tickIncense(Geo.current, now);
       if (p) {
         dlog(`Incense spawned a creature (${Math.round(RULES.LIFETIME_MS.incense[0] / 1000)} s)`);
@@ -1238,8 +1391,9 @@ function startLoop() {
         + `${drop.poiName}`, 'good', 6000);
     }
 
-    // The Daily Route: planned once a day on the first fix, then followed.
-    tickDailyRoute(now);
+    // The Daily Route: planned once a day on the first fix, then followed. Not
+    // from another city — it would be planned round Times Square.
+    if (home) tickDailyRoute(now); else renderRouteChip(now);
 
     /* And the "found something on the ground" reveal, drained one at a time and
        only when nothing else is on screen, so it never fights a capture
@@ -1322,6 +1476,12 @@ function initUI() {
     scanCooldownUntil = 0;
     doScan({ force: true, reason: lastScanError ? 'manual retry' : 'manual scan' });
   });
+
+  // Teleport: the 🌀 beside the timer, and the banner's own button.
+  initTeleport({ enter: enterTeleport, leave: leaveTeleport });
+  $('#btn-teleport')?.addEventListener('click', openTeleportSheet);
+  $('#teleport-banner')?.addEventListener('click', openTeleportSheet);
+  renderTeleportButton();
 
   $('#btn-hide-chip').addEventListener('click', () => {
     const wrap = $('#reset-chip-wrap');

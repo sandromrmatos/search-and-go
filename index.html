@@ -77,7 +77,13 @@
             <b id="next-scan">--:--</b>
           </div>
           <button id="btn-hide-chip" class="chip-toggle" title="Hide/show timer">✕</button>
+          <button id="btn-teleport" class="chip-toggle tp-btn" type="button" title="Teleport"
+                  aria-label="Teleport">🌀<i class="tp-badge"></i></button>
         </div>
+        <!-- Teleport mode: which city you are in and the time left. Tap for options. -->
+        <button id="teleport-banner" class="teleport-banner hidden" type="button">
+          <span class="tp-banner-text"></span><span class="tp-banner-go">Options</span>
+        </button>
         <div id="effect-chips" class="effect-chips"></div>
         <!-- The Daily Route's progress. Its own element rather than one of the
              effect chips, because those are rebuilt every second and this one
