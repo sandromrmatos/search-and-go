@@ -589,6 +589,7 @@ export function migrate(raw) {
           }
           : null,
         origin: c.origin || null,
+        ...(c.teleport ? { teleport: true } : {}),
         shiny: !!c.shiny,
         // Creatures caught before these systems existed get them assigned once.
         statMod: validStatMod(c.statMod) || rollStatModifier(),
@@ -2234,7 +2235,9 @@ class Store {
       moveUnlock: unlock || rollMoveUnlock(),
       boosts: emptyBoosts(),
       breeding: null,
-      hp: null
+      hp: null,
+      // Caught on a teleport, for the "while in teleport mode" line on its sheet.
+      ...(this.isTeleporting ? { teleport: true } : {})
     };
   }
 

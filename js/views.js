@@ -2417,7 +2417,8 @@ function caughtLine(c) {
   const where = placeLabel(c.caughtPlace);
   return el('p', { class: 'hint caught-line' },
     el('span', { text: `${verb} on ${when}` }),
-    where ? el('span', { text: ` in ${where}` }) : null
+    where ? el('span', { text: ` in ${where}` }) : null,
+    c.teleport ? el('span', { text: ', while in teleport mode' }) : null
   );
 }
 

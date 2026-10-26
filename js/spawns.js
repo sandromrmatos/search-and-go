@@ -322,7 +322,7 @@ export async function runScan(pos, { force = false, forceKind = null, alwaysGrun
       if (occupiedPOIs.has(poi.id)) { skipped.occupied++; continue; }
       if (tooClose(poi, taken, RULES.MIN_SPAWN_SEPARATION_M)) { skipped.tooClose++; continue; }
 
-      // In a teleport every POI spawns: a creature or a raid, nothing else.
+      // In a teleport every POI spawns: a creature, a raid or a grunt, nothing else.
       const kind = tp
         ? (['creature', 'raid', 'grunt'].includes(forceKind) ? forceKind : rollTeleportOutcome())
         : (forceKind || rollPOIOutcome(nowDate));

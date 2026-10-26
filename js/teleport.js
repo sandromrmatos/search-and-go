@@ -254,7 +254,8 @@ const choice = { sets: null, cityId: null };
 
 function openChooser() {
   const options = teleportSetOptions();
-  if (!choice.sets) choice.sets = options.slice(0, 1);
+  // Every unlocked set ticked by default.
+  if (!choice.sets) choice.sets = options.slice();
   choice.sets = choice.sets.filter(x => options.includes(x));
 
   const pts = store.teleportPoints;

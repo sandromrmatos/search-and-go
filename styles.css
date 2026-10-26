@@ -2559,6 +2559,27 @@ a.ad-link:active { transform: scale(.98); }
   border-color: var(--ach-gold); box-shadow: 0 0 14px #ffcc4d66;
   background: linear-gradient(160deg, #ffcc4d1c, var(--panel-solid));
 }
+/* Section badges: beside the page name, and on the arrows for pages that way. */
+.view-achievements .set-nav .arrow-btn { position: relative; }
+.view-achievements .set-nav .claim-dot,
+.ach-page .claim-dot {
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 99px;
+  display: inline-grid; place-items: center; font-size: 10.5px; font-weight: 800; line-height: 1;
+  background: var(--accent2); color: #241c00; border: 2px solid #101736;
+}
+.view-achievements .set-nav .arrow-btn .claim-dot { position: absolute; top: -6px; right: -6px; }
+.view-achievements .set-nav .arrow-btn:disabled .claim-dot { display: none; }
+#ach-set-title { cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; }
+#ach-set-title .claim-dot { animation: achPulse 1.6s ease-in-out infinite; }
+.ach-pages { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.ach-page {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  width: 100%; padding: 10px 12px; border-radius: 12px; font: inherit; color: var(--txt);
+  border: 1px solid var(--line); background: var(--panel-solid); cursor: pointer; text-align: left;
+}
+.ach-page.current { border-color: var(--accent); }
+.ach-page.claimable { border-color: #ffd16699; background: linear-gradient(135deg, #ffd1661f, var(--panel-solid)); }
+
 .cell .ach-dot {
   position: absolute; top: -6px; left: -4px; z-index: 1;
   min-width: 16px; height: 16px; padding: 0 4px; border-radius: 99px;

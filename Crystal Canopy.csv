@@ -43,7 +43,7 @@ Crystal Canopy_41,Syruprex,"move 3 takes 50% of your remaning hp, but defence an
 Crystal Canopy_42,Chipfin,,Stage 1,Neutral,Chipfin.png,2,,Crispnash,25,52,60,52,50,214,Chip Nibble,26,1,,,Crunch Fin,44,3,,,,,,,,,,,,
 Crystal Canopy_43,Crispnash,,Stage 2,Neutral,Crispnash.png,,,Spudrake,50,70,80,70,62,282,Chip Nibble,26,1,,,Crunch Fin,44,3,,,,,,,,,,,,
 Crystal Canopy_44,Spudrake,"move 3 takes 50% of your remaning hp, but attack and defence increase both 100%",Stage 3,Neutral,Spudrake.png,,,,,88,100,92,58,338,Chip Nibble,26,1,,,Crunch Fin,44,3,,,Deep Fry,0,7,"Buff self attack, defence & lose 50% HP",100%,Mash Quake,76,9,,
-Crystal Canopy_45,Fillwrapp,,Stage 1,Neutral,Fillwrapp.png,1,POI = restaurant,Crispisoy,25,56,52,56,48,212,Wrap Slap,25,1,,,Filling Fling,43,3,,,,,,,,,,,,
+Crystal Canopy_45,Fillwrapp,,Stage 1,Neutral,Fillwrapp.png,1,"POI = restaurant, cafe, fast_food, food_court, coffee",Crispisoy,25,56,52,56,48,212,Wrap Slap,25,1,,,Filling Fling,43,3,,,,,,,,,,,,
 Crystal Canopy_46,Crispisoy,,Stage 2,Neutral,Crispisoy.png,,,,,84,80,82,62,308,Wrap Slap,25,1,,,Filling Fling,43,3,,,Soy Splash,58,6,,,Golden Crunch,70,9,,
 Crystal Canopy_47,Gyenyameon,"ability: when hit by a damaging move, the opponent gets hallucination",Stage 1,Neutral,Gyenyameon.png,5,,,,100,90,100,70,360,Spirit Tap,38,1,,,Ancestral Echo,52,3,,,Gentle Ward,0,6,Buff self defence,35%,Mirage Wave,72,9,,
 Crystal Canopy_48,Lithogrove,,Stage 1,Celestial,Lithogrove.png,1,,Terraflew,25,60,46,58,44,208,Pebble Sprout,24,1,,,Grove Toss,42,3,,,,,,,,,,,,

@@ -141,7 +141,7 @@ export function battlerFromRaid(raid) {
     speciesId: sp.id,
     level: raid.level,
     shiny: !!raid.shiny,
-    stats: raidBossStats(sp, raid.level, !!raid.exclusive),
+    stats: raidBossStats(sp, raid.level, !!raid.exclusive, !!raid.teleport),
     moves: sp.movesAt(raid.level, null),
     label: sp.name
   });

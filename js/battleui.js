@@ -406,8 +406,8 @@ function renderPreview() {
     const sp = species(raid.bossId || raid.speciesId);
     const catchSp = species(raid.speciesId);
     const exclusive = !!raid.exclusive;
-    const stats = raidBossStats(sp, raid.level, exclusive);
-    const mods = raidModifiers(exclusive);
+    const stats = raidBossStats(sp, raid.level, exclusive, !!raid.teleport);
+    const mods = raidModifiers(exclusive, !!raid.teleport);
     $('#bt-title').textContent = exclusive
       ? `Rarity ${raid.rarity} Exclusive Raid`
       : `Rarity ${raid.rarity} ${raid.teleport ? 'Teleport ' : ''}Raid`;
@@ -491,7 +491,7 @@ function renderPreview() {
       el('h4', { class: 'sheet-h4', text: 'Their team' }),
       g.teleport
         ? el('p', { class: 'hint elite-practice', html: '<b>Teleport grunt · Elite rules.</b> Your moves cost stamina and you can switch. '
-          + 'Every creature they bring has all 20 Stat Boosters and a held item.' })
+          + 'Every creature they bring is level 9, with all 20 Stat Boosters and a held item.' })
         : null,
       el('div', { class: 'bt-roster' }, ...g.team.map(t => {
         const sp = species(t.speciesId);

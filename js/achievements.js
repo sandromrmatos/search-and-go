@@ -13,7 +13,7 @@ import {
   ACHIEVEMENT_TIERS, achievementCandy, achievementTitle, CUSTOM_ACHIEVEMENTS
 } from './data.js';
 import { store } from './state.js';
-import { $, $$, el, toast, openSheet, num, wireSwipe, bumpEl } from './ui.js';
+import { $, $$, el, toast, openSheet, closeSheet, num, wireSwipe, bumpEl } from './ui.js';
 
 const CANDY_ICON = '🍬';
 
@@ -27,6 +27,54 @@ const achPages = () => [...achSets(), CUSTOM_PAGE];
 
 /** Family roots of one set, in dex order. */
 const rootsForSet = set => speciesForSet(set).filter(s => familyRoot(s.id) === s.id);
+
+/**
+ * Rewards waiting on one page: tiers reached but not claimed on a set's
+ * families, or finished titles on the Custom page. The same figures the tiles'
+ * own dots show, so a page badge and its tiles always agree.
+ */
+function pageClaimable(page, live) {
+  if (page.custom) return CUSTOM_ACHIEVEMENTS.filter(d => store.customAchievementState(d.id)?.claimable).length;
+  return rootsForSet(page).reduce((n, r) => n + store.achievementState(r.id, live).claimable, 0);
+}
+
+/** Every page's waiting rewards, in page order. */
+function claimableByPage() {
+  const live = store.liveFamilyLevels();
+  return achPages().map(p => pageClaimable(p, live));
+}
+
+/** Puts a count badge on `host`, or takes it off at 0. */
+function setDot(host, n) {
+  if (!host) return;
+  host.querySelector(':scope > .claim-dot')?.remove();
+  if (n > 0) host.append(el('span', { class: 'claim-dot', text: String(n) }));
+}
+
+/** Tapping the page title lists every page with its waiting rewards, to jump straight there. */
+function openPagePicker() {
+  const pages = achPages();
+  const counts = claimableByPage();
+  const current = Math.max(0, Math.min(pages.length - 1, store.s.ui.achSetIndex || 0));
+  const body = $('#sheet-body');
+  body.innerHTML = '';
+  body.append(el('div', { style: { padding: '4px 0' } },
+    el('h3', { text: 'Achievement sections' }),
+    el('p', { class: 'muted small', text: 'The number is how many rewards are waiting to be claimed there.' }),
+    el('div', { class: 'ach-pages' }, ...pages.map((p, i) => el('button', {
+      class: 'ach-page' + (i === current ? ' current' : '') + (counts[i] ? ' claimable' : ''),
+      type: 'button',
+      onclick: () => {
+        store.s.ui.achSetIndex = i;
+        store.touch('ui');
+        closeSheet('sheet');
+        renderAchievements();
+      }
+    },
+      el('span', { text: p.title }),
+      counts[i] ? el('span', { class: 'claim-dot', text: String(counts[i]) }) : el('span', { class: 'muted small', text: '' }))))));
+  openSheet('sheet');
+}
 
 let onChange = () => {};
 
@@ -46,6 +94,7 @@ export function initAchievements({ onChange: changed } = {}) {
   };
   $('#ach-set-prev')?.addEventListener('click', () => step(-1));
   $('#ach-set-next')?.addEventListener('click', () => step(1));
+  $('#ach-set-title')?.addEventListener('click', openPagePicker);
 
   $('#p-title-select')?.addEventListener('change', e => {
     const v = e.target.value;
@@ -83,6 +132,15 @@ export function renderAchievements() {
   $('#ach-set-title').textContent = set.title;
   $('#ach-set-prev').disabled = index === 0;
   $('#ach-set-next').disabled = index === sets.length - 1;
+  /* Rewards waiting: this page's beside its name, and on each arrow the total
+     for every page in that direction, so a finished achievement on another set
+     is never more than a tap or two from being found. */
+  const counts = claimableByPage();
+  const sum = list => list.reduce((a, b) => a + b, 0);
+  setDot($('#ach-set-title'), counts[index]);
+  setDot($('#ach-set-prev'), sum(counts.slice(0, index)));
+  setDot($('#ach-set-next'), sum(counts.slice(index + 1)));
+  $('#ach-set-title').title = 'Tap to see every section and what is waiting in it';
   // The tier legend only means something for the family pages.
   $('.ach-legend')?.classList.toggle('hidden', !!set.custom);
   if (set.custom) { renderCustomPage(); return; }

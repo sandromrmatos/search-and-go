@@ -1940,8 +1940,11 @@ export const RAID_BOSS_MODIFIERS = { hp: 3, attack: 1.25, defence: 1.25, speed: 
 export const EXCLUSIVE_RAID_BOSS_MODIFIERS = { hp: 4, attack: 1.30, defence: 1.30, speed: 1.30 };
 
 /** The right modifier table for a raid. */
-export const raidModifiers = (exclusive = false) =>
-  exclusive ? EXCLUSIVE_RAID_BOSS_MODIFIERS : RAID_BOSS_MODIFIERS;
+export const raidModifiers = (exclusive = false, teleport = false) =>
+  exclusive ? EXCLUSIVE_RAID_BOSS_MODIFIERS : teleport ? TELEPORT_RAID_BOSS_MODIFIERS : RAID_BOSS_MODIFIERS;
+
+/** Teleport raid bosses: the normal table with 4x HP instead of 3x. */
+export const TELEPORT_RAID_BOSS_MODIFIERS = { ...RAID_BOSS_MODIFIERS, hp: 4 };
 
 /** Which rarity a raid is, what level the boss is, and what beating it pays. */
 export const RAID_TIERS = {
@@ -2485,7 +2488,12 @@ export const TELEPORT_CITIES = [
   { id: 'barcelona', city: 'Barcelona', place: 'Las Ramblas', lat: 41.38070, lng: 2.17340, timeZone: 'Europe/Madrid', flag: '🇪🇸' },
   { id: 'london', city: 'London', place: 'Oxford Street', lat: 51.51520, lng: -0.14190, timeZone: 'Europe/London', flag: '🇬🇧' },
   { id: 'newyork', city: 'New York', place: 'Times Square', lat: 40.75800, lng: -73.98550, timeZone: 'America/New_York', flag: '🇺🇸' },
-  { id: 'tokyo', city: 'Tokyo', place: 'Shibuya Crossing', lat: 35.65950, lng: 139.70050, timeZone: 'Asia/Tokyo', flag: '🇯🇵' }
+  { id: 'tokyo', city: 'Tokyo', place: 'Shibuya Crossing', lat: 35.65950, lng: 139.70050, timeZone: 'Asia/Tokyo', flag: '🇯🇵' },
+  { id: 'paris', city: 'Paris', place: 'Champs-Élysées', lat: 48.87020, lng: 2.30420, timeZone: 'Europe/Paris', flag: '🇫🇷' },
+  { id: 'istanbul', city: 'Istanbul', place: 'İstiklal Avenue', lat: 41.03360, lng: 28.97780, timeZone: 'Europe/Istanbul', flag: '🇹🇷' },
+  { id: 'seoul', city: 'Seoul', place: 'Myeongdong', lat: 37.56360, lng: 126.98280, timeZone: 'Asia/Seoul', flag: '🇰🇷' },
+  { id: 'sydney', city: 'Sydney', place: 'Pitt Street Mall', lat: -33.86970, lng: 151.20790, timeZone: 'Australia/Sydney', flag: '🇦🇺' },
+  { id: 'saopaulo', city: 'São Paulo', place: 'Avenida Paulista', lat: -23.56140, lng: -46.65590, timeZone: 'America/Sao_Paulo', flag: '🇧🇷' }
 ];
 export const teleportCity = id => TELEPORT_CITIES.find(c => c.id === id) || null;
 
@@ -2500,9 +2508,14 @@ export const teleportSetOptions = () =>
  * or the empty slice: creature 22 and raid 5, scaled up to fill every POI.
  */
 export const TELEPORT_POI_OUTCOMES = [
-  { kind: 'creature', weight: 22 },
-  { kind: 'raid', weight: 5 }
+  { kind: 'creature', weight: 65 },
+  { kind: 'raid', weight: 20 },
+  { kind: 'grunt', weight: 15 }
 ];
+/** Teleport raid bosses are a fixed level by rarity. */
+export const TELEPORT_RAID_LEVEL_BY_RARITY = { 1: 7, 2: 7, 3: 8, 4: 8, 5: 9 };
+/** Every creature a teleport grunt brings is this level. */
+export const TELEPORT_GRUNT_LEVEL = 9;
 export const rollTeleportOutcome = () => weightedPick(TELEPORT_POI_OUTCOMES).kind;
 
 /** Capture levels: [level, weight]. Wild spawns, then raid bosses. */
@@ -2587,7 +2600,7 @@ export function rollTeleportRaid(sets, now = new Date(), { poi = null } = {}) {
     speciesId: sp.id,
     bossId: boss.id,
     rarity,
-    level: randInt(tier.levels[0], tier.levels[1]),
+    level: TELEPORT_RAID_LEVEL_BY_RARITY[rarity] ?? randInt(tier.levels[0], tier.levels[1]),
     xp: tier.xp,
     dustRange: tier.dust,
     teleport: true
@@ -2608,7 +2621,7 @@ export function pickTeleportHeldItem(sp, level, rng = Math.random) {
 /**
  * A teleport grunt's team: three creatures from the chosen sets (any stage), each
  * with all twenty Stat Boosters and a held item, and at least one with a base
- * stat total of TELEPORT_GRUNT_STRONG_TOTAL or more. Levels as at home.
+ * stat total of TELEPORT_GRUNT_STRONG_TOTAL or more. All at TELEPORT_GRUNT_LEVEL.
  */
 export function buildTeleportGruntTeam(sets, playerLevel, rng = Math.random) {
   const want = new Set(sets || []);
@@ -2619,11 +2632,10 @@ export function buildTeleportGruntTeam(sets, playerLevel, rng = Math.random) {
   if (!strong.length) {
     strong = (DB.available || []).filter(sp => baseStatTotal(sp) >= TELEPORT_GRUNT_STRONG_TOTAL && sp.moves?.length);
   }
-  const [lo, hi] = gruntLevelRange(playerLevel);
   const used = new Set();
   const make = sp => {
     used.add(sp.id);
-    const level = lo + Math.floor(rng() * (hi - lo + 1));
+    const level = TELEPORT_GRUNT_LEVEL;
     return { speciesId: sp.id, name: sp.name, level, held: pickTeleportHeldItem(sp, level, rng),
       boosts: randomBoosts(MAX_STAT_BOOSTS, rng) };
   };
@@ -7254,9 +7266,9 @@ export function statsFor(sp, level = 1, statMod = null, boosts = null, extra = n
  * Raid boss stats: levelled, then boosted by the raid modifiers. Exclusive
  * raids use the tougher table (4x HP, +30% instead of 3x and +25%).
  */
-export function raidBossStats(sp, level, exclusive = false) {
+export function raidBossStats(sp, level, exclusive = false, teleport = false) {
   const base = statsFor(sp, level, null);
-  const mods = raidModifiers(exclusive);
+  const mods = raidModifiers(exclusive, teleport);
   const out = {};
   for (const k of STAT_KEYS) {
     out[k] = Math.max(1, Math.round(base[k] * (mods[k] ?? 1)));
