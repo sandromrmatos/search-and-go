@@ -363,6 +363,36 @@
       </div>
 
       <div class="card">
+        <h3>Music</h3>
+        <label class="opt-toggle">
+          <input type="checkbox" id="opt-music" />
+          <span>Play background music</span>
+        </label>
+        <label class="opt-volume">
+          <span>Volume</span>
+          <input type="range" id="opt-music-volume" min="0" max="100" step="5"
+                 aria-label="Music volume" />
+          <b id="opt-music-volume-label">50%</b>
+        </label>
+        <p class="muted small">Starts the first time you tap the screen, and pauses while the game is in the background.</p>
+      </div>
+
+      <div class="card">
+        <h3>Sounds</h3>
+        <label class="opt-toggle">
+          <input type="checkbox" id="opt-sound" />
+          <span>Play sound effects</span>
+        </label>
+        <label class="opt-volume">
+          <span>Volume</span>
+          <input type="range" id="opt-sound-volume" min="0" max="100" step="5"
+                 aria-label="Sound effects volume" />
+          <b id="opt-sound-volume-label">50%</b>
+        </label>
+        <p class="muted small">A chime every 2 seconds while a creature from your incense is waiting, until you tap it.</p>
+      </div>
+
+      <div class="card">
         <h3>Save data</h3>
         <p id="save-guard-banner" class="save-guard hidden"></p>
         <p id="save-warn" class="save-warn hidden"></p>

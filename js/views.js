@@ -3422,6 +3422,28 @@ export function renderProfile() {
   const hideUsed = $('#opt-hide-collected');
   if (hideUsed) hideUsed.checked = !!store.s.ui.hideCollectedPoints;
 
+  // Music: on / off and the volume, half by default.
+  const musicOn = store.s.ui.musicOn !== false;
+  const vol = Math.round(Math.max(0, Math.min(1, Number(store.s.ui.musicVolume ?? 0.5))) * 100);
+  const musicBox = $('#opt-music');
+  if (musicBox) musicBox.checked = musicOn;
+  const volInput = $('#opt-music-volume');
+  if (volInput) { volInput.value = String(vol); volInput.disabled = !musicOn; }
+  const volLabel = $('#opt-music-volume-label');
+  if (volLabel) volLabel.textContent = `${vol}%`;
+  volInput?.closest('.opt-volume')?.classList.toggle('off', !musicOn);
+
+  // Sound effects, the same way.
+  const soundOn = store.s.ui.soundOn !== false;
+  const svol = Math.round(Math.max(0, Math.min(1, Number(store.s.ui.soundVolume ?? 0.5))) * 100);
+  const soundBox = $('#opt-sound');
+  if (soundBox) soundBox.checked = soundOn;
+  const svInput = $('#opt-sound-volume');
+  if (svInput) { svInput.value = String(svol); svInput.disabled = !soundOn; }
+  const svLabel = $('#opt-sound-volume-label');
+  if (svLabel) svLabel.textContent = `${svol}%`;
+  svInput?.closest('.opt-volume')?.classList.toggle('off', !soundOn);
+
   // candy per family, highest first
   const host = $('#candy-list');
   host.innerHTML = '';

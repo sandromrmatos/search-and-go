@@ -106,7 +106,7 @@ export function initExtras({ onChange, onMapChange } = {}) {
 
 const MISSION_ICON = {
   registered: '📖', captures: '🎯', capturesToday: '📅',
-  raidsWon: '🔥', raidsWeek: '🔥', raidRarity: '💎', gruntsBeaten: '🧍',
+  raidsWon: '🔥', routesWeek: '🧭', raidRarity: '💎', gruntsBeaten: '🧍',
   exclusiveRaidsWon: '💠', exclusiveRaidRarity: '💠',
   registeredInSet: '🌌',
   essenceHarvests: '🔮', essenceToday: '🔮', essenceWeek: '🔮',
@@ -2024,7 +2024,7 @@ function renderInfo(tab = 'basics') {
         el('li', { html: `You walk with the <b>arrows</b> round your dot, and only along streets and paths, up to ${TELEPORT_RADIUS_M / 1000} km from where you arrive. A tap walks ${TELEPORT_STEP_M} m; hold to keep going. Moving like this is not walking: it does not hatch eggs, earn buddy candy, fill walking missions or earn teleport points.` }),
         el('li', { html: 'Every place spawns something: a creature (65%), a raid (20%) or a grunt (15%), from your chosen sets only, plus grunts in the parks. All your unlocked sets are ticked to start with. No items or discs, no Essence Harvesting, and no events — no Stardust Sunday, Bonanza or the rest. Incense, the Stardust Magnet and the Molten Seeker cannot be used (any you had running pause and pick up again when you are back), and buildings cannot be placed.' }),
         el('li', { html: `<b>Catching:</b> a Capturing Disc fails ${Math.round(TELEPORT_FLEE_CHANCE * 100)}% of the time and the creature flees. A catch is level 1 (75%), 2 (20%) or 3 (5%), with <b>+2 candy</b> and <b>+20% stardust</b>.` }),
-        el('li', { html: '<b>Every fight uses Elite rules.</b> Raids are fought against the <b>last form</b> of the line; win and an Ultra Capture Disc catches the Stage 1 for sure, at level 3 (75%), 4 (20%) or 5 (5%), with +2 extra candy and +20% stardust. Raid bosses have <b>4x HP</b> and are level 7 at rarity 1–2, level 8 at rarity 3–4 and level 9 at rarity 5. Grunts bring level 9 creatures with all 20 Stat Boosters and a held item, at least one with 300+ base stats; beat one and you also get 1, 2, 3, 5 or 10 candy of one of the six creatures in the fight. Wins pay XP, stardust and candy, never items.' }),
+        el('li', { html: '<b>Every fight uses Elite rules.</b> Raids are fought against the <b>last form</b> of the line; win and an Ultra Capture Disc catches the Stage 1 for sure, at level 3 (75%), 4 (20%) or 5 (5%), with +2 extra candy and +20% stardust. Raid bosses are level 7 at rarity 1–2 and level 8 at rarity 3–5. Grunts bring level 9 creatures with all 20 Stat Boosters and a held item, at least one with 300+ base stats; beat one and three of the six creatures in the fight are picked at random, and you get 1, 2, 3, 5 or 10 candy for each of them. Wins pay XP, stardust and candy, never items.' }),
         el('li', { html: 'Your home map waits while you are away and is re-rolled when you come back, so the grunt who finds you and any Essence Harvesting turn up then. Leave early from the banner at the top if you like; the visit is used either way.' })
       ),
       el('h4', { text: '🧭 Daily Route' }),

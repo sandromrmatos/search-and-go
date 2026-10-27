@@ -1943,8 +1943,8 @@ export const EXCLUSIVE_RAID_BOSS_MODIFIERS = { hp: 4, attack: 1.30, defence: 1.3
 export const raidModifiers = (exclusive = false, teleport = false) =>
   exclusive ? EXCLUSIVE_RAID_BOSS_MODIFIERS : teleport ? TELEPORT_RAID_BOSS_MODIFIERS : RAID_BOSS_MODIFIERS;
 
-/** Teleport raid bosses: the normal table with 4x HP instead of 3x. */
-export const TELEPORT_RAID_BOSS_MODIFIERS = { ...RAID_BOSS_MODIFIERS, hp: 4 };
+/** Teleport raid bosses: the same table as a normal raid (3x HP). Kept separate so it can be tuned. */
+export const TELEPORT_RAID_BOSS_MODIFIERS = { ...RAID_BOSS_MODIFIERS };
 
 /** Which rarity a raid is, what level the boss is, and what beating it pays. */
 export const RAID_TIERS = {
@@ -2513,7 +2513,9 @@ export const TELEPORT_POI_OUTCOMES = [
   { kind: 'grunt', weight: 15 }
 ];
 /** Teleport raid bosses are a fixed level by rarity. */
-export const TELEPORT_RAID_LEVEL_BY_RARITY = { 1: 7, 2: 7, 3: 8, 4: 8, 5: 9 };
+export const TELEPORT_RAID_LEVEL_BY_RARITY = { 1: 7, 2: 7, 3: 8, 4: 8, 5: 8 };
+/** A teleport grunt win pays candy for this many of the six creatures in the fight. */
+export const TELEPORT_GRUNT_CANDY_PICKS = 3;
 /** Every creature a teleport grunt brings is this level. */
 export const TELEPORT_GRUNT_LEVEL = 9;
 export const rollTeleportOutcome = () => weightedPick(TELEPORT_POI_OUTCOMES).kind;
@@ -2530,7 +2532,7 @@ export const TELEPORT_FLEE_CHANCE = 0.25;
 export const TELEPORT_BONUS_CANDY = 2;
 export const TELEPORT_DUST_MULTIPLIER = 1.2;
 
-/** A teleport grunt win also pays candy of one of the six creatures in the fight. */
+/** A teleport grunt win also pays candy for three of the six creatures in the fight, each rolled on this. */
 export const TELEPORT_GRUNT_CANDY = [[1, 50], [2, 30], [3, 10], [5, 7], [10, 3]];
 export const rollTeleportGruntCandy = () =>
   weightedPick(TELEPORT_GRUNT_CANDY.map(([n, weight]) => ({ n, weight }))).n;
@@ -4455,11 +4457,11 @@ export const WEEKLY_MISSIONS = [
     label: 'Get candies through Essence Harvesting 20 times this week'
   },
 
-  // ---- raids ----
+  // ---- Daily Routes ----
   {
-    id: 'weekRaid5', kind: 'raidsWeek', target: 5, xp: 50, dust: 500,
+    id: 'weekRoute5', kind: 'routesWeek', target: 5, xp: 50, dust: 500,
     items: { ultra_disc: 2, fossil_incense: 1 },
-    label: 'Complete 5 raids this week'
+    label: 'Complete 5 routes this week'
   }
 ];
 

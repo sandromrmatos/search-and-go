@@ -58,7 +58,7 @@ import {
   TELEPORT_MIN_LEVEL, TELEPORT_COST, TELEPORT_MAX_POINTS, TELEPORT_METRES_PER_POINT,
   TELEPORT_SESSION_MS, TELEPORT_CITIES, teleportCity, teleportSetOptions,
   TELEPORT_BONUS_CANDY, TELEPORT_DUST_MULTIPLIER, TELEPORT_RAID_LEVELS, rollTeleportLevel,
-  rollTeleportGruntCandy, SHINY_ODDS, cityNow
+  rollTeleportGruntCandy, SHINY_ODDS, cityNow, TELEPORT_GRUNT_CANDY_PICKS
 } from './data.js';
 import { ITEMS, item as itemDef } from './items.js';
 import { elevationNow } from './weather.js';
@@ -135,8 +135,8 @@ const blankWeekly = () => ({
   loggedIn: 0,
   /** Essence harvests that paid candy this week. */
   essenceWeek: 0,
-  /** Raids won this week. */
-  raidsWeek: 0
+  /** Daily Routes claimed this week. */
+  routesWeek: 0
 });
 
 /**
@@ -348,6 +348,12 @@ function blankState() {
       // Hides the ticked-off points on the map. They stay live underneath and
       // keep their spot reserved — this only stops them being drawn.
       hideCollectedPoints: false,
+      /** Background music, and its volume from 0 to 1. Half by default. */
+      musicOn: true,
+      musicVolume: 0.5,
+      /** Sound effects (the incense chime), the same way. */
+      soundOn: true,
+      soundVolume: 0.5,
       /** Collection shows shiny artwork, with silhouettes for shinies not caught. */
       collectionShiny: false,
       /** Storage is filtered to one family root id, or '' for everything. */
@@ -2089,7 +2095,8 @@ class Store {
   mysteriousIncenseCandidates(now = new Date()) {
     return Object.keys(this.s.registered)
       .map(id => species(id))
-      .filter(sp => sp && sp.stage === 1 && !sp.exclusive && !sp.mythical)
+      // Fossils only come back through a revival, so they are never on offer.
+      .filter(sp => sp && sp.stage === 1 && !sp.exclusive && !sp.mythical && !sp.fossil)
       .filter(sp => canSpawnNow(sp, now))
       .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
   }
@@ -2124,7 +2131,7 @@ class Store {
       pinned = speciesId ? species(speciesId) : null;
       if (!pinned) return { ok: false, reason: 'noSpecies' };
       if (!this.isRegistered(pinned.id)) return { ok: false, reason: 'notRegistered' };
-      if (pinned.stage !== 1 || pinned.exclusive || pinned.mythical) {
+      if (pinned.stage !== 1 || pinned.exclusive || pinned.mythical || pinned.fossil) {
         return { ok: false, reason: 'notEligible' };
       }
     }
@@ -2327,9 +2334,6 @@ class Store {
     const levelUp = this.addXP(xp);
     this.s.stats.raidsWon++;
     this.bumpDaily('raidsToday');
-    // The weekly raid mission. Rolled first, like every other weekly writer.
-    if (this.s.weekly.week !== weekKey()) this.s.weekly = blankWeekly();
-    this.s.weekly.raidsWeek = (Number(this.s.weekly.raidsWeek) || 0) + 1;
 
     // Track wins per boss rarity so the "defeat a Rarity N raid" missions work.
     const rarity = Number(raid.rarity) || 0;
@@ -2443,13 +2447,17 @@ class Store {
     /* A teleport grunt pays stardust and, instead of items, candy of one of the
        six creatures that were in the fight, picked at random. */
     if (teleport) {
-      const pick = candyFrom.length ? candyFrom[Math.floor(Math.random() * candyFrom.length)] : null;
-      let candy = null;
-      if (pick && species(pick)) {
-        const n = rollTeleportGruntCandy();
-        this.addCandy(pick, n);
-        candy = { speciesId: pick, n };
+      // Three of the six creatures, picked without repeats, each with its own roll.
+      const pool = candyFrom.filter(id => species(id));
+      for (let i = pool.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool[i], pool[j]] = [pool[j], pool[i]];
       }
+      const candy = pool.slice(0, TELEPORT_GRUNT_CANDY_PICKS).map(speciesId => {
+        const n = rollTeleportGruntCandy();
+        this.addCandy(speciesId, n);
+        return { speciesId, n };
+      });
       this.s.stats.gruntsBeaten++;
       this.bumpDaily('gruntsToday');
       this.touch('grunt-win', { immediate: true });
@@ -2869,6 +2877,9 @@ class Store {
        continues the run rather than breaking it. */
     const st = this.s.stats;
     st.routesCompleted = (st.routesCompleted || 0) + 1;
+    // The weekly route mission, counted in the week it is claimed.
+    if (this.s.weekly.week !== weekKey()) this.s.weekly = blankWeekly();
+    this.s.weekly.routesWeek = (Number(this.s.weekly.routesWeek) || 0) + 1;
     const [y, m, d] = r.day.split('-').map(Number);
     const dayBefore = dayKey(new Date(y, m - 1, d - 1));
     if (st.routeLastDay !== r.day) {
@@ -4610,7 +4621,7 @@ class Store {
       case 'essenceToday':
         return this.s.daily.date === dayKey() ? (this.s.daily.essenceToday || 0) : 0;
       case 'essenceWeek': return this.weekly.essenceWeek || 0;
-      case 'raidsWeek': return this.weekly.raidsWeek || 0;
+      case 'routesWeek': return this.weekly.routesWeek || 0;
       // Opening the game is the whole task, so this is stamped at boot.
       case 'loggedInThisWeek': return this.weekly.loggedIn || 0;
       // The daily equivalent: reading this at all means the game is open, and the

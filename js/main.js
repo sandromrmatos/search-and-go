@@ -13,6 +13,7 @@ import {
   teleportCity, TELEPORT_RADIUS_M, TELEPORT_WILD_LEVELS, TELEPORT_FLEE_CHANCE, rollTeleportLevel
 } from './data.js';
 import { planDailyRoute } from './route.js';
+import { initMusic, applyMusicSettings, playSpawnChime } from './music.js';
 import {
   Streets, initTeleport, openTeleportSheet, renderTeleportBanner, renderTeleportButton,
   pressArrow, stopHold
@@ -88,6 +89,10 @@ let capturing = false;
 let lastPOIs = [];
 /** When to next try loading a teleport's streets again after a failure. */
 let streetRetryAt = 0;
+/** The incense chime: how often, when it last sounded, and spawns already tapped. */
+const INCENSE_CHIME_MS = 2000;
+let lastChimeAt = 0;
+const chimeHeard = new Set();
 let scanCooldownUntil = 0; // backs off automatic retries after a failed lookup
 let scanFailures = 0;      // consecutive failures, for an escalating backoff
 let lastScanError = null;  // shown on the chip so a failure is not silent
@@ -735,6 +740,8 @@ const reachableFromAnywhere = point =>
 /** Routes a tap on the map to whatever that point actually is. */
 async function onPointTap(point) {
   if (capturing) return;
+  // Tapped, so its chime has done its job.
+  if (point?.source === 'incense') chimeHeard.add(point.id);
   const live = checkInteractable(point, { requireRange: !reachableFromAnywhere(point) });
   if (!live) return;
 
@@ -1376,6 +1383,14 @@ function startLoop() {
       }
     }
 
+    /* The incense chime: every 2 seconds while a creature from your incense is
+       on the map, uncaught and not yet tapped. Not during a catch or a battle. */
+    if (now - lastChimeAt >= INCENSE_CHIME_MS && !capturing && !isBattleOpen()) {
+      const waiting = store.activePoints(now).some(p =>
+        p.source === 'incense' && !p.collected && !chimeHeard.has(p.id));
+      if (waiting) { lastChimeAt = now; playSpawnChime(); }
+    }
+
     // The crosses and the fossil countdowns both follow where you are and the
     // clock, so they are refreshed on the tick rather than only on a scan.
     syncMedicalSpots();
@@ -1488,6 +1503,36 @@ function initUI() {
     const hidden = wrap.classList.toggle('chip-hidden');
     $('#btn-hide-chip').textContent = hidden ? '⟳' : '✕';
   });
+
+  // Background music, set from the Profile.
+  initMusic();
+  $('#opt-music')?.addEventListener('change', e => {
+    store.setUI({ musicOn: e.target.checked });
+    applyMusicSettings();
+    renderProfile();
+  });
+  $('#opt-music-volume')?.addEventListener('input', e => {
+    const v = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+    store.setUI({ musicVolume: v / 100 });
+    const label = $('#opt-music-volume-label');
+    if (label) label.textContent = `${v}%`;
+    applyMusicSettings();
+  });
+
+  $('#opt-sound')?.addEventListener('change', e => {
+    store.setUI({ soundOn: e.target.checked });
+    renderProfile();
+    // A sample, so the player hears what they just switched on.
+    if (e.target.checked) playSpawnChime();
+  });
+  $('#opt-sound-volume')?.addEventListener('input', e => {
+    const v = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+    store.setUI({ soundVolume: v / 100 });
+    const label = $('#opt-sound-volume-label');
+    if (label) label.textContent = `${v}%`;
+  });
+  // Hear the new level when the slider is let go.
+  $('#opt-sound-volume')?.addEventListener('change', () => playSpawnChime());
 
   $('#opt-hide-collected').addEventListener('change', e => {
     store.setUI({ hideCollectedPoints: e.target.checked });

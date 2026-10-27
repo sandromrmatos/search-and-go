@@ -455,7 +455,9 @@ export function tickIncense(pos, now = Date.now()) {
   // A Mysterious Incense skips the roll entirely: the player already chose. If
   // the pinned creature has somehow gone from the data, it falls back to a
   // normal roll rather than spawning nothing for the rest of the burn.
-  const pinned = fx.speciesId ? species(fx.speciesId) : null;
+  // A fossil is never a valid pick; one lit before that rule rolls normally instead.
+  const pinnedSp = fx.speciesId ? species(fx.speciesId) : null;
+  const pinned = pinnedSp && !pinnedSp.fossil ? pinnedSp : null;
   // A Set Incense rolls the wild odds inside its one set, ignoring any takeover
   // or spotlight. Null only if nothing in that set is in season right now, in
   // which case it falls through to a normal roll rather than spawning nothing.

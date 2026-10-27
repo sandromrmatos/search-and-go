@@ -426,7 +426,8 @@ function renderPreview() {
           el('span', { class: 'tag', text: `Level ${raid.level}` }),
           el('span', { class: `tag r-${raid.rarity}`, text: `${raid.rarity} · ${RARITY_NAMES[raid.rarity]}` })
         ),
-        !store.isRegistered(sp.id)
+        // What you would catch is the Stage 1, so that is the one that counts here.
+        !store.isRegistered(catchSp.id)
           ? el('div', { class: 'not-registered-badge', text: 'Not registered yet' })
           : null
       ),
@@ -517,7 +518,7 @@ function renderPreview() {
         ? [
           el('span', { class: 'reward' }, el('span', { text: DUST_ICON }), el('span', { text: 'Stardust' })),
           el('span', { class: 'reward' }, el('span', { text: CANDY_ICON }),
-            el('span', { text: 'Candy of one of the six creatures in the fight: 1, 2, 3, 5 or 10' }))
+            el('span', { text: 'Candy for 3 of the 6 creatures in the fight: 1, 2, 3, 5 or 10 each' }))
         ]
         : gruntRewardChips()))
     );
@@ -1745,7 +1746,7 @@ async function finishBattle() {
       // table, and only on a win — losing leaves it open to try again.
       if (ctx.grand) store.recordFrontierGrandWin(ctx.grand.challengeId, ctx.grand.modeId);
     } else if (ctx.grunt.teleport) {
-      // Candy of one of the six creatures in the fight: theirs or yours.
+      // Candy for three of the six creatures in the fight: theirs or yours.
       const candyFrom = [
         ...ctx.grunt.team.map(t => t.speciesId),
         ...ctx.picked.map(uid => store.creature(uid)?.speciesId).filter(Boolean)
@@ -1855,9 +1856,8 @@ function renderResult() {
         ? { icon: DUST_ICON, label: `+${num(rewards.dust)} stardust${rewards.sunday ? ' (Sunday ×2)' : ''}` }
         : null,
       rewards.bonus ? { icon: '🎁', label: `Bonus ${itemName(rewards.bonus)}` } : null,
-      rewards.candy
-        ? { icon: CANDY_ICON, label: `+${rewards.candy.n} ${familyName(rewards.candy.speciesId)} candy` }
-        : null,
+      ...(Array.isArray(rewards.candy) ? rewards.candy : []).map(c =>
+        ({ icon: CANDY_ICON, label: `+${c.n} ${familyName(c.speciesId)} candy` })),
       // Guaranteed drops: raid revives + incubator, grunt potions/revives
       ...Object.entries(rewards.items || {}).map(([id, n]) => ({ img: itemImage(id), label: `+${n} ${itemName(id, n)}` })),
       rewards.egg ? { icon: '🥚', label: `A ${eggLabel(rewards.egg.type)}` } : null,
