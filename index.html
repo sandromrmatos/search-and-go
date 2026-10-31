@@ -349,8 +349,9 @@
         <div><span class="muted">Distance walked</span><b id="p-distance">0 m</b></div>
       </div>
 
-      <div class="card">
-        <h3>Map display</h3>
+      <!-- Settings cards start closed; tap the heading to open one. -->
+      <details class="card collapsible">
+        <summary><h3>Map display</h3></summary>
         <label class="opt-toggle">
           <input type="checkbox" id="opt-hide-collected" />
           <span>Hide points you have already used</span>
@@ -360,10 +361,10 @@
           caught its creature or won its battle. They are still there underneath — nothing new
           appears in that spot until the timer runs out.
         </p>
-      </div>
+      </details>
 
-      <div class="card">
-        <h3>Music</h3>
+      <details class="card collapsible">
+        <summary><h3>Music</h3></summary>
         <label class="opt-toggle">
           <input type="checkbox" id="opt-music" />
           <span>Play background music</span>
@@ -375,10 +376,10 @@
           <b id="opt-music-volume-label">50%</b>
         </label>
         <p class="muted small">Starts the first time you tap the screen, and pauses while the game is in the background.</p>
-      </div>
+      </details>
 
-      <div class="card">
-        <h3>Sounds</h3>
+      <details class="card collapsible">
+        <summary><h3>Sounds</h3></summary>
         <label class="opt-toggle">
           <input type="checkbox" id="opt-sound" />
           <span>Play sound effects</span>
@@ -390,7 +391,7 @@
           <b id="opt-sound-volume-label">50%</b>
         </label>
         <p class="muted small">A chime every 2 seconds while a creature from your incense is waiting, until you tap it.</p>
-      </div>
+      </details>
 
       <div class="card">
         <h3>Save data</h3>

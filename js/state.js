@@ -449,6 +449,12 @@ export function hpOf(c) {
 }
 
 export const isFainted = c => hpOf(c) <= 0;
+
+/** Rarity 6: a Mythical, one of a kind, so it can never be released. */
+export const isMythicalCreature = c => {
+  const sp = species(c?.speciesId);
+  return !!sp && (!!sp.mythical || familyRarity(sp.id) >= 6);
+};
 export const isHurt = c => hpOf(c) < maxHpOf(c);
 
 /* ---------------------------------------------------------------
@@ -677,6 +683,9 @@ export function migrate(raw) {
   s.eggs = (Array.isArray(raw.eggs) ? raw.eggs : [])
     .filter(e => e && EGG_TYPES[e.type])
     .filter(e => {
+      // A mythical egg has no slot and no cap. It used to be counted as a normal
+      // egg here, so with six normal eggs held it was dropped on the next load.
+      if (isMythicalEgg(e.type)) return true;
       const bucket = isExclusiveEgg(e.type) ? 'exclusive' : 'normal';
       if (eggRoom[bucket] <= 0) return false;
       eggRoom[bucket]--;
@@ -693,6 +702,26 @@ export function migrate(raw) {
       halved: !!e.halved && INCUBATOR_ITEMS.includes(e.incubator)
     }));
   s.nextEggId = Math.max(1, Number(s.nextEggId) || 1);
+
+  /* Repair for the bug above. A Set mission that paid a mythical egg, claimed,
+     with no such egg held and that mythical never hatched, lost its egg. If the
+     egg was all it paid besides XP and stardust, the claim is undone so it can
+     be claimed again; otherwise (a building or an unlock came with it) the egg
+     is simply put back, so nothing else is paid twice. */
+  for (const m of SET_MISSIONS) {
+    if (!m.grantEgg || !s.missions[m.id]) continue;
+    const spId = eggDef(m.grantEgg).speciesId;
+    const hatched = spId && (s.registered[spId] || s.caughtCount?.[spId]);
+    const held = s.eggs.some(e => e.type === m.grantEgg);
+    if (hatched || held) continue;
+    const onlyEgg = !m.items && !m.unlockGalacticRarity && !m.unlockTemporalRarity
+      && !m.unlockCrystalRarity && !m.unlockExclusiveSet && !m.heldItem && !m.fossilPart;
+    if (onlyEgg) delete s.missions[m.id];
+    else {
+      s.eggs.push({ id: `egg${s.nextEggId++}`, type: m.grantEgg, collectedAt: Date.now(),
+        metres: 0, incubator: null, halved: false });
+    }
+  }
 
   // ---- buddy: drop it if that creature is no longer in storage ----
   if (s.buddy && typeof s.buddy === 'object') {
@@ -2617,6 +2646,7 @@ class Store {
     if (c.breeding != null) return { ok: false, reason: 'breeding' };
     if (c.favourite) return { ok: false, reason: 'favourite' };
     if (this.isBuddy(uid)) return { ok: false, reason: 'buddy' };
+    if (isMythicalCreature(c)) return { ok: false, reason: 'mythical' };
 
     const i = this.s.storage.findIndex(x => x.uid === uid);
     // Whatever it was carrying comes off first, or releasing it would quietly
@@ -2665,7 +2695,7 @@ class Store {
     const reclaimed = [];
     for (const uid of uids) {
       const c = this.creature(uid);
-      if (!c || c.favourite || c.shiny || c.breeding != null) continue;
+      if (!c || c.favourite || c.shiny || c.breeding != null || isMythicalCreature(c)) continue;
       if (this.isBuddy(uid)) continue;   // your buddy is never released in bulk
       const i = this.s.storage.findIndex(x => x.uid === uid);
       if (i === -1) continue;

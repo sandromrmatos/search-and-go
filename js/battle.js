@@ -1303,7 +1303,16 @@ export class Battle {
     const events = [];
     let switched = false;
     if (this.playerActive?.fainted) {
-      const next = this.player.findIndex((b, i) => i > this.playerIndex && !b.fainted);
+      /* The next one standing after this one, wrapping round to the start. In an
+         Elite battle you can switch to your third creature with the first two
+         still fit; looking only further down the team found nobody when that
+         third one fainted, and the battle froze with two creatures left. */
+      const n = this.player.length;
+      let next = -1;
+      for (let k = 1; k < n && next === -1; k++) {
+        const i = (this.playerIndex + k) % n;
+        if (!this.player[i].fainted) next = i;
+      }
       if (next !== -1) {
         this.playerIndex = next;
         switched = true;

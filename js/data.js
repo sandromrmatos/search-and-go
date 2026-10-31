@@ -6552,7 +6552,16 @@ export function eventSpawnPool(spec, now = new Date()) {
      A cast creature with no rarity of its own — a Stage 2 form — is judged by its
      family's, the same way every other rarity question in the game is. */
   if (spec.list) {
-    const cast = (DB.eventPools[spec.list] || []).filter(sp => canSpawnNow(sp, now));
+    /* Only what this player has unlocked. The cast list spans every set, and it
+       used to be taken whole, so a player with only Elemental Awakening was
+       handed Halloween creatures from sets they had not opened yet. A cast
+       member counts as unlocked when it is in play (DB.available: unlocked
+       rarities of unlocked sets, any stage). */
+    // Listed Exclusives count too, once unlocked: the first wave always, the
+    // second after its Set mission. Battle Frontier bosses stay out, as they
+    // do of every roll (exclusiveRollable).
+    const inPlay = new Set([...(DB.available || []), ...(DB.exclusiveRollable || [])].map(sp => sp.id));
+    const cast = (DB.eventPools[spec.list] || []).filter(sp => inPlay.has(sp.id) && canSpawnNow(sp, now));
     for (const sp of cast) {
       const r = sp.rarity || familyRarity(sp.id) || 1;
       if (buckets[r]) buckets[r].push(sp);

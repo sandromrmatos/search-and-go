@@ -1617,6 +1617,18 @@ body.overlay-open .essence-arrow-glyph {
 /* player-facing settings switch, same shape as the debug ones */
 .opt-toggle { display: flex; align-items: center; gap: 9px; padding: 4px 0 2px; font-size: 13.5px; }
 .opt-toggle input { width: 18px; height: 18px; accent-color: var(--accent); flex: 0 0 auto; }
+/* Profile settings cards that open on tap. */
+details.collapsible > summary {
+  list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between;
+  user-select: none; -webkit-user-select: none;
+}
+details.collapsible > summary::-webkit-details-marker { display: none; }
+details.collapsible > summary h3 { margin: 0; }
+details.collapsible > summary::after {
+  content: '▸'; color: var(--muted); font-size: 16px; transition: transform .15s ease;
+}
+details.collapsible[open] > summary::after { transform: rotate(90deg); }
+details.collapsible[open] > summary { margin-bottom: 8px; }
 .opt-volume { display: flex; align-items: center; gap: 10px; padding: 6px 0 2px; font-size: 13.5px; }
 .opt-volume input { flex: 1; accent-color: var(--accent); }
 .opt-volume b { min-width: 40px; text-align: right; font-variant-numeric: tabular-nums; }

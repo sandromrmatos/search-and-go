@@ -30,7 +30,7 @@ import {
 } from './data.js';
 import { renderEggs, renderEggTabBadge, openEggPickerFor } from './eggs.js';
 import { renderProfileTitle, renderAchievementBadge, renderAchievements } from './achievements.js';
-import { store, creatureStats, maxHpOf, hpOf, isFainted, isHurt } from './state.js';
+import { store, creatureStats, maxHpOf, hpOf, isFainted, isHurt, isMythicalCreature } from './state.js';
 
 import { Persist } from './persist.js';
 import { cloudStatus } from './cloud.js';
@@ -690,7 +690,7 @@ function goToStoragePage(page, grid = null) {
  * to be multi-selected.
  */
 function canMultiSelect(c) {
-  return !c.favourite && c.breeding == null && !c.shiny && !store.isBuddy(c.uid);
+  return !c.favourite && c.breeding == null && !c.shiny && !store.isBuddy(c.uid) && !isMythicalCreature(c);
 }
 
 /* ---------------- hold a tile to start multi-select ----------------
@@ -718,7 +718,7 @@ function startHold(c, e) {
     holdTimer = null;
     if (multiSelectMode) return;
     if (!canMultiSelect(c)) {
-      toast('Favourites, shinies, buddies and breeding creatures cannot be released', 'bad');
+      toast('Favourites, shinies, Mythicals, buddies and breeding creatures cannot be released', 'bad');
       return;
     }
     holdConsumed = true;
@@ -2378,9 +2378,11 @@ function renderCreatureSheet() {
     el('div', { class: 'btn-row' },
       el('button', {
         class: 'btn danger',
-        disabled: !!c.favourite || store.isBuddy(c.uid),
+        disabled: !!c.favourite || store.isBuddy(c.uid) || isMythicalCreature(c),
         onclick: () => doRelease(c.uid)
-      }, store.isBuddy(c.uid)
+      }, isMythicalCreature(c)
+        ? 'Mythicals cannot be released'
+        : store.isBuddy(c.uid)
         ? 'Buddies cannot be released'
         : c.favourite
           ? 'Unfavourite to release'
@@ -2767,6 +2769,7 @@ function doRelease(uid) {
     toast(({
       buddy: 'Your buddy cannot be released — pick a different buddy first',
       favourite: 'Unfavourite it before releasing',
+      mythical: 'Mythicals cannot be released',
       breeding: 'It is in the breeding centre'
     })[r.reason] || 'Could not release that creature', 'bad', 3600);
     return;
