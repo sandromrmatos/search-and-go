@@ -2671,12 +2671,12 @@ export const FRONTIER_DAILY_LEVELS = [
   {
     id: 'medium', label: 'Medium', order: 2,
     creatureLevel: 7, minTotal: 300, maxTotal: 329, boosts: 10, held: true,
-    essenceRarities: [3, 4], featherChance: 0.02, setIncenseChance: 0.05
+    essenceRarities: [3, 4], featherChance: 0.04, setIncenseChance: 0.05
   },
   {
     id: 'hard', label: 'Hard', order: 3,
     creatureLevel: 9, minTotal: 330, maxTotal: Infinity, boosts: 20, held: true,
-    essenceRarities: [4, 5], featherChance: 0.03, setIncenseChance: 0.15
+    essenceRarities: [4, 5], featherChance: 0.10, setIncenseChance: 0.15
   }
 ];
 

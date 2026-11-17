@@ -37,6 +37,10 @@ import {
 import { itemImage, itemName } from './items.js';
 import { playCapture } from './anim.js';
 import {
+  DuoSession, canInviteToRaid, duoEventText, openJoinDuo,
+  DUO_HP_MULTIPLIER, DUO_TURN_SECONDS, DUO_BOOST_PCT
+} from './duo.js';
+import {
   $, $$, el, toast, num, sleep,
   clampPage, pageSlice, pagerBar, wireSwipe, bumpEl
 } from './ui.js';
@@ -245,6 +249,23 @@ export function closeBattle() {
   endPeek();
   if (busy) return;
 
+  // A duo raid still running: leaving tells the friend, and keeps the damage taken so far.
+  const duo = ctx?.duo;
+  if (duo && !duo.done) {
+    const host = duo.role === 'host';
+    const friend = duo.friend?.name || 'your friend';
+    if (duo.started) {
+      const msg = host
+        ? `Leave the raid?\n\nThis ends it for ${friend} too. Your creatures keep the damage they have taken.`
+        : `Leave the raid?\n\n${friend} carries on without you. Your creatures keep the damage they have taken.`;
+      if (!confirm(msg)) return;
+      applyDuoDamage();
+    } else if (duo.ready && !confirm(`Leave the raid? ${friend} won't be able to raid with you.`)) {
+      return;
+    }
+    duo.leave();
+  }
+
   /* Walking away from a beaten raid boss that could still be caught is final,
      and the button sits right next to the Ultra Disc one, so ask first. Covers
      the ✕ as well as "Leave it". */
@@ -288,7 +309,7 @@ export function closeBattle() {
 }
 
 function step(name) {
-  for (const id of ['preview', 'pick', 'arena', 'result']) {
+  for (const id of ['preview', 'pick', 'arena', 'duo', 'result']) {
     $('#bt-' + id).classList.toggle('hidden', id !== name);
   }
 }
@@ -463,7 +484,8 @@ function renderPreview() {
             el('span', { text: `${Math.round(EXCLUSIVE_RAID_REWARD.eggChance * 100)}% a 15 km egg` }))
           : null
       ),
-      ultraDiscNotice()
+      ultraDiscNotice(),
+      duoPreviewBlock() || ''
     );
     // A Grand Raid says which ladder it came out of and that it is the only way
     // to meet this creature, since neither is obvious from a raid screen.
@@ -825,6 +847,12 @@ window.addEventListener('pointerup', endPeek);
 window.addEventListener('pointercancel', endPeek);
 
 function showPicker() {
+  // Invited a friend who hasn't joined yet: carry on alone, or wait.
+  if (ctx.duo && !ctx.duo.ready) {
+    if (!confirm('Your friend has not joined yet. Raid on your own instead?')) return;
+    ctx.duo.leave();
+    ctx.duo = null;
+  }
   ctx.picked = [];
   pickPage = 0;
   step('pick');
@@ -1208,6 +1236,12 @@ function startFight() {
 
   // Remembered for the picker's "Last team" button, whatever kind of fight is next.
   store.setUI({ lastBattleTeam: [...ctx.picked] });
+
+  // A duo raid: the team goes to the host's phone, which runs the battle.
+  if (ctx.duo?.ready) {
+    startDuoFight(team);
+    return;
+  }
 
   // Teleport raids and grunts are fought under Elite rules (buildRaidBattle reads
   // `raid.teleport` itself).
@@ -1981,3 +2015,273 @@ async function throwUltraDisc() {
 }
 
 export const isBattleOpen = () => !$('#battle').classList.contains('hidden');
+
+/* ---------------------------------------------------------------
+   Duo raids: the invite on the raid screen, the friend's way in, the
+   three-creature arena and the hand-back to the normal result screen.
+   The rules and the connection live in duo.js.
+   --------------------------------------------------------------- */
+
+const duoHpText = raid => `${DUO_HP_MULTIPLIER[raid?.exclusive ? 'exclusive' : 'regular']}×`;
+
+/** The invite (host) or the "raiding with" note (friend), under the raid preview. */
+function duoPreviewBlock() {
+  if (ctx?.kind !== 'raid') return null;
+  const box = el('div', { id: 'bt-duo-lobby', class: 'duo-lobby' });
+  if (ctx.duo) {
+    renderDuoLobby(ctx.duo.lobby || { step: ctx.duo.role === 'guest' ? 'guest' : 'waiting', code: ctx.duo.code }, box);
+    return box;
+  }
+  if (!ctx.point || !canInviteToRaid(ctx.raid, { grand: !!ctx.grand })) return null;
+  box.append(
+    el('p', { class: 'hint', text: `Raid it with a friend: the boss gets ${duoHpText(ctx.raid)} HP, and you each bring 3 creatures.` }),
+    el('button', { class: 'btn ghost wide', text: '👥 Invite a friend', onclick: inviteFriend }));
+  return box;
+}
+
+function renderDuoLobby(state, host = $('#bt-duo-lobby')) {
+  if (!host || !ctx?.duo) return;
+  ctx.duo.lobby = state;
+  host.innerHTML = '';
+  const rules = el('p', { class: 'hint', text: `Duo raid: the boss has ${duoHpText(ctx.raid)} HP. Its attacks hit both of you. `
+    + `Each turn you have ${DUO_TURN_SECONDS} seconds to choose. If all your creatures faint, you boost your friend's instead (+${Math.round(DUO_BOOST_PCT * 100)}% a turn).` });
+  if (state.step === 'connecting') host.append(el('p', { class: 'hint', text: 'Connecting…' }));
+  else if (state.step === 'error') host.append(el('p', { class: 'hint duo-error', text: `⚠️ ${state.message}` }));
+  else if (state.step === 'waiting') {
+    host.append(
+      el('p', { class: 'hint', text: 'Your raid code:' }),
+      el('div', { class: 'duo-code', text: state.code }),
+      el('p', { class: 'hint', text: `Your friend taps 👥 on their map and enters this code. They can join if ${species(ctx.raid.speciesId)?.name || 'this creature'} is one they can find themselves.` }),
+      rules);
+  } else if (state.step === 'joined') {
+    host.append(el('p', { class: 'duo-ok', text: `✅ ${state.friend} joined. Choose your team.` }), rules);
+  } else if (state.step === 'guest') {
+    host.append(el('p', { class: 'duo-ok', text: `👥 Raiding with ${ctx.duo.friend?.name || 'your friend'}. Choose your team.` }), rules);
+  }
+}
+
+async function inviteFriend() {
+  if (!ctx || ctx.duo) return;
+  const session = new DuoSession('host', duoHooks());
+  ctx.duo = session;
+  renderPreview();
+  const ok = await session.host(ctx.raid);
+  if (!ok && ctx?.duo === session) {
+    // The message stays up; a second tap can try again.
+    session.leave();
+    ctx.duo = null;
+    const box = $('#bt-duo-lobby');
+    if (box) box.append(el('button', { class: 'btn ghost wide', text: '👥 Try again', onclick: () => { renderPreview(); inviteFriend(); } }));
+  }
+}
+
+/** The friend's way in: the raid screen for a raid on someone else's map. */
+export function openDuoGuestRaid(raid, session, friendName) {
+  session.hooks = duoHooks();
+  ctx = {
+    point: null, kind: 'raid', raid: { ...raid, defeated: false }, grunt: null,
+    picked: [], battle: null, result: null, duo: session
+  };
+  session.lobby = { step: 'guest' };
+  step('preview');
+  renderPreview();
+  $('#bt-title').textContent += ` · with ${friendName}`;
+  $('#battle').classList.remove('hidden');
+}
+
+/** The 👥 map button. */
+export function openJoinDuoFromMap() {
+  if (isBattleOpen()) return;
+  if (store.isTeleporting) { toast('Raids with a friend are in person only: end the teleport first', 'bad', 3200); return; }
+  openJoinDuo(openDuoGuestRaid);
+}
+
+function duoHooks() {
+  return {
+    onLobby: state => { if (ctx?.duo) renderDuoLobby(state); },
+    onState: data => duoEnqueue(() => playDuoTurn(data)),
+    onChoose: (opts, deadline, turn) => duoEnqueue(() => showDuoChoices(opts, deadline, turn)),
+    onWaiting: name => duoWaiting(`Waiting for ${name}…`),
+    onEnd: result => duoEnqueue(() => endDuo(result)),
+    onAbort: message => duoEnqueue(() => abortDuo(message))
+  };
+}
+
+/* The friend's events arrive while the last ones may still be animating, so
+   everything on the duo screen runs through one queue. */
+let duoChain = Promise.resolve();
+const duoEnqueue = fn => { duoChain = duoChain.then(fn).catch(err => console.error('[duo]', err)); return duoChain; };
+let duoTick = null;
+
+function startDuoFight(team) {
+  ctx.duo.submitTeam(team);
+  $('#duo-log').innerHTML = '';
+  $('#duo-moves').innerHTML = '';
+  $('#duo-timer').textContent = '';
+  $('#bt-duo-title').textContent = `Duo Raid · ${species(ctx.raid.bossId || ctx.raid.speciesId)?.name || ''}`;
+  duoLog(`👥 You and ${ctx.duo.friend?.name || 'your friend'} take on a rarity ${ctx.raid.rarity}${ctx.raid.exclusive ? ' exclusive' : ''} raid together.`);
+  duoWaiting(`Waiting for ${ctx.duo.friend?.name || 'your friend'} to choose their team…`);
+  step('duo');
+}
+
+function duoLog(html) {
+  const log = $('#duo-log');
+  if (!log) return;
+  log.append(el('p', { html }));
+  log.scrollTop = log.scrollHeight;
+}
+
+function duoWaiting(text) {
+  clearInterval(duoTick);
+  $('#duo-timer').textContent = '';
+  const host = $('#duo-moves');
+  if (host) { host.innerHTML = ''; host.append(el('p', { class: 'hint duo-wait', text })); }
+}
+
+/** Draws the boss and the two players' creatures from a snapshot. */
+function renderDuoSnap(snap, myRole) {
+  const friendRole = myRole === 'host' ? 'guest' : 'host';
+  const boss = snap.boss;
+  const sp = species(boss.speciesId);
+  $('#duo-boss-img').src = sp?.spritePath(boss.shiny) || '';
+  $('#duo-boss-name').textContent = boss.label;
+  $('#duo-boss-lv').textContent = 'Lv ' + boss.level;
+  duoHp($('#duo-boss-hp'), $('#duo-boss-hpnum'), boss);
+  $('#duo-boss-buffs').innerHTML = '';
+  $('#duo-boss-buffs').append(...duoChips(boss));
+  for (const [role, id] of [[myRole, '#duo-me'], [friendRole, '#duo-friend']]) {
+    const s = snap.sides[role];
+    const cur = s.team[s.index] || s.team[0];
+    const host = $(id);
+    host.innerHTML = '';
+    const csp = species(cur.speciesId);
+    const bar = el('i');
+    const num = el('span');
+    host.append(
+      el('div', { class: 'duo-owner', text: role === myRole ? 'You' : s.name }),
+      el('div', { class: 'duo-pips' }, ...s.team.map((t, i) => el('span', { class: 'bt-pip' + (t.fainted ? ' down' : '') + (i === s.index && !t.fainted ? ' active' : '') },
+        el('img', { src: species(t.speciesId)?.spritePath(t.shiny) || '', alt: '' })))),
+      el('img', { class: 'duo-sprite' + (cur.fainted ? ' down' : ''), src: csp?.spritePath(cur.shiny) || '', alt: cur.label }),
+      el('div', { class: 'bt-name' }, el('b', { text: cur.label }), el('span', { class: 'lv', text: 'Lv ' + cur.level })),
+      el('div', { class: 'hp-wrap' }, el('span', { class: 'hp-bar' }, bar)),
+      el('div', { class: 'bt-hpnum' }, num),
+      el('div', { class: 'bt-buffs' }, ...duoChips(cur)),
+      s.wiped ? el('div', { class: 'duo-wiped', text: snap.sides[role === myRole ? friendRole : myRole].wiped ? 'Out' : '📣 Cheering' }) : '');
+    duoHp(bar, num, cur);
+  }
+}
+
+function duoHp(bar, num, b) {
+  const pct = Math.max(0, Math.round((b.hp / Math.max(1, b.maxHp)) * 100));
+  bar.style.width = pct + '%';
+  bar.parentElement?.parentElement?.classList.toggle('low', pct <= 60 && pct > 25);
+  bar.parentElement?.parentElement?.classList.toggle('critical', pct <= 25);
+  num.textContent = `${b.hp} / ${b.maxHp}`;
+}
+
+function duoChips(b) {
+  const out = [];
+  for (const s of b.status || []) out.push(el('span', { class: 'bt-buff bt-status', text: `${STATUS_CONDITIONS[s]?.icon || ''} ${s}` }));
+  for (const [k, pct] of Object.entries(b.buffs || {})) {
+    out.push(el('span', { class: 'bt-buff' + (pct < 0 ? ' down' : ''), text: `${STAT_LABELS[k]} ${pct > 0 ? '+' : ''}${pct}%` }));
+  }
+  return out;
+}
+
+async function playDuoTurn({ events, snap, myRole }) {
+  if (!ctx?.duo) return;
+  if ($('#bt-duo').classList.contains('hidden')) step('duo');
+  ctx.duo.myRole = myRole;
+  const names = { host: snap.sides.host.name, guest: snap.sides.guest.name };
+  duoWaiting('');
+  for (const e of events) {
+    const line = duoEventText(e, myRole, names);
+    if (!line) continue;
+    duoLog(line);
+    await sleep(e.type === 'turn' ? 120 : 300);
+  }
+  renderDuoSnap(snap, myRole);
+}
+
+function showDuoChoices(opts, deadline, turn) {
+  if (!ctx?.duo || ctx.duo.done) return;
+  const host = $('#duo-moves');
+  host.innerHTML = '';
+  const pick = choice => { clearInterval(duoTick); ctx.duo.choose(choice, turn); };
+  if (opts.kind === 'boost') {
+    host.append(el('p', { class: 'hint', text: `All your creatures have fainted. Cheer ${ctx.duo.friend?.name || 'your friend'} on: +${Math.round(DUO_BOOST_PCT * 100)}% to one stat of their creature.` }));
+    for (const stat of opts.stats) {
+      host.append(el('button', { class: 'bt-move buffmove', onclick: () => pick({ kind: 'boost', stat }) },
+        el('b', { text: `📣 Boost ${STAT_LABELS[stat]}` }), el('span', { text: `+${Math.round(DUO_BOOST_PCT * 100)}% ${STAT_LABELS[stat]} for your friend's creature` })));
+    }
+  } else {
+    for (const m of opts.moves) {
+      host.append(el('button', {
+        class: 'bt-move' + (m.isStatus ? ' buffmove' : '') + (m.usable ? '' : ' blocked'),
+        disabled: !m.usable, onclick: () => pick({ kind: 'move', i: m.i })
+      }, el('b', { text: m.name }), el('span', { text: m.usable ? m.desc : `Unavailable · ${m.why}` })));
+    }
+    if (opts.canWait) {
+      host.append(el('button', { class: 'bt-move buffmove', onclick: () => pick({ kind: 'wait' }) },
+        el('b', { text: 'Wait' }), el('span', { text: 'No move can be used this turn' })));
+    }
+  }
+  const timer = $('#duo-timer');
+  const tick = () => {
+    const left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+    timer.textContent = `⏱ ${left}s`;
+    timer.classList.toggle('low', left <= 5);
+    if (left <= 0) clearInterval(duoTick);
+  };
+  clearInterval(duoTick);
+  tick();
+  duoTick = setInterval(tick, 250);
+}
+
+/** The player's own creatures' HP, from the latest state of the battle. */
+function duoMyResults() {
+  const d = ctx?.duo;
+  const snap = d?.lastSnap;
+  if (!snap?.sides) return [];
+  return snap.sides[d.role].team.filter(t => t.uid).map(t => ({ uid: t.uid, hp: t.hp }));
+}
+
+function applyDuoDamage() {
+  const results = duoMyResults().filter(r => store.creature(r.uid));
+  if (results.length) store.applyBattleDamage(results);
+}
+
+async function endDuo(result) {
+  if (!ctx?.duo) return;
+  clearInterval(duoTick);
+  $('#duo-timer').textContent = '';
+  await sleep(600);
+  const own = (result.myResults || []).filter(r => r.uid && store.creature(r.uid));
+  ctx.battle = {
+    over: true,
+    winner: result.won ? 'player' : 'enemy',
+    damageByUid: result.damageByUid || {},
+    playerResults: () => own
+  };
+  await finishBattle();
+  // No "try again" for a duo: the raid was shared.
+  $('#bt-again').classList.add('hidden');
+  if (!result.won) {
+    $('#bt-result-body').append(el('p', { class: 'hint', text: 'Both teams were wiped out. Heal up and raid again.' }));
+  } else {
+    $('#bt-result-body').prepend(el('p', { class: 'duo-ok', text: `👥 Beaten together with ${ctx.duo.friend?.name || 'your friend'}!` }));
+  }
+}
+
+function abortDuo(message) {
+  if (!ctx?.duo) return;
+  clearInterval(duoTick);
+  applyDuoDamage();
+  toast(message, 'bad', 4200);
+  ctx.duo = null;
+  $('#battle').classList.add('hidden');
+  const after = ctx?.onClose || null;
+  ctx = null;
+  onFinished?.();
+  after?.();
+}

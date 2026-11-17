@@ -22,6 +22,8 @@ import { packText, unpackText } from './codec.js';
 
 const FIREBASE_VERSION = '10.12.2';
 const CDN = `https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}`;
+/** The same SDK build, for other Firebase modules (the duo raid's Realtime Database). */
+export const FIREBASE_SDK = CDN;
 
 const firebaseConfig = {
   apiKey: 'AIzaSyBIk-QwDeTZgAZ5r8ch01XLWWkVzoSTxTQ',
@@ -220,6 +222,16 @@ export async function fetchCloudSave() {
     lastError = err;
     return { ok: false, reason: 'failed', error: err?.message || String(err) };
   }
+}
+
+/**
+ * The signed-in Firebase app, for features other than the backup (the duo raid
+ * uses it to reach the Realtime Database under the same anonymous account).
+ * @returns {Promise<{app, uid}>}
+ */
+export async function cloudApp() {
+  await connect();
+  return { app, uid };
 }
 
 /** For the Profile card: what the last attempt did, without leaking the SDK. */

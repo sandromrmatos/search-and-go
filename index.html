@@ -99,6 +99,7 @@
           <button id="btn-zoom-out" class="round-btn" title="Zoom out">−</button>
           <button id="btn-zoom-in" class="round-btn" title="Zoom in">+</button>
           <button id="btn-recenter" class="round-btn" title="Recentre">◎</button>
+          <button id="btn-duo-join" class="round-btn" title="Join a friend's raid" aria-label="Join a friend's raid">👥</button>
         </div>
       </div>
       <div class="map-attribution">
@@ -662,6 +663,32 @@
     </div>
 
     <div id="bt-moves" class="bt-moves"></div>
+  </div>
+
+  <!-- step 3b: a duo raid — the boss, your creature and your friend's -->
+  <div id="bt-duo" class="bt-step hidden">
+    <div class="bt-head">
+      <h2 id="bt-duo-title">Duo Raid</h2>
+      <button class="bt-close" data-bt-close>✕</button>
+    </div>
+    <div class="bt-side enemy">
+      <div class="bt-fighter">
+        <div class="bt-info">
+          <div class="bt-name"><b id="duo-boss-name">—</b><span id="duo-boss-lv" class="lv"></span></div>
+          <div class="hp-wrap"><span class="hp-bar"><i id="duo-boss-hp"></i></span></div>
+          <div class="bt-hpnum"><span id="duo-boss-hpnum">0 / 0</span></div>
+          <div id="duo-boss-buffs" class="bt-buffs"></div>
+        </div>
+        <img id="duo-boss-img" class="bt-sprite" alt="" />
+      </div>
+    </div>
+    <div id="duo-log" class="bt-log"></div>
+    <div class="duo-row">
+      <div id="duo-me" class="duo-card mine"></div>
+      <div id="duo-friend" class="duo-card friend"></div>
+    </div>
+    <div id="duo-timer" class="duo-timer" aria-live="off"></div>
+    <div id="duo-moves" class="bt-moves"></div>
   </div>
 
   <!-- step 4: result -->

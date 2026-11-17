@@ -2652,3 +2652,32 @@ a.ad-link:active { transform: scale(.98); }
 
 /* The stop tapped on the map, highlighted in the route sheet. */
 .det-row.route-focus { border-color: #ffc75f; background: #ffc75f1a; }
+
+/* ---- duo raids ---- */
+.duo-lobby { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.duo-code { font-size: 40px; font-weight: 800; letter-spacing: .25em; text-align: center; color: #ffd76a; user-select: all; }
+.duo-ok { color: #b9ffd0; font-weight: 700; margin: 0; }
+.duo-error { color: #ffd9a8; }
+.duo-join .modal { display: flex; flex-direction: column; gap: 10px; }
+.duo-code-input {
+  font: inherit; font-size: 26px; font-weight: 800; letter-spacing: .3em; text-align: center; text-transform: uppercase;
+  padding: 10px; border-radius: 12px; border: 1px solid var(--line); background: #0008; color: inherit;
+}
+.duo-msg { min-height: 1.2em; margin: 0; }
+.duo-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 0 12px; }
+.duo-card {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 8px; border-radius: 14px; border: 1px solid var(--line); background: #ffffff0a; min-width: 0;
+}
+.duo-card.mine { border-color: #4ade8066; }
+.duo-card .hp-wrap, .duo-card .bt-hpnum, .duo-card .bt-buffs { width: 100%; }
+.duo-card .bt-name { font-size: 13px; display: flex; gap: 6px; align-items: baseline; }
+.duo-owner { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.duo-sprite { width: 64px; height: 64px; object-fit: contain; }
+.duo-sprite.down { filter: grayscale(1); opacity: .5; }
+.duo-pips { display: flex; gap: 3px; }
+.duo-pips .bt-pip img { width: 18px; height: 18px; }
+.duo-wiped { position: absolute; top: 6px; right: 8px; font-size: 11px; color: #ffd76a; font-weight: 700; }
+.duo-timer { text-align: center; font-weight: 800; min-height: 1.3em; margin: 6px 0 0; font-variant-numeric: tabular-nums; }
+.duo-timer.low { color: #ff8f8f; }
+.duo-wait { text-align: center; padding: 6px 0; }

@@ -39,7 +39,7 @@ import { initEssence, openEssence, abandonEssence } from './essence.js';
 import { initAchievements, renderAchievementBadge } from './achievements.js';
 import { GameMap } from './map.js';
 import { playCapture } from './anim.js';
-import { initBattleUI, openBattle, isBattleOpen } from './battleui.js';
+import { initBattleUI, openBattle, isBattleOpen, openJoinDuoFromMap } from './battleui.js';
 import {
   renderHUD, renderStorage, renderCollection, renderProfile, renderSaveStatus,
   initCollectionFilters, refreshAll, renderView, renderStorageTabs,
@@ -1464,6 +1464,8 @@ function initUI() {
   }));
 
   // ---- map controls ----
+  // Joining a friend's raid: the code, then their raid screen (duo.js).
+  $('#btn-duo-join')?.addEventListener('click', () => openJoinDuoFromMap());
   $('#btn-recenter').addEventListener('click', () => {
     GameMap.recenter();
     if (!Geo.current) toast('No location yet', 'bad');

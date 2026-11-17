@@ -661,10 +661,13 @@ export class Battle {
     return events;
   }
 
-  /** After both sides have moved: per-turn abilities, and Iced wearing off. */
-  endOfTurn() {
+  /**
+   * After both sides have moved: per-turn abilities, and Iced wearing off.
+   * `sides` lets a duo raid run the boss's half once, from one of its two battles.
+   */
+  endOfTurn(sides = ['player', 'enemy']) {
     const events = [];
-    for (const side of ['player', 'enemy']) {
+    for (const side of sides) {
       const self = side === 'player' ? this.playerActive : this.enemyActive;
       if (!self || self.fainted) continue;
       const read = this.abilityFor(side);
