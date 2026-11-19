@@ -344,10 +344,7 @@ const Net = {
       this.sdk = sdk;
       this.uid = uid;
       this.db = sdk.getDatabase(app, DUO_DATABASE_URL);
-      await withTimeout(new Promise(resolve => {
-        const r = sdk.ref(this.db, '.info/connected');
-        const off = sdk.onValue(r, snap => { if (snap.val() === true) { off(); resolve(); } });
-      }), 10000);
+      await withTimeout(waitConnected(sdk, this.db), 10000);
       const probe = sdk.push(sdk.ref(this.db, `${ROOT}/health`));
       await withTimeout(sdk.set(probe, { at: sdk.serverTimestamp(), uid }), 8000);
       sdk.remove(probe).catch(() => {});
@@ -361,6 +358,28 @@ const Net = {
 
   ref(path) { return this.sdk.ref(this.db, `${ROOT}/${path}`); }
 };
+
+/**
+ * Resolves once the database reports a live connection.
+ *
+ * When it is already connected (a second raid, or inviting again after
+ * cancelling), Firebase answers inside onValue itself, before `off` exists.
+ * The old version unsubscribed there, which threw, so the check never finished
+ * and reported "not available" until the idle connection dropped minutes later.
+ */
+export function waitConnected(sdk, db) {
+  return new Promise(resolve => {
+    let off = null;
+    let done = false;
+    off = sdk.onValue(sdk.ref(db, '.info/connected'), snap => {
+      if (done || snap.val() !== true) return;
+      done = true;
+      resolve();
+      if (off) off();          // a later answer: stop listening now
+    });
+    if (done) off();           // it answered straight away: stop listening here
+  });
+}
 
 function withTimeout(promise, ms) {
   return new Promise((resolve, reject) => {
