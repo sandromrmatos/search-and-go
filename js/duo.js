@@ -476,7 +476,7 @@ export class DuoSession {
         } : undefined)), 10000);
         if (!res.committed) continue;
         this.code = code;
-        onDisconnect(r).remove();
+        this._holdRoom('host');
         this._pruneOld();
         this._listenHost();
         this.hook('onLobby', { step: 'waiting', code });
@@ -491,9 +491,41 @@ export class DuoSession {
     return false;
   }
 
+  /**
+   * Keeps this player's place while their phone is away, until the raid starts.
+   *
+   * iOS closes the connection as soon as Safari leaves the screen (to send the
+   * code in Messages or WhatsApp, or when the screen locks). The room used to
+   * be removed by the server when the host's connection dropped (onDisconnect
+   * remove), so on an iPhone the code on screen no longer existed by the time
+   * the friend typed it: "There's no raid with the code…". Android keeps the
+   * connection a while in the background, which is why it worked the other way.
+   *
+   * Now the server only marks the player away (`hostAway` / `guestAway`), and
+   * every reconnection clears the mark and arms it again. The room still goes
+   * when the host cancels, leaves or finishes, and forgotten ones are pruned.
+   */
+  _holdRoom(role) {
+    const { onDisconnect, set, remove, ref } = Net.sdk;
+    const away = Net.ref(`rooms/${this.code}/${role}Away`);
+    this.watch(ref(Net.db, '.info/connected'), snap => {
+      if (snap.val() !== true || this.started || this.done) return;
+      onDisconnect(away).set(true).catch(() => {});
+      remove(away).catch(() => {});
+    });
+  }
+
+  /** Once the raid starts, presence (_presence) takes over from the away mark. */
+  _releaseRoom() {
+    if (!this.code || !Net.sdk) return;
+    Net.sdk.onDisconnect(Net.ref(`rooms/${this.code}/${this.role}Away`)).cancel().catch(() => {});
+    Net.sdk.remove(Net.ref(`rooms/${this.code}/${this.role}Away`)).catch(() => {});
+  }
+
   _pruneOld() {
     const { query, orderByChild, endAt, limitToFirst, get, remove } = Net.sdk;
-    get(query(Net.ref('rooms'), orderByChild('createdAt'), endAt(Date.now() - 86400000), limitToFirst(20)))
+    // Rooms are no longer removed when a phone drops, so forgotten ones go after 3 hours.
+    get(query(Net.ref('rooms'), orderByChild('createdAt'), endAt(Date.now() - 3 * 3600000), limitToFirst(20)))
       .then(snap => snap.forEach(child => { remove(child.ref).catch(() => {}); }))
       .catch(() => {});
   }
@@ -516,6 +548,7 @@ export class DuoSession {
     this.started = true;
     const room = Net.ref(`rooms/${this.code}`);
     Net.sdk.onDisconnect(room).cancel().catch(() => {});
+    this._releaseRoom();
     Net.sdk.update(room, { status: 'playing' }).catch(() => {});
     this.engine = new DuoRaid({
       raid: this.raid,
@@ -605,8 +638,10 @@ export class DuoSession {
     } catch (err) {
       return { error: failText('unavailable') };
     }
-    onDisconnect(Net.ref(`rooms/${code}/guest`)).remove();
     this.code = code;
+    // The seat is kept while this phone is away (an iPhone sending a message):
+    // leave() frees it when the friend really goes.
+    this._holdRoom('guest');
     this.raid = room.raid;
     this.friend = room.host;
     this.ready = true;
@@ -622,7 +657,7 @@ export class DuoSession {
     if (!data || this.done) return;
     if (!this.started) {
       this.started = true;
-      Net.sdk.onDisconnect(Net.ref(`rooms/${this.code}/guest`)).cancel().catch(() => {});
+      this._releaseRoom();
       this._presence();
     }
     if (data.aborted) { this._abort(data.aborted); return; }
